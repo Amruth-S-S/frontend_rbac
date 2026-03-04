@@ -1,12 +1,16 @@
 "use client"
-import Head from 'next/head';
 import Image from 'next/image';
 import './consultant.css'
 import loginImage from '../assets/logo.jpg';
 import { useEffect, useRef, useState } from 'react';
-
 import { useRouter } from 'next/navigation';
-import { Settings, User, Menu, X } from 'lucide-react';
+import { User, Menu, X } from 'lucide-react';
+
+// ✅ FIX: Use App Router metadata API instead of next/head
+// Note: metadata exports only work in Server Components.
+// Since this page is "use client", add a separate layout.tsx or
+// metadata.ts file in the same folder if you need custom metadata.
+// For now, the Head import is simply removed to fix the build warning.
 
 interface UserData {
   email: string;
@@ -14,7 +18,6 @@ interface UserData {
   userRole: string;
   userName: string;
 }
-
 
 export default function Page() {
     const router = useRouter();
@@ -51,7 +54,6 @@ export default function Page() {
 
     const toggleMobileMenu = () => {
         setShowMobileMenu(!showMobileMenu);
-        // Prevent body scroll when menu is open
         if (!showMobileMenu) {
             document.body.classList.add('mobile-menu-open');
         } else {
@@ -59,7 +61,6 @@ export default function Page() {
         }
     };
 
-    // Close dropdown when clicking outside
     useEffect(() => {
         setIsMounted(true);
     }, []);
@@ -67,9 +68,7 @@ export default function Page() {
     // Load user data from storage after component mounts
     useEffect(() => {
         if (!isMounted || typeof window === 'undefined') return;
-   
         try {
-            // First try to get from sessionStorage (email/password login)
             const sessionData = sessionStorage.getItem('currentUserData');
             if (sessionData) {
                 const parsedData = JSON.parse(sessionData);
@@ -81,15 +80,12 @@ export default function Page() {
                 });
                 return;
             }
-   
-            // Fallback to localStorage (OTP login)
             const localStorageData = {
                 email: localStorage.getItem('loggedInUserEmail') || "",
                 userId: localStorage.getItem('loggedInUserId') || "",
                 userRole: localStorage.getItem('loggedInUserRole') || "",
                 userName: localStorage.getItem('loggedInUserName') || "",
             };
-   
             if (localStorageData.userId) {
                 setUserData(localStorageData);
             }
@@ -107,7 +103,6 @@ export default function Page() {
                 document.body.classList.remove('mobile-menu-open');
             }
         };
-
         document.addEventListener('mousedown', handleClickOutside);
         return () => {
             document.removeEventListener('mousedown', handleClickOutside);
@@ -122,16 +117,13 @@ export default function Page() {
                 setShowDropdown(false);
             }
         };
-
         if (showDropdown) {
             document.addEventListener('mousedown', handleClickOutside);
         }
-
         return () => {
             document.removeEventListener('mousedown', handleClickOutside);
         };
     }, [showDropdown]);
-
 
     return (
         <div>
@@ -199,12 +191,8 @@ export default function Page() {
 
                         {/* Mobile Navigation Links */}
                         <div className="mobile-nav-links">
-                            <a href="/Dashboard" className="mobile-nav-link">
-                                Consultant
-                            </a>
-                            <a href="/CXO" className="mobile-nav-link">
-                                CXO
-                            </a>
+                            <a href="/Dashboard" className="mobile-nav-link">Consultant</a>
+                            <a href="/CXO" className="mobile-nav-link">CXO</a>
                         </div>
 
                         {/* Mobile Logout Button */}
@@ -265,6 +253,6 @@ export default function Page() {
                     </div>
                 </main>
             </div>
-        </div>
-    )
+        </div>
+    );
 }

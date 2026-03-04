@@ -1,3 +1,4 @@
+"use client";
 import React from "react";
 import { useState, useEffect } from 'react';
 import { Upload, X, FileText, FileSpreadsheet, FileJson, Check, Eye, Database, Plus, Loader2, AlertTriangle, RefreshCw, Trash2, Edit3, Wand2, Type, Filter, Calendar, RotateCcw, History, ArrowLeft, Table, Save, ArrowUp, ArrowDown, Hash, BookMarked, SaveAll } from 'lucide-react';

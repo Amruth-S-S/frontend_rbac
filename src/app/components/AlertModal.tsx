@@ -1,3 +1,4 @@
+"use client";
 import React, { useState } from 'react';
 import { ArrowLeft, Share, FileText, Search, ZoomIn, ZoomOut, Maximize, Download, ChevronLeft, ChevronRight } from 'lucide-react';
 

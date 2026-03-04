@@ -1,6 +1,5 @@
 "use client"
 
-
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 
 interface Role {
@@ -38,24 +37,17 @@ const Accordion = ({
   return (
     <div className="border rounded-lg mb-2 overflow-hidden">
       <button
-        className={`w-full p-3 bg-gray-100 border-b flex justify-between items-center ${isOpen ? 'bg-gray-200' : ''
-          }`}
+        className={`w-full p-3 bg-gray-100 border-b flex justify-between items-center ${isOpen ? 'bg-gray-200' : ''}`}
         onClick={onToggle}
       >
         <h4 className="font-medium text-left">{title}</h4>
         <svg
-          className={`w-5 h-5 transform transition-transform ${isOpen ? 'rotate-180' : ''
-            }`}
+          className={`w-5 h-5 transform transition-transform ${isOpen ? 'rotate-180' : ''}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
         >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M19 9l-7 7-7-7"
-          />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
       <div className={`transition-all duration-300 ${isOpen ? 'block' : 'hidden'}`}>
@@ -66,7 +58,7 @@ const Accordion = ({
 };
 
 export default function BoardRoleAssignment() {
-   const [isMounted, setIsMounted] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
   const [mainBoards, setMainBoards] = useState<MainBoard[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [selectedRole, setSelectedRole] = useState<string>('');
@@ -85,7 +77,6 @@ export default function BoardRoleAssignment() {
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Fetch user details from localStorage (Replace this with API call if needed)
   const [user, setUser] = useState({
     name: "",
     email: "",
@@ -93,16 +84,17 @@ export default function BoardRoleAssignment() {
     role: "",
   });
 
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
+  const EXCEL_API_KEY = process.env.NEXT_PUBLIC_API_KEY || '';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
-   const EXCEL_API_KEY = process.env.NEXT_PUBLIC_API_KEY || '';
-
-
+  // ✅ FIX 1: Set isMounted to true on client mount
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   // Fetch user details from localStorage inside useEffect
   useEffect(() => {
     if (!isMounted) return;
-    
     try {
       setUser({
         name: localStorage.getItem("loggedInUserName") || "",
@@ -115,7 +107,6 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
     }
   }, [isMounted]);
 
-
   // Toggle dropdown visibility
   const toggleDropdown = () => {
     setShowDropdown(!showDropdown);
@@ -124,13 +115,11 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
   // Close dropdown when clicking outside
   useEffect(() => {
     if (!isMounted) return;
-    
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setShowDropdown(false);
       }
     }
-
     document.addEventListener("mousedown", handleClickOutside);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
@@ -144,18 +133,13 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
       const filteredSubBoards = mainBoard.boards.filter(board =>
         board.name.toLowerCase().includes(boardSearchTerm.toLowerCase())
       );
-      
-      if (!boardSearchTerm) {
-        return mainBoard;
-      }
-      
+      if (!boardSearchTerm) return mainBoard;
       if (mainBoardMatches || filteredSubBoards.length > 0) {
         return {
           ...mainBoard,
           boards: mainBoardMatches ? mainBoard.boards : filteredSubBoards
         };
       }
-      
       return null;
     }).filter(Boolean) as MainBoard[];
   }, [mainBoards, boardSearchTerm]);
@@ -167,12 +151,11 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
       [mainBoardId]: !prev[mainBoardId]
     }));
   };
+
   // Auto-close success messages after 5 seconds
   useEffect(() => {
     if (success) {
-      const timer = setTimeout(() => {
-        setSuccess(null);
-      }, 5000);
+      const timer = setTimeout(() => setSuccess(null), 5000);
       return () => clearTimeout(timer);
     }
   }, [success]);
@@ -194,10 +177,9 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
       const expandedState: Record<string, boolean> = {};
       mainBoards.forEach(board => {
         const mainBoardMatches = board.name.toLowerCase().includes(boardSearchTerm.toLowerCase());
-        const hasMatchingSubBoards = board.boards.some(b => 
+        const hasMatchingSubBoards = board.boards.some(b =>
           b.name.toLowerCase().includes(boardSearchTerm.toLowerCase())
         );
-        
         if (mainBoardMatches || hasMatchingSubBoards) {
           expandedState[board.id] = true;
         }
@@ -207,9 +189,8 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
   }, [boardSearchTerm]);
 
   // Fetch sub-boards for each main board
- const fetchSubBoards = async (mainBoardId: string, userId: string) => {
+  const fetchSubBoards = async (mainBoardId: string, userId: string) => {
     if (!isMounted) return [];
-    
     try {
       const response = await fetch(
         `${API_BASE_URL}/main-boards/boards/${mainBoardId}/boards?user_id=${userId}&inActive=false`,
@@ -217,38 +198,31 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
           method: "GET",
           headers: {
             Accept: "application/json",
-
             "X-API-Key": EXCEL_API_KEY
-
           },
           cache: "no-store",
         }
       );
-
       if (response.ok) {
         const subBoardsData = await response.json();
-        let boardsArray = Array.isArray(subBoardsData) ? subBoardsData : 
-                        (subBoardsData.boards || subBoardsData.data || []);
-        
-        const activeBoards = boardsArray.filter((board: { is_active: boolean | undefined; }) => 
+        let boardsArray = Array.isArray(subBoardsData)
+          ? subBoardsData
+          : (subBoardsData.boards || subBoardsData.data || []);
+        return boardsArray.filter((board: { is_active: boolean | undefined }) =>
           board.is_active === undefined || board.is_active === true
         );
-        
-        return activeBoards;
       } else {
         console.error(`Failed to fetch sub-boards for main board ${mainBoardId}`);
         return [];
       }
     } catch (error) {
-
-      console.error(`Error fetching sub-boards for main board ${mainBoardId}:, error`);
-
+      console.error(`Error fetching sub-boards for main board ${mainBoardId}:`, error);
       return [];
     }
   };
 
   // Normalize main board data
- const normalizeMainBoard = (mainBoard: any): MainBoard => {
+  const normalizeMainBoard = (mainBoard: any): MainBoard => {
     return {
       id: mainBoard.main_board_id || mainBoard.id || "unknown-id",
       name: mainBoard.name || "Unnamed Board",
@@ -258,16 +232,19 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
   };
 
   // Fetch main boards and their sub-boards
- const fetchMainBoards = useCallback(async () => {
+  const fetchMainBoards = useCallback(async () => {
     if (!isMounted) return;
-    
+
+    // ✅ FIX 3: Guard against sessionStorage being undefined during SSR
+    if (typeof sessionStorage === 'undefined') return;
+
     setIsLoading(true);
     setError(null);
-    
+
     try {
-      const userDataString = sessionStorage.getItem('currentUserData') || 
-                            localStorage.getItem('loggedInUserId');
-      
+      const userDataString = sessionStorage.getItem('currentUserData') ||
+        localStorage.getItem('loggedInUserId');
+
       if (!userDataString) {
         throw new Error("User session data not found");
       }
@@ -289,9 +266,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
         {
           headers: {
             'Accept': 'application/json',
-
-           'X-API-KEY': EXCEL_API_KEY
-
+            'X-API-KEY': EXCEL_API_KEY
           },
           cache: "no-store",
         }
@@ -299,26 +274,26 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
 
       const data = await response.json();
       const mainBoardsArray = Array.isArray(data) ? data : (data.main_boards || data.data || []);
-      const activeMainBoards = mainBoardsArray.filter((board: { is_active: boolean | undefined; }) => 
+      const activeMainBoards = mainBoardsArray.filter((board: { is_active: boolean | undefined }) =>
         board.is_active === undefined || board.is_active === true
       );
-      
+
       const enhancedMainBoards: MainBoard[] = [];
-      
+
       for (const mainBoard of activeMainBoards) {
         const normalizedMainBoard = normalizeMainBoard(mainBoard);
         const subBoards = await fetchSubBoards(normalizedMainBoard.id, clientUserId);
-        
+
         normalizedMainBoard.boards = subBoards.map((board: any) => ({
           id: board.board_id || board.id,
           name: board.name || "Unnamed Sub-Board",
           is_active: board.is_active === undefined ? true : board.is_active,
           main_board_id: normalizedMainBoard.id
         }));
-        
+
         enhancedMainBoards.push(normalizedMainBoard);
       }
-      
+
       setMainBoards(enhancedMainBoards);
     } catch (error) {
       console.error("Error fetching main boards:", error);
@@ -332,15 +307,11 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
   // Fetch roles
   const fetchRoles = useCallback(async () => {
     if (!isMounted) return;
-    
     setIsLoading(true);
     try {
       const response = await fetch(`${API_BASE_URL}/roles/`, {
-        headers: {
-          "X-API-Key": EXCEL_API_KEY
-        },
+        headers: { "X-API-Key": EXCEL_API_KEY },
       });
-      
       const data = await response.json();
       setRoles(Array.isArray(data) ? data : data?.roles || data?.data || []);
     } catch (error) {
@@ -354,15 +325,11 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
   // Fetch assigned boards for role
   const fetchAssignedBoards = useCallback(async (roleId: string) => {
     if (!roleId || !isMounted) return;
-    
     setIsLoading(true);
     try {
       const response = await fetch(`${API_BASE_URL}/roles/${roleId}/boards`, {
-        headers: {
-          "X-API-Key": EXCEL_API_KEY
-        },
+        headers: { "X-API-Key": EXCEL_API_KEY },
       });
-      
       const data = await response.json();
       setAssignedBoardIds(Array.isArray(data) ? data.map((item: any) => item.board_id || item) : []);
     } catch (error) {
@@ -382,7 +349,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
   }, [isMounted, fetchMainBoards, fetchRoles]);
 
   // Fetch assigned boards when role changes
-   useEffect(() => {
+  useEffect(() => {
     if (isMounted && selectedRole) {
       fetchAssignedBoards(selectedRole);
     }
@@ -391,7 +358,6 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
   // Handle board selection
   const handleBoardSelect = (boardId: string) => {
     if (!boardId || assignedBoardIds.includes(boardId)) return;
-
     setSelectedBoards(prev =>
       prev.includes(boardId)
         ? prev.filter(id => id !== boardId)
@@ -399,13 +365,12 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
     );
   };
 
-  // Toggle all boards selection (only for filtered/visible boards)
+  // Toggle all boards selection
   const toggleAllBoards = () => {
     const allVisibleBoardIds = filteredMainBoards.flatMap(mb =>
-      mb.boards.map(b => b.id).filter(Boolean) as string[]);
-
+      mb.boards.map(b => b.id).filter(Boolean) as string[]
+    );
     const eligibleBoards = allVisibleBoardIds.filter(id => !assignedBoardIds.includes(id));
-
     setSelectedBoards(prev =>
       prev.length === eligibleBoards.length ? [] : eligibleBoards
     );
@@ -417,23 +382,16 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
       setError('Please select at least one board and a role');
       return;
     }
-
     setIsLoading(true);
     setError(null);
     setSuccess(null);
-
     try {
       const promises = selectedBoards.map(boardId =>
         fetch(`${API_BASE_URL}/roles/${selectedRole}/boards/${boardId}`, {
           method: 'POST',
-          headers: {
-
-            "X-API-Key": EXCEL_API_KEY
-
-          },
+          headers: { "X-API-Key": EXCEL_API_KEY },
         })
       );
-
       await Promise.all(promises);
       setSuccess(`Successfully assigned ${selectedBoards.length} board(s) to role`);
       fetchAssignedBoards(selectedRole);
@@ -446,33 +404,22 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
   };
 
   const handleDeleteClick = (boardId: string) => {
-    const board = mainBoards
-      .flatMap(mb => mb.boards)
-      .find(b => b.id === boardId);
-
-    setBoardToRemove({
-      boardId,
-      boardName: board?.name || `Board ${boardId}`
-    });
+    const board = mainBoards.flatMap(mb => mb.boards).find(b => b.id === boardId);
+    setBoardToRemove({ boardId, boardName: board?.name || `Board ${boardId}` });
     setShowConfirmModal(true);
   };
 
   const confirmRemoveBoard = async () => {
     if (!boardToRemove || !selectedRole) return;
-
     setIsLoading(true);
     setError(null);
     setSuccess(null);
     setShowConfirmModal(false);
-
     try {
       await fetch(`${API_BASE_URL}/roles/${selectedRole}/boards/${boardToRemove.boardId}`, {
         method: 'DELETE',
-        headers: {
-          "X-API-Key": EXCEL_API_KEY
-        },
+        headers: { "X-API-Key": EXCEL_API_KEY },
       });
-
       setSuccess(`Successfully removed board "${boardToRemove.boardName}" from role`);
       fetchAssignedBoards(selectedRole);
     } catch (error) {
@@ -488,12 +435,8 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
     setBoardToRemove(null);
   };
 
-
-  // Add these functions to your component
-
   const generateCSV = (boards: Board[], roles: Role[], assignments: Record<string, string[]>) => {
-    let csv = 'Board ID,Board Name, Assigned Role\n';
-
+    let csv = 'Board ID,Board Name,Assigned Role\n';
     boards.forEach(board => {
       const boardRoles = [];
       for (const roleId in assignments) {
@@ -502,10 +445,8 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
           boardRoles.push(role?.name || `[ID: ${roleId}]`);
         }
       }
-
       csv += `"${board.id}","${board.name}","${boardRoles.join(', ')}"\n`;
     });
-
     return csv;
   };
 
@@ -515,42 +456,24 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
       for (const roleId in assignments) {
         if (assignments[roleId].includes(board.id)) {
           const role = roles.find(r => r.id.toString() === roleId.toString());
-          boardRoles.push({
-            id: roleId,
-            name: role?.name || 'Unknown Role'
-          });
+          boardRoles.push({ id: roleId, name: role?.name || 'Unknown Role' });
         }
       }
-
-      return {
-        boardId: board.id,
-        boardName: board.name,
-        // userEmail: user.email,
-        roles: boardRoles
-      };
+      return { boardId: board.id, boardName: board.name, roles: boardRoles };
     });
-
     return JSON.stringify(report, null, 2);
   };
 
   const generateReport = async () => {
     setIsGeneratingReport(true);
     setError(null);
-
     try {
       let assignments: Record<string, string[]> = {};
 
       if (currentRoleOnly && selectedRole) {
-        // Only fetch data for the currently selected role
         const response = await fetch(`${API_BASE_URL}/roles/${selectedRole}/boards`, {
-          headers: {
-            'Accept': 'application/json',
-
-            "X-API-Key": EXCEL_API_KEY
-
-          },
+          headers: { 'Accept': 'application/json', "X-API-Key": EXCEL_API_KEY },
         });
-
         if (response.ok) {
           const data = await response.json();
           assignments[selectedRole] = Array.isArray(data)
@@ -558,15 +481,10 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
             : [];
         }
       } else {
-        // Fetch all role assignments as before
         await Promise.all(roles.map(async role => {
           const response = await fetch(`${API_BASE_URL}/roles/${role.id}/boards`, {
-            headers: {
-              'Accept': 'application/json',
-              "X-API-Key": EXCEL_API_KEY
-            },
+            headers: { 'Accept': 'application/json', "X-API-Key": EXCEL_API_KEY },
           });
-
           if (response.ok) {
             const data = await response.json();
             assignments[role.id] = Array.isArray(data)
@@ -576,17 +494,13 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
         }));
       }
 
-      // Flatten all boards from mainBoards
       const boards: Board[] = mainBoards.flatMap(mb => mb.boards);
-
-      // Filter boards if we're only showing the current role
       let boardsToInclude = boards;
       if (currentRoleOnly && selectedRole) {
-        const assignedBoardIds = assignments[selectedRole] || [];
-        boardsToInclude = boards.filter(board => assignedBoardIds.includes(board.id));
+        const assignedIds = assignments[selectedRole] || [];
+        boardsToInclude = boards.filter(board => assignedIds.includes(board.id));
       }
 
-      // Generate the report content based on selected format
       let content: string;
       let fileName: string;
       let mimeType: string;
@@ -594,16 +508,12 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
       switch (reportFormat) {
         case 'csv':
           content = generateCSV(boardsToInclude, roles, assignments);
-          fileName = currentRoleOnly
-            ? `board_role_assignments_${selectedRole}.csv`
-            : 'board_role_assignments.csv';
+          fileName = currentRoleOnly ? `board_role_assignments_${selectedRole}.csv` : 'board_role_assignments.csv';
           mimeType = 'text/csv';
           break;
         case 'json':
           content = generateJSON(boardsToInclude, roles, assignments);
-          fileName = currentRoleOnly
-            ? `board_role_assignments_${selectedRole}.json`
-            : 'board_role_assignments.json';
+          fileName = currentRoleOnly ? `board_role_assignments_${selectedRole}.json` : 'board_role_assignments.json';
           mimeType = 'application/json';
           break;
         case 'pdf':
@@ -612,7 +522,6 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
           throw new Error('Unsupported report format');
       }
 
-      // Create download link
       const blob = new Blob([content], { type: mimeType });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -622,7 +531,6 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-
       setSuccess('Report generated successfully');
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to generate report');
@@ -630,77 +538,63 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
       setIsGeneratingReport(false);
     }
   };
-  // For PDF generation (requires pdf-lib or similar library)
-  const generatePDF = async (_boards: Board[], roles: Role[], _assignments: Record<string, string[]>, currentRoleOnly: boolean = false) => {
+
+  const generatePDF = async (
+    _boards: Board[],
+    roles: Role[],
+    _assignments: Record<string, string[]>,
+    currentRoleOnly: boolean = false
+  ) => {
     try {
       const { PDFDocument, rgb } = await import('pdf-lib');
       const pdfDoc = await PDFDocument.create();
       const page = pdfDoc.addPage([600, 800]);
-
-      // Add title
       const title = currentRoleOnly && selectedRole
         ? `User Role Assignment Report - ${roles.find(r => r.id === selectedRole)?.name || selectedRole}`
         : 'User Role Assignment Report';
-
-      page.drawText(title, {
-        x: 50,
-        y: 750,
-        size: 20,
-        color: rgb(0, 0, 0),
-      });
-
-      // Rest of your PDF generation code...
-      // (keep the existing implementation but use the filtered users list)
+      page.drawText(title, { x: 50, y: 750, size: 20, color: rgb(0, 0, 0) });
     } catch (error) {
       throw new Error('Failed to generate PDF: ' + (error instanceof Error ? error.message : String(error)));
     }
   };
 
-if (!isMounted) {
+  // ✅ FIX 2: Return null while not mounted (prevents SSR from rendering browser-only code)
+  if (!isMounted) {
+    return null;
+  }
+
+  // ✅ Full JSX is now only rendered on the client after mount
   return (
     <>
       <header className="bg-white border-b p-4 shadow-md">
         <div className="flex justify-between items-center max-w-screen-xl mx-auto">
-          {/* Left-aligned items (empty for now, can add logo or other items later) */}
           <div></div>
-
-          {/* Right-aligned dropdown showing current screen */}
-          <div className="relative">
+          <div className="relative" ref={dropdownRef}>
             <button
               onClick={toggleDropdown}
               className="flex items-center gap-2 text-blue-700 hover:bg-blue-50 px-4 py-2 rounded-md transition-colors"
             >
-              <span className="text-sm font-medium">
-                {location.pathname === '/Dashboard' ? 'Consultant Role' :
-                  location.pathname === '/CXO' ? 'CXO Role' :
-                    'Select Role'}
-              </span>
+              <span className="text-sm font-medium">Select Role</span>
               <svg
                 className={`w-4 h-4 transition-transform ${showDropdown ? 'rotate-180' : ''}`}
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
-                xmlns="http://www.w3.org/2000/svg"
               >
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
             </button>
-
-            {/* Dropdown Menu */}
             {showDropdown && (
-              <div
-                ref={dropdownRef}
-                className="absolute right-0 mt-2 w-48 bg-white border rounded-lg shadow-lg py-1 z-50"
-              >
+              <div className="absolute right-0 mt-2 w-48 bg-white border rounded-lg shadow-lg py-1 z-50">
                 <a
                   href="/Dashboard"
-                  className={`block px-4 py-2 text-sm ${location.pathname === '/BoardRoleAssignment' ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-100'}`}
+                  className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                 >
                   Consultant Role
                 </a>
                 <a
                   href="/CXO"
-                  className={`block px-4 py-2 text-sm ${location.pathname === '/CXO' ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-100'}`}
+                  className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                 >
                   CXO Role
                 </a>
@@ -710,8 +604,8 @@ if (!isMounted) {
         </div>
       </header>
 
-
       <div className="min-h-screen bg-gray-100 p-4 w-full relative">
+        {/* Generate Report Bar */}
         <div className="bg-white p-4 rounded-lg shadow mb-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between">
             <h3 className="text-lg font-semibold mb-2 md:mb-0">Generate Report</h3>
@@ -729,23 +623,14 @@ if (!isMounted) {
                   Current Role Only
                 </label>
               </div>
-              {/* <select
-          value={reportFormat}
-          onChange={(e) => setReportFormat(e.target.value as 'csv' | 'json' | 'pdf')}
-          className="p-2 border rounded-lg"
-          disabled={isGeneratingReport}
-        >
-          <option value="csv">CSV</option>
-          <option value="json">JSON</option>
-          <option value="pdf">PDF</option>
-        </select> */}
               <button
                 onClick={generateReport}
                 disabled={isGeneratingReport || isLoading || mainBoards.flatMap(mb => mb.boards).length === 0}
-                className={`px-4 py-2 rounded-lg flex items-center justify-center ${isGeneratingReport || isLoading || mainBoards.flatMap(mb => mb.boards).length === 0
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  : 'bg-green-600 hover:bg-green-700 text-white'
-                  }`}
+                className={`px-4 py-2 rounded-lg flex items-center justify-center ${
+                  isGeneratingReport || isLoading || mainBoards.flatMap(mb => mb.boards).length === 0
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    : 'bg-green-600 hover:bg-green-700 text-white'
+                }`}
               >
                 {isGeneratingReport ? (
                   <>
@@ -757,7 +642,7 @@ if (!isMounted) {
                   </>
                 ) : (
                   <>
-                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                     </svg>
                     Download Report
@@ -767,6 +652,7 @@ if (!isMounted) {
             </div>
           </div>
         </div>
+
         <div className="w-full max-w-full mx-auto">
           {/* Status Messages */}
           <div className="w-full mb-4">
@@ -837,17 +723,8 @@ if (!isMounted) {
                 <div className="mb-4">
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <svg
-                        className="h-4 w-4 text-gray-400"
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 20 20"
-                        fill="currentColor"
-                      >
-                        <path
-                          fillRule="evenodd"
-                          d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z"
-                          clipRule="evenodd"
-                        />
+                      <svg className="h-4 w-4 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
                       </svg>
                     </div>
                     <input
@@ -858,21 +735,9 @@ if (!isMounted) {
                       onChange={(e) => setBoardSearchTerm(e.target.value)}
                     />
                     {boardSearchTerm && (
-                      <button
-                        onClick={() => setBoardSearchTerm('')}
-                        className="absolute inset-y-0 right-0 pr-3 flex items-center"
-                      >
-                        <svg
-                          className="h-4 w-4 text-gray-400 hover:text-gray-600"
-                          xmlns="http://www.w3.org/2000/svg"
-                          viewBox="0 0 20 20"
-                          fill="currentColor"
-                        >
-                          <path
-                            fillRule="evenodd"
-                            d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                            clipRule="evenodd"
-                          />
+                      <button onClick={() => setBoardSearchTerm('')} className="absolute inset-y-0 right-0 pr-3 flex items-center">
+                        <svg className="h-4 w-4 text-gray-400 hover:text-gray-600" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
                         </svg>
                       </button>
                     )}
@@ -930,9 +795,7 @@ if (!isMounted) {
                               );
                             })
                           ) : (
-                            <div className="p-2 text-center text-gray-500 text-sm">
-                              No boards in this group
-                            </div>
+                            <div className="p-2 text-center text-gray-500 text-sm">No boards in this group</div>
                           )}
                         </div>
                       </Accordion>
@@ -946,19 +809,18 @@ if (!isMounted) {
                 <button
                   onClick={assignBoardsToRole}
                   disabled={isLoading || !selectedRole || selectedBoards.length === 0}
-                  className={`p-3 rounded-full shadow-md transition-all ${isLoading || !selectedRole || selectedBoards.length === 0
+                  className={`p-3 rounded-full shadow-md transition-all ${
+                    isLoading || !selectedRole || selectedBoards.length === 0
                       ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                       : 'bg-blue-600 hover:bg-blue-700 text-white transform hover:scale-105'
-                    }`}
+                  }`}
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
                   </svg>
                 </button>
                 <p className="mt-2 text-sm text-gray-500 text-center">
-                  {selectedBoards.length > 0
-                    ? `Assign ${selectedBoards.length} board(s) `
-                    : "Select boards to assign"}
+                  {selectedBoards.length > 0 ? `Assign ${selectedBoards.length} board(s)` : 'Select boards to assign'}
                 </p>
               </div>
 
@@ -996,10 +858,7 @@ if (!isMounted) {
                       ) : assignedBoardIds.length > 0 ? (
                         <div className="space-y-2">
                           {assignedBoardIds.map(boardId => {
-                            const board = mainBoards
-                              .flatMap(mb => mb.boards)
-                              .find(b => b.id === boardId);
-
+                            const board = mainBoards.flatMap(mb => mb.boards).find(b => b.id === boardId);
                             return (
                               <div key={boardId} className="p-3 bg-white rounded-lg border flex justify-between items-center">
                                 <div className="flex-1 min-w-0">
@@ -1029,15 +888,11 @@ if (!isMounted) {
                           })}
                         </div>
                       ) : (
-                        <div className="text-center py-8 text-gray-500">
-                          No boards assigned to this role
-                        </div>
+                        <div className="text-center py-8 text-gray-500">No boards assigned to this role</div>
                       )}
                     </>
                   ) : (
-                    <div className="text-center py-8 text-gray-500">
-                      Please select a role
-                    </div>
+                    <div className="text-center py-8 text-gray-500">Please select a role</div>
                   )}
                 </div>
               </div>
@@ -1056,18 +911,14 @@ if (!isMounted) {
                   </svg>
                 </div>
                 <div className="ml-3">
-                  <h3 className="text-lg font-medium text-gray-900">
-                    Confirm Board Removal
-                  </h3>
+                  <h3 className="text-lg font-medium text-gray-900">Confirm Board Removal</h3>
                 </div>
               </div>
-
               <div className="mb-6">
                 <p className="text-sm text-gray-500">
                   Are you sure you want to remove <strong>"{boardToRemove?.boardName}"</strong> from this role? This action cannot be undone.
                 </p>
               </div>
-
               <div className="flex justify-end space-x-3">
                 <button
                   onClick={cancelRemoveBoard}
@@ -1088,8 +939,6 @@ if (!isMounted) {
           </div>
         )}
       </div>
-    </>
-  );
-
-}
+    </>
+  );
 }

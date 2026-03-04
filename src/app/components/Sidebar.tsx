@@ -427,17 +427,23 @@ const Sidebar: React.FC<SidebarProps> = ({ }) => {
   }, [isResizing]);
 
   // ─── Init ─────────────────────────────────────────────────────────────────────
+  // ✅ FIX: sessionStorage access is safely inside useEffect — never called at render time
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    if (typeof window === 'undefined') return;
+    try {
       const s = sessionStorage.getItem('currentUserData');
       if (s) {
-        try {
-          const d = JSON.parse(s);
-          setUserRole(d.userRole);
-          setClientUserId(d.userId);
-        } catch { /* ignore */ }
+        const d = JSON.parse(s);
+        setUserRole(d.userRole);
+        setClientUserId(d.userId);
+      } else {
+        // Fallback to localStorage
+        const id = localStorage.getItem('loggedInUserId');
+        const role = localStorage.getItem('loggedInUserRole');
+        if (id) setClientUserId(id);
+        if (role) setUserRole(role);
       }
-    }
+    } catch { /* ignore */ }
     loadStoredLogo();
   }, []);
 
@@ -454,12 +460,7 @@ const Sidebar: React.FC<SidebarProps> = ({ }) => {
     } catch { fetchCurrentLogo(); }
   };
 
-  // ─── FIX: Removed the useEffect that auto-pushes to /Dashboard on activeMainBoard change ──
-  // This was causing unexpected navigation. Removed:
-  // useEffect(() => { if (activeMainBoard) router.push("/Dashboard"); }, [activeMainBoard]);
-
   // ─── Create Main Board ────────────────────────────────────────────────────────
-  // FIX: Navigate FIRST, then revalidate nav in background (no await on mutateNavItems)
   const handleSave = async () => {
     if (!mainBoardName.trim()) { toast.error("Please enter a name for the main board."); return; }
     let currentUserData: { userId?: string } = {};
@@ -481,15 +482,13 @@ const Sidebar: React.FC<SidebarProps> = ({ }) => {
       if (!response.ok) { toast.error(`Failed to save: ${JSON.stringify(data)}`); return; }
       toast.success("Main board saved successfully!");
       setMainBoardName(""); setMainBoardId(data.id); setIsModalOpen(false);
-      // ✅ FIX: Navigate immediately — don't await mutateNavItems before pushing
       router.push("/Container");
-      mutateNavItems(); // Revalidate in background after navigation starts
+      mutateNavItems();
     } catch { toast.error("An error occurred. Please try again."); }
     finally { hideGlobalLoader(); }
   };
 
   // ─── Create / Update Board ────────────────────────────────────────────────────
-  // FIX: Navigate FIRST, then revalidate nav in background
   const handleCreateBoard = async () => {
     if (!newBoardName.trim()) { toast.error('Please enter a board name'); return; }
     if (!customerDbKey.trim()) { toast.error('Please enter a customer database key'); return; }
@@ -497,9 +496,11 @@ const Sidebar: React.FC<SidebarProps> = ({ }) => {
     if (isEditMode && !editingBoardId) { toast.error('Board ID is missing for editing'); return; }
 
     let userId: string | null = null;
-    const s = sessionStorage.getItem('currentUserData');
-    if (s) { const d = JSON.parse(s); userId = d.userId || d.user_id || d.id; }
-    if (!userId) userId = sessionStorage.getItem("loggedInUserId") || localStorage.getItem('loggedInUserId');
+    if (typeof window !== 'undefined') {
+      const s = sessionStorage.getItem('currentUserData');
+      if (s) { const d = JSON.parse(s); userId = d.userId || d.user_id || d.id; }
+      if (!userId) userId = sessionStorage.getItem("loggedInUserId") || localStorage.getItem('loggedInUserId');
+    }
     if (!userId) { toast.error("User ID not found. Please log in again."); return; }
 
     showGlobalLoader(isEditMode ? "Updating Board..." : "Creating Board...");
@@ -518,7 +519,6 @@ const Sidebar: React.FC<SidebarProps> = ({ }) => {
         }
         toast.success("Board updated successfully!");
         closeModal();
-        // ✅ FIX: Navigate first, revalidate in background
         router.push(`/Container?main_board_id=${selectedBoard?.mainBoardId}&board_id=${editingBoardId}`);
         mutateNavItems();
       } else {
@@ -536,7 +536,6 @@ const Sidebar: React.FC<SidebarProps> = ({ }) => {
         const newBoard = await response.json();
         toast.success("Board created successfully!");
         closeModal();
-        // ✅ FIX: Navigate first, revalidate in background
         router.push(`/Container?main_board_id=${selectedBoard!.mainBoardId}&board_id=${newBoard.id}`);
         mutateNavItems();
       }
@@ -697,19 +696,13 @@ const Sidebar: React.FC<SidebarProps> = ({ }) => {
     fetch(url, { headers: { Accept: "application/json", "X-API-Key": EXCEL_API_KEY } })
       .then(res => { if (!res.ok) throw new Error("Failed to fetch"); return res.json(); });
 
-  const getUserId = () => {
-    const s = sessionStorage.getItem("currentUserData");
-    if (s) { const d = JSON.parse(s); return d.userId || d.user_id || d.id || null; }
-    return localStorage.getItem("loggedInUserId") || null;
-  };
-  const userId = getUserId();
-
+  // ✅ FIX: Use clientUserId STATE (set safely in useEffect) instead of calling
+  // sessionStorage directly at render time. This is the root cause of the build error.
   const { mutate: mutateNavItems } = useSWR(
-    userId ? `${API_BASE_URL}/main-boards/get_all_info_tree?user_id=${userId}` : null,
+    clientUserId ? `${API_BASE_URL}/main-boards/get_all_info_tree?user_id=${clientUserId}` : null,
     fetcher,
     {
       revalidateOnFocus: false,
-      // ✅ FIX: Cache nav data for 60 seconds — prevents re-fetch on every board click
       dedupingInterval: 60000,
       onSuccess: data => setNavItems(data),
       onError: () => toast.error("Error loading navigation data"),

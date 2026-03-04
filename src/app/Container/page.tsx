@@ -374,48 +374,50 @@ export default function Page() {
   }>({ isOpen: false, source: null });
   const [isDeletingDataSource, setIsDeletingDataSource] = useState(false);
 
+  
 
-  const handleDeleteDataSource = async () => {
-    if (!deleteDataSourceConfirm.source) return;
 
-    let userId: string | null = null;
-    const currentUserData = sessionStorage.getItem("currentUserData");
-    if (currentUserData) {
-      try {
-        const parsed = JSON.parse(currentUserData);
-        userId = String(parsed.userId);
-      } catch (e) { }
-    }
-    if (!userId) { alert("User session not found."); return; }
-
-    setIsDeletingDataSource(true);
+const handleDeleteDataSource = async () => {
+  if (!deleteDataSourceConfirm.source) return;
+  if (typeof window === 'undefined') return;
+  let userId: string | null = null;
+  const currentUserData = sessionStorage.getItem("currentUserData");
+  if (currentUserData) {
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/main-boards/boards/data-sources/${deleteDataSourceConfirm.source.id}?user_id=${parseInt(userId, 10)}`,
-        {
-          method: "DELETE",
-          headers: { accept: "application/json", "X-API-Key": EXCEL_API_KEY },
-        }
-      );
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Failed to delete");
+      const parsed = JSON.parse(currentUserData);
+      userId = String(parsed.userId);
+    } catch (e) { }
+  }
+  if (!userId) { alert("User session not found."); return; }
 
-      toast.success(`Data source deleted! ${data.remaining_sources} remaining.`);
-      fetchDataSources(); // refresh the list
-      setDeleteDataSourceConfirm({ isOpen: false, source: null });
-    } catch (error: any) {
-      toast.error(`Failed: ${error.message}`);
-    } finally {
-      setIsDeletingDataSource(false);
-    }
-  };
+  setIsDeletingDataSource(true);
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/main-boards/boards/data-sources/${deleteDataSourceConfirm.source.id}?user_id=${parseInt(userId, 10)}`,
+      {
+        method: "DELETE",
+        headers: { accept: "application/json", "X-API-Key": EXCEL_API_KEY },
+      }
+    );
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Failed to delete");
+
+    toast.success(`Data source deleted! ${data.remaining_sources} remaining.`);
+    fetchDataSources();
+    setDeleteDataSourceConfirm({ isOpen: false, source: null });
+  } catch (error: any) {
+    toast.error(`Failed: ${error.message}`);
+  } finally {
+    setIsDeletingDataSource(false);
+  }
+};
 
 
-  const handleAddPgTableAsDataSource = async () => {
-    if (!selectedPgTable) return;
-
-    let userId: string | null = null;
-    const currentUserData = sessionStorage.getItem("currentUserData");
+ const handleAddPgTableAsDataSource = async () => {
+  if (!selectedPgTable) return;
+  if (typeof window === 'undefined') return;
+  let userId: string | null = null;
+  const currentUserData = sessionStorage.getItem("currentUserData");
     if (currentUserData) {
       try {
         const parsed = JSON.parse(currentUserData);
@@ -472,9 +474,11 @@ export default function Page() {
 
 
 
-  const fetchDataSources = async () => {
-    let userId: string | null = null;
-    const currentUserData = sessionStorage.getItem("currentUserData");
+ const fetchDataSources = async () => {
+  if (typeof window === 'undefined') return;
+  let userId: string | null = null;
+  const currentUserData = sessionStorage.getItem("currentUserData");
+
     if (currentUserData) {
       try {
         const parsed = JSON.parse(currentUserData);
@@ -632,11 +636,10 @@ export default function Page() {
     }
   };
 
-  const handleViewTables = async () => {
-    let userId: string | null = null;
-
-    // Read from sessionStorage (where login stores it)
-    const currentUserData = sessionStorage.getItem("currentUserData");
+const handleViewTables = async () => {
+  if (typeof window === 'undefined') return;
+  let userId: string | null = null;
+  const currentUserData = sessionStorage.getItem("currentUserData");
     if (currentUserData) {
       try {
         const parsed = JSON.parse(currentUserData);
@@ -929,13 +932,12 @@ export default function Page() {
 
 
   // Direct approval without modal
-  const handleDirectApprove = async (type: 'table' | 'file', id: string, tableId?: string) => {
-    try {
-      let endpoint;
-      let userId: string | null = null;
-
-      // Get user ID from session
-      const currentUserData = sessionStorage.getItem("currentUserData");
+ const handleDirectApprove = async (type: 'table' | 'file', id: string, tableId?: string) => {
+  if (typeof window === 'undefined') return;
+  try {
+    let endpoint;
+    let userId: string | null = null;
+    const currentUserData = sessionStorage.getItem("currentUserData");
       if (currentUserData) {
         try {
           const parsed = JSON.parse(currentUserData);

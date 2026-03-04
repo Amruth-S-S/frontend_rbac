@@ -1,3 +1,4 @@
+"use client";
 import React, { useState, useRef, useEffect } from 'react';
 import { Plus, Trash2, Check, X, Save, Loader2, Edit, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
 
