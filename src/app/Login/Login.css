@@ -66,23 +66,25 @@ body, html {
 
 .form-container {
     height: auto;
-    max-height: 90vh;
-    min-height: 600px;
+    max-height: 92vh;
+    min-height: 300px;
     margin-left: -500px;
-    max-width: 450px;
+    max-width: 380px;
     width: 100%;
     background: #fff;
     padding: 30px;
     border-radius: 8px;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
     text-align: center;
-    margin-top: -100px;
+    margin-top: -80px;
     position: absolute;
-    right: 200px;
+    right: 130px;
     top: 30%;
     transform: translateY(-50%);
     overflow-y: auto;
     overflow-x: hidden;
+       /* scrollbar-width: none;         
+    -ms-overflow-style: none;  */
 }
 
 /* Custom Scrollbar for form container */
