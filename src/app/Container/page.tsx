@@ -3529,7 +3529,7 @@ const fetchRows = async () => {
 
 
 
-  const handleSubmit = async (e: { preventDefault: () => void }) => {
+ const handleSubmit = async (e: { preventDefault: () => void }) => {
     e.preventDefault();
 
     if (!formData.tableName || formData.tableName.length > 255) {
@@ -3586,6 +3586,21 @@ const fetchRows = async () => {
             row.id === editRow.id ? newTableData : row
           )
         );
+
+
+        setDataSources(prev =>
+          prev.map(source =>
+            String(source.data_management_table_id) === String(editRow.id)
+              ? {
+                ...source,
+                source_name: formData.tableName,
+                description: formData.tableDescription,
+              }
+              : source
+          )
+        );
+
+        // await fetchDataSources();
         toast.dismiss(loadingToast);
         toast.success("Info-Object updated successfully!");
       } else {
