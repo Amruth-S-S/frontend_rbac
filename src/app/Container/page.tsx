@@ -378,46 +378,46 @@ export default function Page() {
   const [isDeletingDataSource, setIsDeletingDataSource] = useState(false);
 
 
- const handleDeleteDataSource = async () => {
-  if (!deleteDataSourceConfirm.source) return;
+  const handleDeleteDataSource = async () => {
+    if (!deleteDataSourceConfirm.source) return;
 
-  let userId: string | null = null;
-  const currentUserData = sessionStorage.getItem("currentUserData");
-  if (currentUserData) {
-    try {
-      const parsed = JSON.parse(currentUserData);
-      userId = String(parsed.userId);
-    } catch (e) { }
-  }
-  if (!userId) { alert("User session not found."); return; }
-
-  setIsDeletingDataSource(true);
-  try {
-    const response = await fetch(
-      `${API_BASE_URL}/main-boards/boards/data-sources/${deleteDataSourceConfirm.source.id}?user_id=${parseInt(userId, 10)}`,
-      {
-        method: "DELETE",
-        headers: { accept: "application/json", "X-API-Key": EXCEL_API_KEY },
-      }
-    );
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || "Failed to delete");
-
-    // ✅ Remove the linked row from rows state immediately
-    const deletedTableId = deleteDataSourceConfirm.source?.data_management_table_id;
-    if (deletedTableId) {
-      setRows(prev => prev.filter(r => String(r.id) !== String(deletedTableId)));
+    let userId: string | null = null;
+    const currentUserData = sessionStorage.getItem("currentUserData");
+    if (currentUserData) {
+      try {
+        const parsed = JSON.parse(currentUserData);
+        userId = String(parsed.userId);
+      } catch (e) { }
     }
+    if (!userId) { alert("User session not found."); return; }
 
-    toast.success(`Data source deleted! ${data.remaining_sources} remaining.`);
-    await fetchDataSources(); // ✅ only this, never fetchRows() after delete
-    setDeleteDataSourceConfirm({ isOpen: false, source: null });
-  } catch (error: any) {
-    toast.error(`Failed: ${error.message}`);
-  } finally {
-    setIsDeletingDataSource(false);
-  }
-};
+    setIsDeletingDataSource(true);
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/main-boards/boards/data-sources/${deleteDataSourceConfirm.source.id}?user_id=${parseInt(userId, 10)}`,
+        {
+          method: "DELETE",
+          headers: { accept: "application/json", "X-API-Key": EXCEL_API_KEY },
+        }
+      );
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Failed to delete");
+
+      // ✅ Remove the linked row from rows state immediately
+      const deletedTableId = deleteDataSourceConfirm.source?.data_management_table_id;
+      if (deletedTableId) {
+        setRows(prev => prev.filter(r => String(r.id) !== String(deletedTableId)));
+      }
+
+      toast.success(`Data source deleted! ${data.remaining_sources} remaining.`);
+      await fetchDataSources(); // ✅ only this, never fetchRows() after delete
+      setDeleteDataSourceConfirm({ isOpen: false, source: null });
+    } catch (error: any) {
+      toast.error(`Failed: ${error.message}`);
+    } finally {
+      setIsDeletingDataSource(false);
+    }
+  };
 
   const handleAddPgTableAsDataSource = async () => {
     if (!selectedPgTable) return;
@@ -1583,53 +1583,53 @@ export default function Page() {
 
 
 
- const getPieData = (chart: ChartData) => {
-  return {
-    labels: chart.data_format.labels,
-    datasets: [
-      {
-        // ✅ values is already flat for pie — cast safely
-        data: chart.data_format.values as number[],
-        backgroundColor: chart.data_format.labels.map(
-          (_, idx) => CHART_COLORS[idx % CHART_COLORS.length]
-        ),
-        borderColor: '#fff',
+  const getPieData = (chart: ChartData) => {
+    return {
+      labels: chart.data_format.labels,
+      datasets: [
+        {
+          // ✅ values is already flat for pie — cast safely
+          data: chart.data_format.values as number[],
+          backgroundColor: chart.data_format.labels.map(
+            (_, idx) => CHART_COLORS[idx % CHART_COLORS.length]
+          ),
+          borderColor: '#fff',
+          borderWidth: 2,
+        },
+      ],
+    };
+  };
+
+  const getChartData = (chart: ChartData, type: 'bar' | 'line') => {
+    return {
+      labels: chart.data_format.labels,
+      datasets: chart.data_format.categories.map((category, i) => ({
+        label: category,
+        // ✅ FIX: use values[i] (inner array), not values (nested array)
+        data: chart.data_format.values[i],
+        backgroundColor: type === 'bar'
+          ? chart.data_format.labels.map((_, idx) => CHART_COLORS[idx % CHART_COLORS.length])
+          : CHART_COLORS[i % CHART_COLORS.length],
+        borderColor: CHART_COLORS[i % CHART_COLORS.length],
         borderWidth: 2,
-      },
-    ],
+        fill: false,
+        tension: 0.3,
+      })),
+    };
   };
-};
 
- const getChartData = (chart: ChartData, type: 'bar' | 'line') => {
-  return {
-    labels: chart.data_format.labels,
-    datasets: chart.data_format.categories.map((category, i) => ({
-      label: category,
-      // ✅ FIX: use values[i] (inner array), not values (nested array)
-      data: chart.data_format.values[i],
-      backgroundColor: type === 'bar'
-        ? chart.data_format.labels.map((_, idx) => CHART_COLORS[idx % CHART_COLORS.length])
-        : CHART_COLORS[i % CHART_COLORS.length],
-      borderColor: CHART_COLORS[i % CHART_COLORS.length],
-      borderWidth: 2,
-      fill: false,
-      tension: 0.3,
-    })),
-  };
-};
-
-const CHART_COLORS = [
-  'rgba(54, 162, 235, 0.8)',
-  'rgba(255, 99, 132, 0.8)',
-  'rgba(75, 192, 192, 0.8)',
-  'rgba(255, 206, 86, 0.8)',
-  'rgba(153, 102, 255, 0.8)',
-  'rgba(255, 159, 64, 0.8)',
-  'rgba(199, 199, 199, 0.8)',
-  'rgba(83, 102, 255, 0.8)',
-  'rgba(40, 159, 64, 0.8)',
-  'rgba(210, 99, 132, 0.8)',
-];
+  const CHART_COLORS = [
+    'rgba(54, 162, 235, 0.8)',
+    'rgba(255, 99, 132, 0.8)',
+    'rgba(75, 192, 192, 0.8)',
+    'rgba(255, 206, 86, 0.8)',
+    'rgba(153, 102, 255, 0.8)',
+    'rgba(255, 159, 64, 0.8)',
+    'rgba(199, 199, 199, 0.8)',
+    'rgba(83, 102, 255, 0.8)',
+    'rgba(40, 159, 64, 0.8)',
+    'rgba(210, 99, 132, 0.8)',
+  ];
 
 
 
@@ -2441,7 +2441,7 @@ const CHART_COLORS = [
   //   }
   // }, [boardId]);
 
-  
+
   const fetchData = useCallback(async () => {
     if (!boardId || !user?.id) return;
 
@@ -2467,13 +2467,13 @@ const CHART_COLORS = [
       setLoading(false);
     }
   }, [boardId, user?.id]);
-  
+
   // 2️⃣ useEffect declared AFTER fetchData ✅
-useEffect(() => {
-  if (activeTab === "documentation") {
-    fetchData();
-  }
-}, [activeTab, fetchData]);
+  useEffect(() => {
+    if (activeTab === "documentation") {
+      fetchData();
+    }
+  }, [activeTab, fetchData]);
 
   // NEW: Fetch from the old /ai-documentation/ endpoint, filtered by boardId
   const fetchDataFiltered = useCallback(async () => {
@@ -2847,27 +2847,27 @@ useEffect(() => {
 
 
   // Add this OUTSIDE the useEffect, as a standalone function
-const fetchRows = async () => {
-  setLoading(true);
-  try {
-    const response = await fetch(
-      `${API_BASE_URL}/main-boards/boards/data-management-table/get_all_tables_with_files`,
-      {
-        headers: { "X-API-Key": EXCEL_API_KEY },
-      }
-    );
-    if (!response.ok) throw new Error("Failed to fetch data");
-    const data = await response.json();
-    const filteredData = data.filter(
-      (row: { board_id: number }) => row.board_id === parseInt(boardId!)
-    );
-    setRows(filteredData);
-  } catch (err) {
-    setError(err instanceof Error ? err.message : "An unknown error occurred");
-  } finally {
-    setLoading(false);
-  }
-};
+  const fetchRows = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/main-boards/boards/data-management-table/get_all_tables_with_files`,
+        {
+          headers: { "X-API-Key": EXCEL_API_KEY },
+        }
+      );
+      if (!response.ok) throw new Error("Failed to fetch data");
+      const data = await response.json();
+      const filteredData = data.filter(
+        (row: { board_id: number }) => row.board_id === parseInt(boardId!)
+      );
+      setRows(filteredData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An unknown error occurred");
+    } finally {
+      setLoading(false);
+    }
+  };
 
 
   useEffect(() => {
@@ -3529,7 +3529,7 @@ const fetchRows = async () => {
 
 
 
- const handleSubmit = async (e: { preventDefault: () => void }) => {
+  const handleSubmit = async (e: { preventDefault: () => void }) => {
     e.preventDefault();
 
     if (!formData.tableName || formData.tableName.length > 255) {
@@ -3721,303 +3721,303 @@ const fetchRows = async () => {
       </header> */}
 
       <div className="sticky top-0 bg-gray-200 z-10 border-b border-gray-200">
-       <div className="w-full">
-  <div className="max-w-[1400px] mx-auto px-3 py-2">
-    {/* Tab Navigation */}
-    <div className="bg-white rounded-xl shadow-md px-2 py-1.5 mb-3 border border-gray-200">
+        <div className="w-full">
+          <div className="max-w-[1400px] mx-auto px-3 py-2">
+            {/* Tab Navigation */}
+            <div className="bg-white rounded-xl shadow-md px-2 py-1.5 mb-3 border border-gray-200">
 
-      {/* Desktop: horizontal tabs */}
-      <div className="hidden md:flex gap-1 p-1 bg-gray-100 rounded-lg overflow-x-auto">
-        {[
-          { key: "prompts",       label: "Manage Prompts" },
-          { key: "repository",   label: "Prompts Repository" },
-          { key: "tables",       label: "Manage Tables" },
-          // { key: "tally",        label: "Manage ETL" },
-          { key: "documentation",label: "AI Documentation" },
-          // { key: "master",       label: "Master Settings" },
-          // { key: "parameters",   label: "Parameter Settings" },
-          // { key: "timeline",     label: "Timeline Settings" },
-        ].map((tab) => (
-          <button
-            key={tab.key}
-            className={`flex-shrink-0 px-3 py-1.5 rounded-md font-medium transition-all duration-200 text-xs whitespace-nowrap ${
-              activeTab === tab.key
-                ? "bg-white text-blue-600 shadow-sm"
-                : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
-            }`}
-            onClick={() => setActiveTab(tab.key)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+              {/* Desktop: horizontal tabs */}
+              <div className="hidden md:flex gap-1 p-1 bg-gray-100 rounded-lg overflow-x-auto">
+                {[
+                  { key: "tables", label: "Manage Tables" },
+                  { key: "documentation", label: "AI Documentation" },
+                  { key: "prompts", label: "Manage Prompts" },
+                  { key: "repository", label: "Prompts Repository" },
+                  
+                  // { key: "tally",        label: "Manage ETL" },
+                  
+                  // { key: "master",       label: "Master Settings" },
+                  // { key: "parameters",   label: "Parameter Settings" },
+                  // { key: "timeline",     label: "Timeline Settings" },
+                ].map((tab) => (
+                  <button
+                    key={tab.key}
+                    className={`flex-shrink-0 px-3 py-1.5 rounded-md font-medium transition-all duration-200 text-xs whitespace-nowrap ${activeTab === tab.key
+                        ? "bg-white text-blue-600 shadow-sm"
+                        : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+                      }`}
+                    onClick={() => setActiveTab(tab.key)}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
 
-      {/* Mobile: dropdown */}
-      <div className="md:hidden">
-        <button
-          className="w-full flex items-center justify-between px-3 py-2 bg-gray-100 rounded-lg text-xs font-semibold text-gray-700 border border-gray-200"
-          onClick={() => setIsMobileMenuOpen((prev) => !prev)}
-        >
-          <span>
-            {[
-               { key: "tables",        label: "Manage Tables" },
-                { key: "documentation", label: "AI Documentation" },
-              { key: "prompts",        label: "Manage Prompts" },
-              { key: "repository",    label: "Prompts Repository" },
-           
-              // { key: "tally",         label: "Manage ETL" },
-             
-              // { key: "master",        label: "Master Settings" },
-              // { key: "parameters",    label: "Parameter Settings" },
-              // { key: "timeline",      label: "Timeline Settings" },
-            ].find((t) => t.key === activeTab)?.label ?? "Select Tab"}
-          </span>
-          <span className="ml-2 text-gray-400 text-xs">{isMobileMenuOpen ? "▲" : "▼"}</span>
-        </button>
-
-        {isMobileMenuOpen && (
-          <div className="mt-1 bg-white border border-gray-200 rounded-lg shadow-md z-50">
-            <div className="p-1.5 space-y-0.5 max-h-52 overflow-y-auto">
-              {[
-                  { key: "tables",        label: "Manage Tables" },
-                     { key: "documentation", label: "AI Documentation" },
-                { key: "prompts",        label: "Manage Prompts" },
-                { key: "repository",    label: "Prompts Repository" },
-              
-                // { key: "tally",         label: "Manage ETL" },
-             
-                // { key: "master",        label: "Master Settings" },
-                // { key: "parameters",    label: "Parameter Settings" },
-                // { key: "timeline",      label: "Timeline Settings" },
-              ].map((tab) => (
+              {/* Mobile: dropdown */}
+              <div className="md:hidden">
                 <button
-                  key={tab.key}
-                  className={`w-full text-left px-3 py-2 rounded-md transition-colors text-xs ${
-                    activeTab === tab.key
-                      ? "bg-blue-50 text-blue-600 font-semibold"
-                      : "text-gray-700 hover:bg-gray-100"
-                  }`}
-                  onClick={() => {
-                    setActiveTab(tab.key);
-                    setIsMobileMenuOpen(false);
-                  }}
+                  className="w-full flex items-center justify-between px-3 py-2 bg-gray-100 rounded-lg text-xs font-semibold text-gray-700 border border-gray-200"
+                  onClick={() => setIsMobileMenuOpen((prev) => !prev)}
                 >
-                  <div className="flex items-center justify-between">
-                    <span>{tab.label}</span>
-                    {activeTab === tab.key && <span className="text-blue-500 text-xs">✓</span>}
-                  </div>
+                  <span>
+                    {[
+                      { key: "tables", label: "Manage Tables" },
+                      { key: "documentation", label: "AI Documentation" },
+                      { key: "prompts", label: "Manage Prompts" },
+                      { key: "repository", label: "Prompts Repository" },
+
+                      // { key: "tally",         label: "Manage ETL" },
+
+                      // { key: "master",        label: "Master Settings" },
+                      // { key: "parameters",    label: "Parameter Settings" },
+                      // { key: "timeline",      label: "Timeline Settings" },
+                    ].find((t) => t.key === activeTab)?.label ?? "Select Tab"}
+                  </span>
+                  <span className="ml-2 text-gray-400 text-xs">{isMobileMenuOpen ? "▲" : "▼"}</span>
                 </button>
-              ))}
+
+                {isMobileMenuOpen && (
+                  <div className="mt-1 bg-white border border-gray-200 rounded-lg shadow-md z-50">
+                    <div className="p-1.5 space-y-0.5 max-h-52 overflow-y-auto">
+                      {[
+                        { key: "tables", label: "Manage Tables" },
+                        { key: "documentation", label: "AI Documentation" },
+                        { key: "prompts", label: "Manage Prompts" },
+                        { key: "repository", label: "Prompts Repository" },
+
+                        // { key: "tally",         label: "Manage ETL" },
+
+                        // { key: "master",        label: "Master Settings" },
+                        // { key: "parameters",    label: "Parameter Settings" },
+                        // { key: "timeline",      label: "Timeline Settings" },
+                      ].map((tab) => (
+                        <button
+                          key={tab.key}
+                          className={`w-full text-left px-3 py-2 rounded-md transition-colors text-xs ${activeTab === tab.key
+                              ? "bg-blue-50 text-blue-600 font-semibold"
+                              : "text-gray-700 hover:bg-gray-100"
+                            }`}
+                          onClick={() => {
+                            setActiveTab(tab.key);
+                            setIsMobileMenuOpen(false);
+                          }}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span>{tab.label}</span>
+                            {activeTab === tab.key && <span className="text-blue-500 text-xs">✓</span>}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+            </div>
+          </div>
+        </div>
+
+
+        {activeTab === "prompts" && (
+          <div className="w-full">
+            {/* Header */}
+            <div className="w-full bg-white border-b">
+              <div className="max-w-[1400px] mx-auto px-3 py-2">
+                <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+
+                  {/* Search */}
+                  <div className="relative flex-1">
+                    <input
+                      type="text"
+                      placeholder="Search prompts..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full py-1.5 px-3 pr-8 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs"
+                    />
+                    {searchTerm ? (
+                      <button
+                        onClick={() => setSearchTerm("")}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    ) : (
+                      <div className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Buttons */}
+                  <button
+                    className="py-1.5 px-3 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors text-xs font-medium whitespace-nowrap"
+                    onClick={() => setIsModalOpen(true)}
+                  >
+                    New Prompts +
+                  </button>
+
+                  {prompts.length === 0 ? (
+                    <label className="py-1.5 px-3 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-xs font-medium whitespace-nowrap cursor-pointer">
+                      <input
+                        type="file"
+                        accept=".txt,.csv"
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files.length > 0) {
+                            setImportFile(e.target.files[0]);
+                            handleImportPrompts();
+                          }
+                        }}
+                        className="hidden"
+                      />
+                      {isImporting ? 'Importing...' : 'Import Prompts'}
+                    </label>
+                  ) : (
+                    <button
+                      className="py-1.5 px-3 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-xs font-medium whitespace-nowrap"
+                      onClick={() => setShowExportModal(true)}
+                    >
+                      Export Prompts
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Cards Grid */}
+            <div className="w-full">
+              <div className="max-w-[1400px] mx-auto px-3 py-3">
+                {!isLoading && filteredPrompts.length > 0 && (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 auto-rows-fr">
+                    {filteredPrompts.map((prompt, index) => {
+                      const datasetName = getDatasetName(prompt);
+                      const outputType = promptOutputTypes[prompt.id];
+
+                      return (
+                        <div
+                          key={prompt.id}
+                          className="prompt-card border rounded-lg shadow-sm p-3 bg-white transition-all duration-300 hover:shadow-md flex flex-col justify-between"
+                          style={{ minHeight: '160px', maxWidth: '100%' }}
+                        >
+                          {/* Prompt text */}
+                          <p
+                            className="text-xs font-semibold mb-2 flex-grow text-gray-800"
+                            style={{
+                              display: '-webkit-box',
+                              WebkitLineClamp: 3,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                              wordBreak: 'break-word',
+                              lineHeight: '1.4'
+                            }}
+                            title={prompt.prompt_text}
+                          >
+                            {index + 1}. &quot;{prompt.prompt_text}&quot;
+                          </p>
+
+                          <div className="mt-auto">
+                            {/* Meta row */}
+                            <div className="mb-1 text-[10px] flex items-center justify-between gap-1">
+                              <div>
+                                <p className="text-gray-600 truncate">
+                                  Created By: {prompt.user_name && prompt.user_name !== "undefined" ? prompt.user_name : ""}
+                                </p>
+                                <p className="text-gray-600">
+                                  Updated: {new Date(prompt.updated_at || prompt.created_at).toLocaleDateString()}
+                                </p>
+                              </div>
+
+                              {/* C/T badge */}
+                              {outputType && (
+                                <div className="flex gap-0.5 shrink-0">
+                                  {(outputType === 'C' || outputType === 'CT') && (
+                                    <span
+                                      className="w-4 h-4 rounded-full bg-purple-100 text-purple-700 text-[9px] font-bold flex items-center justify-center border border-purple-300"
+                                      title="Chart"
+                                    >
+                                      C
+                                    </span>
+                                  )}
+                                  {(outputType === 'T' || outputType === 'CT') && (
+                                    <span
+                                      className="w-4 h-4 rounded-full bg-green-100 text-green-700 text-[9px] font-bold flex items-center justify-center border border-green-300"
+                                      title="Table"
+                                    >
+                                      T
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+
+                            <hr className="my-1.5 border-t border-gray-100" />
+
+                            {/* Action buttons */}
+                            <div className="flex justify-center items-center gap-2 mt-1">
+                              <button
+                                className="text-gray-500 hover:text-blue-600 transition-colors p-0.5"
+                                onClick={() => handlePlayClick(prompt)}
+                                title="Play"
+                              >
+                                <FaPlay size={11} />
+                              </button>
+                              <button
+                                className="text-gray-500 hover:text-blue-600 transition-colors p-0.5"
+                                onClick={() => handleEditPrompt(prompt)}
+                                title="Edit"
+                              >
+                                <FaPen size={11} />
+                              </button>
+                              <button
+                                className="text-gray-500 hover:text-red-600 transition-colors p-0.5"
+                                onClick={() => handleDeletePrompt(prompt.id)}
+                                title="Delete"
+                              >
+                                <FaTrash size={11} />
+                              </button>
+                              <button
+                                className="text-gray-500 hover:text-blue-600 transition-colors p-0.5 relative"
+                                onClick={() => handleCommentClick(prompt.id)}
+                                title="Comments"
+                              >
+                                <FaComment size={11} />
+                                {getCommentCount(prompt.id) > 0 && (
+                                  <span className="absolute -top-1 -right-1 bg-blue-500 text-white text-[8px] rounded-full h-3 w-3 flex items-center justify-center leading-none">
+                                    {getCommentCount(prompt.id)}
+                                  </span>
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Empty state */}
+                {!isLoading && filteredPrompts.length === 0 && (
+                  <div className="text-center py-8">
+                    <p className="text-gray-500 text-xs">
+                      {searchTerm ? `No prompts found for "${searchTerm}"` : "No prompts available"}
+                    </p>
+                    {searchTerm && (
+                      <button
+                        onClick={() => setSearchTerm("")}
+                        className="mt-3 text-blue-500 hover:text-blue-700 text-xs"
+                      >
+                        Clear search
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
-      </div>
-
-    </div>
-  </div>
-</div>
-
-
-       {activeTab === "prompts" && (
-  <div className="w-full">
-    {/* Header */}
-    <div className="w-full bg-white border-b">
-      <div className="max-w-[1400px] mx-auto px-3 py-2">
-        <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
-          
-          {/* Search */}
-          <div className="relative flex-1">
-            <input
-              type="text"
-              placeholder="Search prompts..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full py-1.5 px-3 pr-8 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs"
-            />
-            {searchTerm ? (
-              <button
-                onClick={() => setSearchTerm("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                </svg>
-              </button>
-            ) : (
-              <div className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
-                </svg>
-              </div>
-            )}
-          </div>
-
-          {/* Buttons */}
-          <button
-            className="py-1.5 px-3 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors text-xs font-medium whitespace-nowrap"
-            onClick={() => setIsModalOpen(true)}
-          >
-            New Prompts +
-          </button>
-
-          {prompts.length === 0 ? (
-            <label className="py-1.5 px-3 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-xs font-medium whitespace-nowrap cursor-pointer">
-              <input
-                type="file"
-                accept=".txt,.csv"
-                onChange={(e) => {
-                  if (e.target.files && e.target.files.length > 0) {
-                    setImportFile(e.target.files[0]);
-                    handleImportPrompts();
-                  }
-                }}
-                className="hidden"
-              />
-              {isImporting ? 'Importing...' : 'Import Prompts'}
-            </label>
-          ) : (
-            <button
-              className="py-1.5 px-3 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-xs font-medium whitespace-nowrap"
-              onClick={() => setShowExportModal(true)}
-            >
-              Export Prompts
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-
-    {/* Cards Grid */}
-    <div className="w-full">
-      <div className="max-w-[1400px] mx-auto px-3 py-3">
-        {!isLoading && filteredPrompts.length > 0 && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 auto-rows-fr">
-            {filteredPrompts.map((prompt, index) => {
-              const datasetName = getDatasetName(prompt);
-              const outputType = promptOutputTypes[prompt.id];
-
-              return (
-                <div
-                  key={prompt.id}
-                  className="prompt-card border rounded-lg shadow-sm p-3 bg-white transition-all duration-300 hover:shadow-md flex flex-col justify-between"
-                  style={{ minHeight: '160px', maxWidth: '100%' }}
-                >
-                  {/* Prompt text */}
-                  <p
-                    className="text-xs font-semibold mb-2 flex-grow text-gray-800"
-                    style={{
-                      display: '-webkit-box',
-                      WebkitLineClamp: 3,
-                      WebkitBoxOrient: 'vertical',
-                      overflow: 'hidden',
-                      wordBreak: 'break-word',
-                      lineHeight: '1.4'
-                    }}
-                    title={prompt.prompt_text}
-                  >
-                    {index + 1}. &quot;{prompt.prompt_text}&quot;
-                  </p>
-
-                  <div className="mt-auto">
-                    {/* Meta row */}
-                    <div className="mb-1 text-[10px] flex items-center justify-between gap-1">
-                      <div className="min-w-0">
-                        <p className="text-gray-500 truncate">
-                          {prompt.user_name && prompt.user_name !== "undefined" ? prompt.user_name : ""}
-                        </p>
-                        <p className="text-gray-400">
-                          {new Date(prompt.updated_at || prompt.created_at).toLocaleDateString()}
-                        </p>
-                      </div>
-
-                      {/* C/T badge */}
-                      {outputType && (
-                        <div className="flex gap-0.5 shrink-0">
-                          {(outputType === 'C' || outputType === 'CT') && (
-                            <span
-                              className="w-4 h-4 rounded-full bg-purple-100 text-purple-700 text-[9px] font-bold flex items-center justify-center border border-purple-300"
-                              title="Chart"
-                            >
-                              C
-                            </span>
-                          )}
-                          {(outputType === 'T' || outputType === 'CT') && (
-                            <span
-                              className="w-4 h-4 rounded-full bg-green-100 text-green-700 text-[9px] font-bold flex items-center justify-center border border-green-300"
-                              title="Table"
-                            >
-                              T
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    <hr className="my-1.5 border-t border-gray-100" />
-
-                    {/* Action buttons */}
-                    <div className="flex justify-center items-center gap-2 mt-1">
-                      <button
-                        className="text-gray-500 hover:text-blue-600 transition-colors p-0.5"
-                        onClick={() => handlePlayClick(prompt)}
-                        title="Play"
-                      >
-                        <FaPlay size={11} />
-                      </button>
-                      <button
-                        className="text-gray-500 hover:text-blue-600 transition-colors p-0.5"
-                        onClick={() => handleEditPrompt(prompt)}
-                        title="Edit"
-                      >
-                        <FaPen size={11} />
-                      </button>
-                      <button
-                        className="text-gray-500 hover:text-red-600 transition-colors p-0.5"
-                        onClick={() => handleDeletePrompt(prompt.id)}
-                        title="Delete"
-                      >
-                        <FaTrash size={11} />
-                      </button>
-                      <button
-                        className="text-gray-500 hover:text-blue-600 transition-colors p-0.5 relative"
-                        onClick={() => handleCommentClick(prompt.id)}
-                        title="Comments"
-                      >
-                        <FaComment size={11} />
-                        {getCommentCount(prompt.id) > 0 && (
-                          <span className="absolute -top-1 -right-1 bg-blue-500 text-white text-[8px] rounded-full h-3 w-3 flex items-center justify-center leading-none">
-                            {getCommentCount(prompt.id)}
-                          </span>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Empty state */}
-        {!isLoading && filteredPrompts.length === 0 && (
-          <div className="text-center py-8">
-            <p className="text-gray-500 text-xs">
-              {searchTerm ? `No prompts found for "${searchTerm}"` : "No prompts available"}
-            </p>
-            {searchTerm && (
-              <button
-                onClick={() => setSearchTerm("")}
-                className="mt-3 text-blue-500 hover:text-blue-700 text-xs"
-              >
-                Clear search
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  </div>
-)}
 
         {/* Export Modal */}
         {showExportModal && (
@@ -4064,102 +4064,102 @@ const fetchRows = async () => {
         )}
 
         {activeTab === "repository" && (
-  <div className="w-full">
-    {/* Search bar */}
-    <div className="w-full bg-white border-b">
-      <div className="max-w-[1400px] mx-auto px-3 py-2">
-        <div className="relative">
-          <input
-            type="text"
-            placeholder="Search prompts..."
-            value={searchTermRepository}
-            onChange={(e) => setSearchTermRepository(e.target.value)}
-            className="w-full py-1.5 px-3 pr-8 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs"
-          />
-          {searchTermRepository ? (
-            <button
-              onClick={() => setSearchTermRepository("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-              </svg>
-            </button>
-          ) : (
-            <div className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
-              </svg>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-
-    {/* Grid */}
-    <div className="w-full">
-      <div className="max-w-[1400px] mx-auto px-3 py-3">
-        {!isLoading && filteredRepositoryPrompts.length > 0 ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 auto-rows-fr">
-            {filteredRepositoryPrompts.map((prompt, index) => (
-              <div
-                key={prompt.id}
-                className="prompt-card border rounded-lg shadow-sm p-3 bg-white transition-all duration-300 hover:shadow-md flex flex-col justify-between cursor-pointer"
-                style={{ minHeight: '150px', maxWidth: '100%' }}
-                onClick={() => handlePlayClick(prompt)}
-              >
-                {/* Prompt text */}
-                <p
-                  className="text-xs font-semibold mb-2 flex-grow text-gray-800"
-                  style={{
-                    display: '-webkit-box',
-                    WebkitLineClamp: 3,
-                    WebkitBoxOrient: 'vertical',
-                    overflow: 'hidden',
-                    wordBreak: 'break-word',
-                    overflowWrap: 'break-word',
-                    lineHeight: '1.4'
-                  }}
-                  title={prompt.prompt_text}
-                >
-                  {index + 1}. &quot;{prompt.prompt_text}&quot;
-                </p>
-
-                <div className="mt-auto">
-                  <hr className="my-1.5 border-t border-gray-100" />
-                  <div className="mt-1 text-[10px] space-y-0.5">
-                    <p className="text-gray-500 truncate">
-                      {prompt.user_name && prompt.user_name !== "undefined" ? prompt.user_name : ""}
-                    </p>
-                    <p className="text-gray-400">
-                      {new Date(prompt.updated_at).toLocaleDateString()}
-                    </p>
-                  </div>
+          <div className="w-full">
+            {/* Search bar */}
+            <div className="w-full bg-white border-b">
+              <div className="max-w-[1400px] mx-auto px-3 py-2">
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Search prompts..."
+                    value={searchTermRepository}
+                    onChange={(e) => setSearchTermRepository(e.target.value)}
+                    className="w-full py-1.5 px-3 pr-8 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs"
+                  />
+                  {searchTermRepository ? (
+                    <button
+                      onClick={() => setSearchTermRepository("")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                  ) : (
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                  )}
                 </div>
               </div>
-            ))}
+            </div>
+
+            {/* Grid */}
+            <div className="w-full">
+              <div className="max-w-[1400px] mx-auto px-3 py-3">
+                {!isLoading && filteredRepositoryPrompts.length > 0 ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 auto-rows-fr">
+                    {filteredRepositoryPrompts.map((prompt, index) => (
+                      <div
+                        key={prompt.id}
+                        className="prompt-card border rounded-lg shadow-sm p-3 bg-white transition-all duration-300 hover:shadow-md flex flex-col justify-between cursor-pointer"
+                        style={{ minHeight: '150px', maxWidth: '100%' }}
+                        onClick={() => handlePlayClick(prompt)}
+                      >
+                        {/* Prompt text */}
+                        <p
+                          className="text-xs font-semibold mb-2 flex-grow text-gray-800"
+                          style={{
+                            display: '-webkit-box',
+                            WebkitLineClamp: 3,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                            wordBreak: 'break-word',
+                            overflowWrap: 'break-word',
+                            lineHeight: '1.4'
+                          }}
+                          title={prompt.prompt_text}
+                        >
+                          {index + 1}. &quot;{prompt.prompt_text}&quot;
+                        </p>
+
+                        <div className="mt-auto">
+                          <hr className="my-1.5 border-t border-gray-100" />
+                         <div>
+                                <p className="text-gray-600 truncate">
+                                  Created By: {prompt.user_name && prompt.user_name !== "undefined" ? prompt.user_name : ""}
+                                </p>
+                                <p className="text-gray-600">
+                                  Updated: {new Date(prompt.updated_at || prompt.created_at).toLocaleDateString()}
+                                </p>
+                              </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : !isLoading ? (
+                  <div className="text-center py-8">
+                    <p className="text-gray-500 text-xs">
+                      {searchTermRepository
+                        ? `No prompts found for "${searchTermRepository}"`
+                        : "No repository prompts available"}
+                    </p>
+                    {searchTermRepository && (
+                      <button
+                        onClick={() => setSearchTermRepository("")}
+                        className="mt-3 text-blue-500 hover:text-blue-700 text-xs"
+                      >
+                        Clear search
+                      </button>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            </div>
           </div>
-        ) : !isLoading ? (
-          <div className="text-center py-8">
-            <p className="text-gray-500 text-xs">
-              {searchTermRepository
-                ? `No prompts found for "${searchTermRepository}"`
-                : "No repository prompts available"}
-            </p>
-            {searchTermRepository && (
-              <button
-                onClick={() => setSearchTermRepository("")}
-                className="mt-3 text-blue-500 hover:text-blue-700 text-xs"
-              >
-                Clear search
-              </button>
-            )}
-          </div>
-        ) : null}
-      </div>
-    </div>
-  </div>
-)}
+        )}
 
         {isCommentOpen && (
           <div className="fixed inset-0 flex items-center justify-center z-50">
@@ -4708,1012 +4708,1006 @@ const fetchRows = async () => {
 
         {isLoading && <Spinner />}
 
-{activeTab === "tables" && (
-  <div className="p-2 sm:p-4">
-    {/* Header */}
-    <div className="flex flex-col gap-2 mb-3 sm:flex-row sm:justify-between sm:items-center sm:mb-4">
-      {/* Title + slot indicators */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <h2 className="text-sm font-semibold text-gray-700">Data Sources</h2>
-        {dataSources.length > 0 && (
-          <>
-            <span className="text-xs text-gray-400">
-              ({dataSources.length}/{dataSources[0]?.total_slots || 4} slots)
-            </span>
-            <div className="flex items-center gap-1">
-              {Array.from({ length: dataSources[0]?.total_slots || 4 }, (_, i) => {
-                const filled = dataSources.find(s => s.slot_number === i + 1);
-                return (
-                  <div
-                    key={i}
-                    className={`w-5 h-1.5 rounded-full ${filled ? "bg-blue-500" : "bg-gray-200"}`}
-                    title={filled ? `Slot ${i + 1}: ${filled.source_name}` : `Slot ${i + 1}: Empty`}
-                  />
-                );
-              })}
-            </div>
-          </>
-        )}
-      </div>
+        {activeTab === "tables" && (
+          <div className="p-2 sm:p-4">
+            {/* Header */}
+            <div className="flex flex-col gap-2 mb-3 sm:flex-row sm:justify-between sm:items-center sm:mb-4">
+              {/* Title + slot indicators */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-sm font-semibold text-gray-700">Data Sources</h2>
+                {dataSources.length > 0 && (
+                  <>
+                    <span className="text-xs text-gray-400">
+                      ({dataSources.length}/{dataSources[0]?.total_slots || 4} slots)
+                    </span>
+                    <div className="flex items-center gap-1">
+                      {Array.from({ length: dataSources[0]?.total_slots || 4 }, (_, i) => {
+                        const filled = dataSources.find(s => s.slot_number === i + 1);
+                        return (
+                          <div
+                            key={i}
+                            className={`w-5 h-1.5 rounded-full ${filled ? "bg-blue-500" : "bg-gray-200"}`}
+                            title={filled ? `Slot ${i + 1}: ${filled.source_name}` : `Slot ${i + 1}: Empty`}
+                          />
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
 
-      {/* Action buttons */}
-      <div className="flex gap-1.5 flex-wrap">
-        <button
-          onClick={fetchDataSources}
-          className="flex items-center gap-1 px-2 py-1.5 text-xs text-blue-600 border border-blue-200 rounded-md hover:text-blue-800 whitespace-nowrap"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-          Refresh
-        </button>
-        <button
-          className="px-2 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs whitespace-nowrap"
-          onClick={handleViewTables}
-        >
-          + PG Table
-        </button>
-        <button
-          className="px-2 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-md text-xs whitespace-nowrap"
-          onClick={handleeOpenModal}
-        >
-          + Info-Object
-        </button>
-      </div>
-    </div>
-
-    {/* Table container */}
-    <div className="bg-white rounded-lg shadow-md overflow-hidden">
-      {dataSourcesLoading ? (
-        <div className="flex justify-center items-center py-10">
-          <svg className="animate-spin h-6 w-6 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-          </svg>
-        </div>
-      ) : (
-        <div className="overflow-x-auto w-full">
-          <table className="min-w-[560px] w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase w-10">Slot</th>
-                <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase">Name</th>
-                <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase hidden sm:table-cell">Description</th>
-                <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase w-16">Type</th>
-                <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase w-16">Status</th>
-                <th className="px-2 py-2 text-center text-xs font-medium text-gray-600 uppercase">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-
-              {/* Approved data sources */}
-              {dataSources.map((source) => {
-                const matchedRow = source.source_type === "csv"
-                  ? rows.find(r => String(r.id) === String(source.data_management_table_id))
-                  : null;
-                const isExpanded = isDropdownOpenn === String(source.id);
-
-                return (
-                  <React.Fragment key={`source-${source.id}`}>
-                    <tr className="hover:bg-gray-50">
-                      <td className="px-2 py-2">
-                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs font-bold">
-                          {source.slot_number}
-                        </span>
-                      </td>
-                      <td className="px-2 py-2 text-xs font-medium text-gray-800 max-w-[100px] truncate" title={source.source_name}>
-                        {source.source_name}
-                      </td>
-                      <td className="px-2 py-2 text-xs text-gray-600 max-w-[120px] truncate hidden sm:table-cell" title={source.description}>
-                        {source.description || "—"}
-                      </td>
-                      <td className="px-2 py-2">
-                        <span className={`px-1.5 py-0.5 text-xs font-semibold rounded-full ${
-                          source.source_type === "table_data"
-                            ? "bg-purple-100 text-purple-700"
-                            : "bg-green-100 text-green-700"
-                        }`}>
-                          {source.source_type_display}
-                        </span>
-                      </td>
-                      <td className="px-2 py-2">
-                        <span className="px-1.5 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-700">
-                          Active
-                        </span>
-                      </td>
-                      <td className="px-2 py-2">
-                        <div className="flex justify-center items-center gap-1.5">
-                          {source.source_type === "csv" && matchedRow && (
-                            <>
-                              <button
-                                onClick={() => handleEdit(matchedRow)}
-                                className="text-blue-600 hover:text-blue-800 p-1"
-                                title="Edit"
-                              >
-                                <FaPen size={12} />
-                              </button>
-                              <button
-                                onClick={() => handleOpenUploadModal(matchedRow.id)}
-                                className="text-green-600 hover:text-green-800 p-1"
-                                title="Upload File"
-                              >
-                                <FaFileUpload size={12} />
-                              </button>
-                              <button
-                                onClick={() => toggleDropdowns(String(source.id))}
-                                className="text-gray-600 hover:text-gray-800 p-1"
-                                title={isExpanded ? "Collapse" : "View Files"}
-                              >
-                                {isExpanded ? <FaCaretUp size={12} /> : <FaCaretDown size={12} />}
-                              </button>
-                            </>
-                          )}
-                          <button
-                            onClick={() => setDeleteDataSourceConfirm({ isOpen: true, source })}
-                            className="text-red-600 hover:text-red-800 p-1"
-                            title="Delete"
-                          >
-                            <FaTrash size={12} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-
-                    {/* Expanded files for approved source */}
-                    {isExpanded && matchedRow && (
-                      <tr>
-                        <td colSpan={6} className="px-0 py-0 bg-gray-50">
-                          <div className="px-4 py-3">
-                            <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Uploaded Files</p>
-                            <div className="overflow-x-auto">
-                              <table className="min-w-full divide-y divide-gray-200 text-xs">
-                                <thead className="bg-gray-100">
-                                  <tr>
-                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">File Name</th>
-                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">Created On</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="bg-white divide-y divide-gray-200">
-                                  {matchedRow.files && matchedRow.files.length > 0 ? (
-                                    matchedRow.files.map((file) => (
-                                      <tr key={file.id} className="hover:bg-gray-50">
-                                        <td className="px-3 py-2 text-gray-700 max-w-[150px] truncate">{file.filename}</td>
-                                        <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{new Date(file.created_at).toLocaleDateString()}</td>
-                                      </tr>
-                                    ))
-                                  ) : (
-                                    <tr>
-                                      <td colSpan={2} className="px-3 py-3 text-center text-gray-400 text-xs">
-                                        No files uploaded yet
-                                      </td>
-                                    </tr>
-                                  )}
-                                </tbody>
-                              </table>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-
-              {/* Pending / unapproved info-objects */}
-              {rows
-                .filter(row => {
-                  if (row.approval_status && row.approval_status !== 'pending') return false;
-                  const alreadyLinked = dataSources.some(
-                    s => String(s.data_management_table_id) === String(row.id)
-                  );
-                  return !alreadyLinked;
-                })
-                .map((row) => {
-                  const isExpanded = isDropdownOpenn === String(row.id);
-                  return (
-                    <React.Fragment key={`pending-${row.id}`}>
-                      <tr className="hover:bg-yellow-50 bg-yellow-25">
-                        <td className="px-2 py-2">
-                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-yellow-100 text-yellow-700 text-xs font-bold">
-                            —
-                          </span>
-                        </td>
-                        <td className="px-2 py-2 text-xs font-medium text-gray-800 max-w-[100px] truncate" title={row.table_name}>
-                          {row.table_name}
-                        </td>
-                        <td className="px-2 py-2 text-xs text-gray-600 max-w-[120px] truncate hidden sm:table-cell" title={row.table_description}>
-                          {row.table_description}
-                        </td>
-                        <td className="px-2 py-2">
-                          <span className="px-1.5 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-700">
-                            CSV
-                          </span>
-                        </td>
-                        <td className="px-2 py-2">
-                          <span className="px-1.5 py-0.5 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-700">
-                            Pending
-                          </span>
-                        </td>
-                        <td className="px-2 py-2">
-                          <div className="flex justify-center items-center gap-1 flex-wrap">
-                            <button
-                              onClick={() => handleDirectApprove('table', row.id)}
-                              className="flex items-center gap-0.5 px-1.5 py-1 bg-green-600 hover:bg-green-700 text-white text-xs font-medium rounded"
-                              title="Approve & Add to Data Sources"
-                            >
-                              <FaCheck size={9} />
-                              <span className="hidden sm:inline">Approve</span>
-                            </button>
-                            <button
-                              onClick={() => handleEdit(row)}
-                              className="text-blue-600 hover:text-blue-800 p-1"
-                              title="Edit"
-                            >
-                              <FaPen size={12} />
-                            </button>
-                            <button
-                              onClick={() => handleOpenUploadModal(row.id)}
-                              className="text-green-600 hover:text-green-800 p-1"
-                              title="Upload File"
-                            >
-                              <FaFileUpload size={12} />
-                            </button>
-                            <button
-                              onClick={() => toggleDropdowns(String(row.id))}
-                              className="text-gray-600 hover:text-gray-800 p-1"
-                              title={isExpanded ? "Collapse" : "View Files"}
-                            >
-                              {isExpanded ? <FaCaretUp size={12} /> : <FaCaretDown size={12} />}
-                            </button>
-                            <button
-                              onClick={() => handleDeletes(row)}
-                              className="text-red-600 hover:text-red-800 p-1"
-                              title="Delete"
-                            >
-                              <FaTrash size={12} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-
-                      {/* Expanded files for pending */}
-                      {isExpanded && (
-                        <tr>
-                          <td colSpan={6} className="px-0 py-0 bg-gray-50">
-                            <div className="px-4 py-3">
-                              <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Uploaded Files</p>
-                              <div className="overflow-x-auto">
-                                <table className="min-w-full divide-y divide-gray-200 text-xs">
-                                  <thead className="bg-gray-100">
-                                    <tr>
-                                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">File Name</th>
-                                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">Created On</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="bg-white divide-y divide-gray-200">
-                                    {row.files && row.files.length > 0 ? (
-                                      row.files.map((file) => (
-                                        <tr key={file.id} className="hover:bg-gray-50">
-                                          <td className="px-3 py-2 text-gray-700 max-w-[150px] truncate">{file.filename}</td>
-                                          <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{new Date(file.created_at).toLocaleDateString()}</td>
-                                        </tr>
-                                      ))
-                                    ) : (
-                                      <tr>
-                                        <td colSpan={2} className="px-3 py-3 text-center text-gray-400 text-xs">
-                                          No files uploaded yet. Click Upload above.
-                                        </td>
-                                      </tr>
-                                    )}
-                                  </tbody>
-                                </table>
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
-
-              {/* Empty state */}
-              {dataSources.length === 0 && rows.filter(r => !r.approval_status || r.approval_status === 'pending').length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-xs text-gray-500">
-                    No data sources or info-objects yet. Use "+ PG Table" or "+ Info-Object" to add.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-
-    {/* ── Delete Data Source Modal ── */}
-    {deleteDataSourceConfirm.isOpen && deleteDataSourceConfirm.source && (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-4">
-        <div className="bg-white rounded-lg p-5 w-full max-w-md shadow-xl">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-base font-semibold text-gray-800">Delete Data Source</h3>
-            <button
-              onClick={() => setDeleteDataSourceConfirm({ isOpen: false, source: null })}
-              className="text-gray-400 hover:text-gray-600"
-            >
-              <FaTimes />
-            </button>
-          </div>
-          <div className="mb-4 p-3 bg-red-50 border border-red-100 rounded-md">
-            <p className="text-sm text-gray-700 mb-1">You are about to delete:</p>
-            <p className="font-semibold text-gray-900 text-sm">{deleteDataSourceConfirm.source.source_name}</p>
-            <p className="text-xs text-gray-500 mt-1">
-              Slot {deleteDataSourceConfirm.source.slot_number} · {deleteDataSourceConfirm.source.source_type_display}
-              {deleteDataSourceConfirm.source.pg_table_name && ` · ${deleteDataSourceConfirm.source.pg_table_name}`}
-            </p>
-          </div>
-          <p className="text-xs text-red-600 mb-5">
-            ⚠️ This also deletes associated AI documentation. This action cannot be undone.
-          </p>
-          <div className="flex justify-end gap-3">
-            <button
-              onClick={() => setDeleteDataSourceConfirm({ isOpen: false, source: null })}
-              className="px-3 py-2 border border-gray-300 rounded-md text-xs text-gray-700 hover:bg-gray-50"
-              disabled={isDeletingDataSource}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleDeleteDataSource}
-              disabled={isDeletingDataSource}
-              className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md text-xs font-medium flex items-center gap-2"
-            >
-              {isDeletingDataSource ? (
-                <>
-                  <svg className="animate-spin h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              {/* Action buttons */}
+              <div className="flex gap-1.5 flex-wrap">
+                <button
+                  onClick={fetchDataSources}
+                  className="flex items-center gap-1 px-2 py-1.5 text-xs text-blue-600 border border-blue-200 rounded-md hover:text-blue-800 whitespace-nowrap"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                   </svg>
-                  Deleting...
-                </>
-              ) : (
-                <><FaTrash size={11} /> Delete</>
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
-    )}
+                  Refresh
+                </button>
+                <button
+                  className="px-2 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs whitespace-nowrap"
+                  onClick={handleViewTables}
+                >
+                  + PG Table
+                </button>
+                <button
+                  className="px-2 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-md text-xs whitespace-nowrap"
+                  onClick={handleeOpenModal}
+                >
+                  + Info-Object
+                </button>
+              </div>
+            </div>
 
-    {/* ── Delete Info-Object Confirmation Modal ── */}
-    {deleteConfirmation.isOpen && (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-4">
-        <div className="bg-white rounded-lg p-5 w-full max-w-md shadow-xl">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-base font-semibold">Confirm Deletion</h3>
-            <button
-              onClick={cancelDelete}
-              className="text-gray-500 hover:text-gray-700"
-              disabled={isDeletingInfoObject}
-            >
-              <FaTimes />
-            </button>
-          </div>
-          <p className="text-sm mb-6">
-            Are you sure you want to delete the Info-Object "
-            <span className="font-semibold">{deleteConfirmation.rowToDelete?.table_name}</span>"?
-            This action cannot be undone.
-          </p>
-          <div className="flex justify-end gap-3">
-            <button
-              onClick={cancelDelete}
-              disabled={isDeletingInfoObject}
-              className="px-3 py-2 border border-gray-300 rounded-md text-xs hover:bg-gray-50 disabled:bg-gray-100 disabled:cursor-not-allowed"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={confirmDelete}
-              disabled={isDeletingInfoObject}
-              className="px-3 py-2 bg-red-600 text-white rounded-md text-xs hover:bg-red-700 disabled:bg-red-300 disabled:cursor-not-allowed flex items-center gap-2"
-            >
-              {isDeletingInfoObject ? (
-                <>
-                  <svg className="animate-spin h-3.5 w-3.5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            {/* Table container */}
+            <div className="bg-white rounded-lg shadow-md overflow-hidden">
+              {dataSourcesLoading ? (
+                <div className="flex justify-center items-center py-10">
+                  <svg className="animate-spin h-6 w-6 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                   </svg>
-                  Deleting...
-                </>
-              ) : 'Delete'}
-            </button>
-          </div>
-        </div>
-      </div>
-    )}
+                </div>
+              ) : (
+                <div className="overflow-x-auto w-full">
+                  <table className="min-w-[560px] w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase w-10">Slot</th>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase">Name</th>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase hidden sm:table-cell">Description</th>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase w-16">Type</th>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase w-16">Status</th>
+                        <th className="px-2 py-2 text-center text-xs font-medium text-gray-600 uppercase">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
 
-    {/* ── View PG Tables Modal ── */}
-    {isViewTablesModalOpen && (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-3">
-        <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl mx-auto flex flex-col max-h-[90vh]">
-          {/* Header */}
-          <div className="flex justify-between items-start px-4 py-3 border-b flex-shrink-0">
-            <div>
-              <h3 className="text-base font-semibold text-gray-800">PostgreSQL Tables</h3>
-              {pgDbInfo && (
-                <p className="text-xs text-gray-500 mt-0.5">
-                  DB: <span className="font-medium">{pgDbInfo.database_name}</span>
-                  &nbsp;·&nbsp;
-                  <span className="font-medium">{pgDbInfo.table_count}</span> tables
-                  &nbsp;·&nbsp;
-                  <span className="text-blue-600 font-medium">Click row to add</span>
-                </p>
+                      {/* Approved data sources */}
+                      {dataSources.map((source) => {
+                        const matchedRow = source.source_type === "csv"
+                          ? rows.find(r => String(r.id) === String(source.data_management_table_id))
+                          : null;
+                        const isExpanded = isDropdownOpenn === String(source.id);
+
+                        return (
+                          <React.Fragment key={`source-${source.id}`}>
+                            <tr className="hover:bg-gray-50">
+                              <td className="px-2 py-2">
+                                <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs font-bold">
+                                  {source.slot_number}
+                                </span>
+                              </td>
+                              <td className="px-2 py-2 text-xs font-medium text-gray-800 max-w-[100px] truncate" title={source.source_name}>
+                                {source.source_name}
+                              </td>
+                              <td className="px-2 py-2 text-xs text-gray-600 max-w-[120px] truncate hidden sm:table-cell" title={source.description}>
+                                {source.description || "—"}
+                              </td>
+                              <td className="px-2 py-2">
+                                <span className={`px-1.5 py-0.5 text-xs font-semibold rounded-full ${source.source_type === "table_data"
+                                    ? "bg-purple-100 text-purple-700"
+                                    : "bg-green-100 text-green-700"
+                                  }`}>
+                                  {source.source_type_display}
+                                </span>
+                              </td>
+                              <td className="px-2 py-2">
+                                <span className="px-1.5 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-700">
+                                  Active
+                                </span>
+                              </td>
+                              <td className="px-2 py-2">
+                                <div className="flex justify-center items-center gap-1.5">
+                                  {source.source_type === "csv" && matchedRow && (
+                                    <>
+                                      <button
+                                        onClick={() => handleEdit(matchedRow)}
+                                        className="text-blue-600 hover:text-blue-800 p-1"
+                                        title="Edit"
+                                      >
+                                        <FaPen size={12} />
+                                      </button>
+                                      <button
+                                        onClick={() => handleOpenUploadModal(matchedRow.id)}
+                                        className="text-green-600 hover:text-green-800 p-1"
+                                        title="Upload File"
+                                      >
+                                        <FaFileUpload size={12} />
+                                      </button>
+                                      <button
+                                        onClick={() => toggleDropdowns(String(source.id))}
+                                        className="text-gray-600 hover:text-gray-800 p-1"
+                                        title={isExpanded ? "Collapse" : "View Files"}
+                                      >
+                                        {isExpanded ? <FaCaretUp size={12} /> : <FaCaretDown size={12} />}
+                                      </button>
+                                    </>
+                                  )}
+                                  <button
+                                    onClick={() => setDeleteDataSourceConfirm({ isOpen: true, source })}
+                                    className="text-red-600 hover:text-red-800 p-1"
+                                    title="Delete"
+                                  >
+                                    <FaTrash size={12} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+
+                            {/* Expanded files for approved source */}
+                            {isExpanded && matchedRow && (
+                              <tr>
+                                <td colSpan={6} className="px-0 py-0 bg-gray-50">
+                                  <div className="px-4 py-3">
+                                    <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Uploaded Files</p>
+                                    <div className="overflow-x-auto">
+                                      <table className="min-w-full divide-y divide-gray-200 text-xs">
+                                        <thead className="bg-gray-100">
+                                          <tr>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">File Name</th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">Created On</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="bg-white divide-y divide-gray-200">
+                                          {matchedRow.files && matchedRow.files.length > 0 ? (
+                                            matchedRow.files.map((file) => (
+                                              <tr key={file.id} className="hover:bg-gray-50">
+                                                <td className="px-3 py-2 text-gray-700 max-w-[150px] truncate">{file.filename}</td>
+                                                <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{new Date(file.created_at).toLocaleDateString()}</td>
+                                              </tr>
+                                            ))
+                                          ) : (
+                                            <tr>
+                                              <td colSpan={2} className="px-3 py-3 text-center text-gray-400 text-xs">
+                                                No files uploaded yet
+                                              </td>
+                                            </tr>
+                                          )}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+
+                      {/* Pending / unapproved info-objects */}
+                      {rows
+                        .filter(row => {
+                          if (row.approval_status && row.approval_status !== 'pending') return false;
+                          const alreadyLinked = dataSources.some(
+                            s => String(s.data_management_table_id) === String(row.id)
+                          );
+                          return !alreadyLinked;
+                        })
+                        .map((row) => {
+                          const isExpanded = isDropdownOpenn === String(row.id);
+                          return (
+                            <React.Fragment key={`pending-${row.id}`}>
+                              <tr className="hover:bg-yellow-50 bg-yellow-25">
+                                <td className="px-2 py-2">
+                                  <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-yellow-100 text-yellow-700 text-xs font-bold">
+                                    —
+                                  </span>
+                                </td>
+                                <td className="px-2 py-2 text-xs font-medium text-gray-800 max-w-[100px] truncate" title={row.table_name}>
+                                  {row.table_name}
+                                </td>
+                                <td className="px-2 py-2 text-xs text-gray-600 max-w-[120px] truncate hidden sm:table-cell" title={row.table_description}>
+                                  {row.table_description}
+                                </td>
+                                <td className="px-2 py-2">
+                                  <span className="px-1.5 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-700">
+                                    CSV
+                                  </span>
+                                </td>
+                                <td className="px-2 py-2">
+                                  <span className="px-1.5 py-0.5 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-700">
+                                    Pending
+                                  </span>
+                                </td>
+                                <td className="px-2 py-2">
+                                  <div className="flex justify-center items-center gap-1 flex-wrap">
+                                    <button
+                                      onClick={() => handleDirectApprove('table', row.id)}
+                                      className="flex items-center gap-0.5 px-1.5 py-1 bg-green-600 hover:bg-green-700 text-white text-xs font-medium rounded"
+                                      title="Approve & Add to Data Sources"
+                                    >
+                                      <FaCheck size={9} />
+                                      <span className="hidden sm:inline">Approve</span>
+                                    </button>
+                                    <button
+                                      onClick={() => handleEdit(row)}
+                                      className="text-blue-600 hover:text-blue-800 p-1"
+                                      title="Edit"
+                                    >
+                                      <FaPen size={12} />
+                                    </button>
+                                    <button
+                                      onClick={() => handleOpenUploadModal(row.id)}
+                                      className="text-green-600 hover:text-green-800 p-1"
+                                      title="Upload File"
+                                    >
+                                      <FaFileUpload size={12} />
+                                    </button>
+                                    <button
+                                      onClick={() => toggleDropdowns(String(row.id))}
+                                      className="text-gray-600 hover:text-gray-800 p-1"
+                                      title={isExpanded ? "Collapse" : "View Files"}
+                                    >
+                                      {isExpanded ? <FaCaretUp size={12} /> : <FaCaretDown size={12} />}
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeletes(row)}
+                                      className="text-red-600 hover:text-red-800 p-1"
+                                      title="Delete"
+                                    >
+                                      <FaTrash size={12} />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+
+                              {/* Expanded files for pending */}
+                              {isExpanded && (
+                                <tr>
+                                  <td colSpan={6} className="px-0 py-0 bg-gray-50">
+                                    <div className="px-4 py-3">
+                                      <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Uploaded Files</p>
+                                      <div className="overflow-x-auto">
+                                        <table className="min-w-full divide-y divide-gray-200 text-xs">
+                                          <thead className="bg-gray-100">
+                                            <tr>
+                                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">File Name</th>
+                                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">Created On</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody className="bg-white divide-y divide-gray-200">
+                                            {row.files && row.files.length > 0 ? (
+                                              row.files.map((file) => (
+                                                <tr key={file.id} className="hover:bg-gray-50">
+                                                  <td className="px-3 py-2 text-gray-700 max-w-[150px] truncate">{file.filename}</td>
+                                                  <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{new Date(file.created_at).toLocaleDateString()}</td>
+                                                </tr>
+                                              ))
+                                            ) : (
+                                              <tr>
+                                                <td colSpan={2} className="px-3 py-3 text-center text-gray-400 text-xs">
+                                                  No files uploaded yet. Click Upload above.
+                                                </td>
+                                              </tr>
+                                            )}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
+
+                      {/* Empty state */}
+                      {dataSources.length === 0 && rows.filter(r => !r.approval_status || r.approval_status === 'pending').length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="px-4 py-8 text-center text-xs text-gray-500">
+                            No data sources or info-objects yet. Use "+ PG Table" or "+ Info-Object" to add.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
-            <button onClick={() => setIsViewTablesModalOpen(false)} className="text-gray-400 hover:text-gray-600 ml-2">
-              <FaTimes size={16} />
-            </button>
-          </div>
 
-          {/* Body */}
-          <div className="p-3 overflow-y-auto flex-1">
-            {pgTablesLoading ? (
-              <div className="flex justify-center items-center py-10">
-                <svg className="animate-spin h-7 w-7 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
+            {/* ── Delete Data Source Modal ── */}
+            {deleteDataSourceConfirm.isOpen && deleteDataSourceConfirm.source && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-4">
+                <div className="bg-white rounded-lg p-5 w-full max-w-md shadow-xl">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-base font-semibold text-gray-800">Delete Data Source</h3>
+                    <button
+                      onClick={() => setDeleteDataSourceConfirm({ isOpen: false, source: null })}
+                      className="text-gray-400 hover:text-gray-600"
+                    >
+                      <FaTimes />
+                    </button>
+                  </div>
+                  <div className="mb-4 p-3 bg-red-50 border border-red-100 rounded-md">
+                    <p className="text-sm text-gray-700 mb-1">You are about to delete:</p>
+                    <p className="font-semibold text-gray-900 text-sm">{deleteDataSourceConfirm.source.source_name}</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Slot {deleteDataSourceConfirm.source.slot_number} · {deleteDataSourceConfirm.source.source_type_display}
+                      {deleteDataSourceConfirm.source.pg_table_name && ` · ${deleteDataSourceConfirm.source.pg_table_name}`}
+                    </p>
+                  </div>
+                  <p className="text-xs text-red-600 mb-5">
+                    ⚠️ This also deletes associated AI documentation. This action cannot be undone.
+                  </p>
+                  <div className="flex justify-end gap-3">
+                    <button
+                      onClick={() => setDeleteDataSourceConfirm({ isOpen: false, source: null })}
+                      className="px-3 py-2 border border-gray-300 rounded-md text-xs text-gray-700 hover:bg-gray-50"
+                      disabled={isDeletingDataSource}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleDeleteDataSource}
+                      disabled={isDeletingDataSource}
+                      className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md text-xs font-medium flex items-center gap-2"
+                    >
+                      {isDeletingDataSource ? (
+                        <>
+                          <svg className="animate-spin h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                          </svg>
+                          Deleting...
+                        </>
+                      ) : (
+                        <><FaTrash size={11} /> Delete</>
+                      )}
+                    </button>
+                  </div>
+                </div>
               </div>
-            ) : pgTables.length === 0 ? (
-              <p className="text-center text-gray-500 text-sm py-8">No tables found in this database.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-[520px] w-full divide-y divide-gray-200 text-xs">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">#</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">Table Name</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">Rows</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase hidden sm:table-cell">Cols</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase hidden sm:table-cell">Size</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase hidden sm:table-cell">Created</th>
-                      <th className="px-3 py-2 text-center text-xs font-medium text-gray-600 uppercase">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {pgTables.map((table, index) => (
-                      <tr key={table.table_name} className="hover:bg-blue-50 transition-colors">
-                        <td className="px-3 py-2 text-gray-400">{index + 1}</td>
-                        <td className="px-3 py-2 font-medium text-gray-800 max-w-[120px] truncate">{table.table_name}</td>
-                        <td className="px-3 py-2 text-gray-600">{table.row_count.toLocaleString()}</td>
-                        <td className="px-3 py-2 text-gray-600 hidden sm:table-cell">{table.column_count}</td>
-                        <td className="px-3 py-2 text-gray-600 hidden sm:table-cell">{table.size}</td>
-                        <td className="px-3 py-2 text-gray-600 hidden sm:table-cell">
-                          {table.created_at ? new Date(table.created_at).toLocaleDateString() : "—"}
-                        </td>
-                        <td className="px-3 py-2 text-center">
-                          <button
-                            onClick={() => {
-                              setSelectedPgTable(table);
-                              setAddDataSourceForm({
-                                source_name: table.table_name,
-                                description: "",
-                                row_limit: 100000,
-                              });
-                              setShowAddDataSourceModal(true);
-                            }}
-                            className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-md transition-colors"
-                          >
-                            + Add
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            )}
+
+            {/* ── Delete Info-Object Confirmation Modal ── */}
+            {deleteConfirmation.isOpen && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-4">
+                <div className="bg-white rounded-lg p-5 w-full max-w-md shadow-xl">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-base font-semibold">Confirm Deletion</h3>
+                    <button
+                      onClick={cancelDelete}
+                      className="text-gray-500 hover:text-gray-700"
+                      disabled={isDeletingInfoObject}
+                    >
+                      <FaTimes />
+                    </button>
+                  </div>
+                  <p className="text-sm mb-6">
+                    Are you sure you want to delete the Info-Object "
+                    <span className="font-semibold">{deleteConfirmation.rowToDelete?.table_name}</span>"?
+                    This action cannot be undone.
+                  </p>
+                  <div className="flex justify-end gap-3">
+                    <button
+                      onClick={cancelDelete}
+                      disabled={isDeletingInfoObject}
+                      className="px-3 py-2 border border-gray-300 rounded-md text-xs hover:bg-gray-50 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={confirmDelete}
+                      disabled={isDeletingInfoObject}
+                      className="px-3 py-2 bg-red-600 text-white rounded-md text-xs hover:bg-red-700 disabled:bg-red-300 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                      {isDeletingInfoObject ? (
+                        <>
+                          <svg className="animate-spin h-3.5 w-3.5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                          </svg>
+                          Deleting...
+                        </>
+                      ) : 'Delete'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── View PG Tables Modal ── */}
+            {isViewTablesModalOpen && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-3">
+                <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl mx-auto flex flex-col max-h-[90vh]">
+                  {/* Header */}
+                  <div className="flex justify-between items-start px-4 py-3 border-b flex-shrink-0">
+                    <div>
+                      <h3 className="text-base font-semibold text-gray-800">PostgreSQL Tables</h3>
+                      {pgDbInfo && (
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          DB: <span className="font-medium">{pgDbInfo.database_name}</span>
+                          &nbsp;·&nbsp;
+                          <span className="font-medium">{pgDbInfo.table_count}</span> tables
+                          &nbsp;·&nbsp;
+                          <span className="text-blue-600 font-medium">Click row to add</span>
+                        </p>
+                      )}
+                    </div>
+                    <button onClick={() => setIsViewTablesModalOpen(false)} className="text-gray-400 hover:text-gray-600 ml-2">
+                      <FaTimes size={16} />
+                    </button>
+                  </div>
+
+                  {/* Body */}
+                  <div className="p-3 overflow-y-auto flex-1">
+                    {pgTablesLoading ? (
+                      <div className="flex justify-center items-center py-10">
+                        <svg className="animate-spin h-7 w-7 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                      </div>
+                    ) : pgTables.length === 0 ? (
+                      <p className="text-center text-gray-500 text-sm py-8">No tables found in this database.</p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="min-w-[520px] w-full divide-y divide-gray-200 text-xs">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">#</th>
+                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">Table Name</th>
+                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">Rows</th>
+                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase hidden sm:table-cell">Cols</th>
+                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase hidden sm:table-cell">Size</th>
+                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase hidden sm:table-cell">Created</th>
+                              <th className="px-3 py-2 text-center text-xs font-medium text-gray-600 uppercase">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {pgTables.map((table, index) => (
+                              <tr key={table.table_name} className="hover:bg-blue-50 transition-colors">
+                                <td className="px-3 py-2 text-gray-400">{index + 1}</td>
+                                <td className="px-3 py-2 font-medium text-gray-800 max-w-[120px] truncate">{table.table_name}</td>
+                                <td className="px-3 py-2 text-gray-600">{table.row_count.toLocaleString()}</td>
+                                <td className="px-3 py-2 text-gray-600 hidden sm:table-cell">{table.column_count}</td>
+                                <td className="px-3 py-2 text-gray-600 hidden sm:table-cell">{table.size}</td>
+                                <td className="px-3 py-2 text-gray-600 hidden sm:table-cell">
+                                  {table.created_at ? new Date(table.created_at).toLocaleDateString() : "—"}
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  <button
+                                    onClick={() => {
+                                      setSelectedPgTable(table);
+                                      setAddDataSourceForm({
+                                        source_name: table.table_name,
+                                        description: "",
+                                        row_limit: 100000,
+                                      });
+                                      setShowAddDataSourceModal(true);
+                                    }}
+                                    className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-md transition-colors"
+                                  >
+                                    + Add
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Footer */}
+                  <div className="flex justify-end px-4 py-3 border-t flex-shrink-0">
+                    <button
+                      onClick={() => setIsViewTablesModalOpen(false)}
+                      className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md text-xs"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Add as Data Source Modal ── */}
+            {showAddDataSourceModal && selectedPgTable && (
+              <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] px-3">
+                <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-auto">
+                  {/* Header */}
+                  <div className="flex justify-between items-center px-4 py-3 border-b">
+                    <h3 className="text-base font-semibold text-gray-800">Add as Data Source</h3>
+                    <button
+                      onClick={() => {
+                        setShowAddDataSourceModal(false);
+                        setSelectedPgTable(null);
+                      }}
+                      className="text-gray-400 hover:text-gray-600"
+                    >
+                      <FaTimes size={16} />
+                    </button>
+                  </div>
+
+                  {/* Form */}
+                  <div className="px-4 py-4 space-y-3">
+                    {/* Selected Table (read-only) */}
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        Selected Table <span className="text-red-500">*</span>
+                      </label>
+                      <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-md flex-wrap">
+                        <span className="text-blue-700 font-medium text-xs">{selectedPgTable.table_name}</span>
+                        <span className="text-xs text-gray-500">
+                          ({selectedPgTable.row_count.toLocaleString()} rows · {selectedPgTable.column_count} cols · {selectedPgTable.size})
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Source Name */}
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        Source Name <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={addDataSourceForm.source_name}
+                        onChange={(e) => setAddDataSourceForm(prev => ({ ...prev, source_name: e.target.value }))}
+                        placeholder="e.g. ledger_data"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    {/* Description */}
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        Description <span className="text-red-500">*</span>
+                      </label>
+                      <textarea
+                        value={addDataSourceForm.description}
+                        onChange={(e) => setAddDataSourceForm(prev => ({ ...prev, description: e.target.value }))}
+                        placeholder="e.g. Ledger transactions for financial analysis"
+                        rows={3}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Footer */}
+                  <div className="flex justify-end gap-2 px-4 py-3 border-t">
+                    <button
+                      onClick={() => {
+                        setShowAddDataSourceModal(false);
+                        setSelectedPgTable(null);
+                      }}
+                      className="px-3 py-2 border border-gray-300 rounded-md text-xs text-gray-700 hover:bg-gray-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleAddPgTableAsDataSource}
+                      disabled={isAddingDataSource || !addDataSourceForm.source_name || !addDataSourceForm.description}
+                      className={`px-3 py-2 rounded-md text-xs text-white font-medium transition-colors ${isAddingDataSource || !addDataSourceForm.source_name || !addDataSourceForm.description
+                          ? "bg-blue-300 cursor-not-allowed"
+                          : "bg-blue-600 hover:bg-blue-700"
+                        }`}
+                    >
+                      {isAddingDataSource ? (
+                        <span className="flex items-center gap-1.5">
+                          <svg className="animate-spin h-3.5 w-3.5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                          </svg>
+                          Adding...
+                        </span>
+                      ) : "Add Data Source"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Upload Files Modal ── */}
+            {isUploadModalOpen && (
+              <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 px-3">
+                <div className="bg-white rounded-lg shadow-lg w-full max-w-sm p-4">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-base font-semibold">Upload Files</h3>
+                    <button onClick={handleCloseUploadModal} className="text-gray-400 hover:text-gray-500">
+                      <FaTimes />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleSubmitMultipleFiles} className="space-y-4">
+                    <div>
+                      <label className="block text-gray-700 text-xs font-bold mb-1.5" htmlFor="datePicker">
+                        Select Date:
+                      </label>
+                      <input
+                        type="date"
+                        id="datePicker"
+                        name="date"
+                        value={selectedDate}
+                        onChange={handleDateChange}
+                        className="border rounded w-full py-2 px-3 text-gray-700 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-gray-700 text-xs font-bold mb-1.5">
+                        Select Files (Multiple):
+                      </label>
+                      <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center cursor-pointer hover:border-blue-500 transition-colors">
+                        <input
+                          id="fileInput"
+                          name="files"
+                          type="file"
+                          multiple
+                          onChange={handleMultipleFileSelect}
+                          className="hidden"
+                          accept=".csv,.xlsx,.xls"
+                        />
+                        <label htmlFor="fileInput" className="cursor-pointer">
+                          <FaUpload className="text-gray-500 mx-auto mb-2" size={20} />
+                          <p className="text-xs text-gray-600 mb-1">
+                            {selectedFiles.length > 0
+                              ? `${selectedFiles.length} file(s) selected`
+                              : 'Click or drag files to upload'}
+                          </p>
+                          {selectedFiles.length > 0 && (
+                            <div className="mt-2 text-xs text-left max-h-24 overflow-y-auto">
+                              {selectedFiles.map((file, index) => (
+                                <div key={index} className="text-blue-600 truncate">• {file.name}</div>
+                              ))}
+                            </div>
+                          )}
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={handleCloseUploadModal}
+                        className="px-3 py-2 border border-gray-300 rounded-md text-xs hover:bg-gray-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isUploading || selectedFiles.length === 0}
+                        className={`px-3 py-2 bg-blue-500 text-white rounded-md text-xs hover:bg-blue-600 focus:outline-none ${isUploading || selectedFiles.length === 0 ? 'opacity-75 cursor-not-allowed' : ''
+                          }`}
+                      >
+                        {isUploading ? (
+                          <span className="flex items-center gap-1.5">
+                            <svg className="animate-spin h-3.5 w-3.5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            </svg>
+                            Uploading...
+                          </span>
+                        ) : `Upload${selectedFiles.length > 0 ? ` (${selectedFiles.length})` : ''}`}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* ── Create / Edit Info-Object Modal ── */}
+            {isModallOpen && (
+              <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 px-3">
+                <div className="bg-white rounded-lg shadow-lg w-full max-w-sm p-4">
+                  <h3 className="text-base font-semibold mb-4">
+                    {editRow ? 'Edit Info-Object' : 'Create New Info-Object'}
+                  </h3>
+                  <form onSubmit={handleSubmit} className="space-y-4">
+                    <div>
+                      <label className="block text-gray-700 text-xs font-bold mb-1.5">
+                        Info-Object Name
+                      </label>
+                      <input
+                        type="text"
+                        name="tableName"
+                        value={formData.tableName}
+                        onChange={handleChange}
+                        required
+                        disabled={isSavingInfoObject}
+                        className="border rounded w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-100"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-xs font-bold mb-1.5">
+                        Info-Object Description
+                      </label>
+                      <input
+                        type="text"
+                        name="tableDescription"
+                        value={formData.tableDescription}
+                        onChange={handleChange}
+                        required
+                        disabled={isSavingInfoObject}
+                        className="border rounded w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-100"
+                      />
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        type="submit"
+                        disabled={isSavingInfoObject}
+                        className={`flex-1 text-white text-xs font-bold py-2 px-4 rounded focus:outline-none flex items-center justify-center gap-2 ${isSavingInfoObject ? 'bg-blue-300 cursor-not-allowed' : 'bg-blue-500 hover:bg-blue-700'
+                          }`}
+                      >
+                        {isSavingInfoObject ? (
+                          <>
+                            <svg className="animate-spin h-3.5 w-3.5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            </svg>
+                            {editRow ? 'Updating...' : 'Creating...'}
+                          </>
+                        ) : (
+                          editRow ? 'Update' : 'Save'
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleeCloseModal}
+                        disabled={isSavingInfoObject}
+                        className="flex-1 bg-gray-500 hover:bg-gray-700 text-white text-xs font-bold py-2 px-4 rounded focus:outline-none disabled:bg-gray-300 disabled:cursor-not-allowed"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </form>
+                </div>
               </div>
             )}
           </div>
+        )}
 
-          {/* Footer */}
-          <div className="flex justify-end px-4 py-3 border-t flex-shrink-0">
-            <button
-              onClick={() => setIsViewTablesModalOpen(false)}
-              className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md text-xs"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      </div>
-    )}
 
-    {/* ── Add as Data Source Modal ── */}
-    {showAddDataSourceModal && selectedPgTable && (
-      <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] px-3">
-        <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-auto">
-          {/* Header */}
-          <div className="flex justify-between items-center px-4 py-3 border-b">
-            <h3 className="text-base font-semibold text-gray-800">Add as Data Source</h3>
-            <button
-              onClick={() => {
-                setShowAddDataSourceModal(false);
-                setSelectedPgTable(null);
-              }}
-              className="text-gray-400 hover:text-gray-600"
-            >
-              <FaTimes size={16} />
-            </button>
-          </div>
+        {activeTab === "documentation" && (
+          <div className="w-full">
+            <div className="max-w-[1400px] mx-auto px-3 py-3">
 
-          {/* Form */}
-          <div className="px-4 py-4 space-y-3">
-            {/* Selected Table (read-only) */}
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                Selected Table <span className="text-red-500">*</span>
-              </label>
-              <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-md flex-wrap">
-                <span className="text-blue-700 font-medium text-xs">{selectedPgTable.table_name}</span>
-                <span className="text-xs text-gray-500">
-                  ({selectedPgTable.row_count.toLocaleString()} rows · {selectedPgTable.column_count} cols · {selectedPgTable.size})
-                </span>
-              </div>
-            </div>
-
-            {/* Source Name */}
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                Source Name <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={addDataSourceForm.source_name}
-                onChange={(e) => setAddDataSourceForm(prev => ({ ...prev, source_name: e.target.value }))}
-                placeholder="e.g. ledger_data"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            {/* Description */}
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                Description <span className="text-red-500">*</span>
-              </label>
-              <textarea
-                value={addDataSourceForm.description}
-                onChange={(e) => setAddDataSourceForm(prev => ({ ...prev, description: e.target.value }))}
-                placeholder="e.g. Ledger transactions for financial analysis"
-                rows={3}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-          </div>
-
-          {/* Footer */}
-          <div className="flex justify-end gap-2 px-4 py-3 border-t">
-            <button
-              onClick={() => {
-                setShowAddDataSourceModal(false);
-                setSelectedPgTable(null);
-              }}
-              className="px-3 py-2 border border-gray-300 rounded-md text-xs text-gray-700 hover:bg-gray-50"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleAddPgTableAsDataSource}
-              disabled={isAddingDataSource || !addDataSourceForm.source_name || !addDataSourceForm.description}
-              className={`px-3 py-2 rounded-md text-xs text-white font-medium transition-colors ${
-                isAddingDataSource || !addDataSourceForm.source_name || !addDataSourceForm.description
-                  ? "bg-blue-300 cursor-not-allowed"
-                  : "bg-blue-600 hover:bg-blue-700"
-              }`}
-            >
-              {isAddingDataSource ? (
-                <span className="flex items-center gap-1.5">
-                  <svg className="animate-spin h-3.5 w-3.5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  Adding...
-                </span>
-              ) : "Add Data Source"}
-            </button>
-          </div>
-        </div>
-      </div>
-    )}
-
-    {/* ── Upload Files Modal ── */}
-    {isUploadModalOpen && (
-      <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 px-3">
-        <div className="bg-white rounded-lg shadow-lg w-full max-w-sm p-4">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-base font-semibold">Upload Files</h3>
-            <button onClick={handleCloseUploadModal} className="text-gray-400 hover:text-gray-500">
-              <FaTimes />
-            </button>
-          </div>
-
-          <form onSubmit={handleSubmitMultipleFiles} className="space-y-4">
-            <div>
-              <label className="block text-gray-700 text-xs font-bold mb-1.5" htmlFor="datePicker">
-                Select Date:
-              </label>
-              <input
-                type="date"
-                id="datePicker"
-                name="date"
-                value={selectedDate}
-                onChange={handleDateChange}
-                className="border rounded w-full py-2 px-3 text-gray-700 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-gray-700 text-xs font-bold mb-1.5">
-                Select Files (Multiple):
-              </label>
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center cursor-pointer hover:border-blue-500 transition-colors">
-                <input
-                  id="fileInput"
-                  name="files"
-                  type="file"
-                  multiple
-                  onChange={handleMultipleFileSelect}
-                  className="hidden"
-                  accept=".csv,.xlsx,.xls"
-                />
-                <label htmlFor="fileInput" className="cursor-pointer">
-                  <FaUpload className="text-gray-500 mx-auto mb-2" size={20} />
-                  <p className="text-xs text-gray-600 mb-1">
-                    {selectedFiles.length > 0
-                      ? `${selectedFiles.length} file(s) selected`
-                      : 'Click or drag files to upload'}
+              {/* Summary Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3">
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wide font-medium">Total Sources</p>
+                  <p className="text-2xl font-bold text-blue-600 mt-0.5">{data.length}</p>
+                </div>
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3">
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wide font-medium">Total Columns</p>
+                  <p className="text-2xl font-bold text-green-600 mt-0.5">
+                    {data.reduce((acc, src) => acc + (src.columns?.length || 0), 0)}
                   </p>
-                  {selectedFiles.length > 0 && (
-                    <div className="mt-2 text-xs text-left max-h-24 overflow-y-auto">
-                      {selectedFiles.map((file, index) => (
-                        <div key={index} className="text-blue-600 truncate">• {file.name}</div>
-                      ))}
-                    </div>
-                  )}
-                </label>
+                </div>
               </div>
-            </div>
 
-            <div className="flex justify-end gap-2 pt-1">
-              <button
-                type="button"
-                onClick={handleCloseUploadModal}
-                className="px-3 py-2 border border-gray-300 rounded-md text-xs hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isUploading || selectedFiles.length === 0}
-                className={`px-3 py-2 bg-blue-500 text-white rounded-md text-xs hover:bg-blue-600 focus:outline-none ${
-                  isUploading || selectedFiles.length === 0 ? 'opacity-75 cursor-not-allowed' : ''
-                }`}
-              >
-                {isUploading ? (
-                  <span className="flex items-center gap-1.5">
-                    <svg className="animate-spin h-3.5 w-3.5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              {/* AI Documentation Table */}
+              <div className="bg-white rounded-lg shadow-sm overflow-hidden border border-gray-200 mb-4">
+
+                {/* Table Header */}
+                <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
+                  <h3 className="text-xs font-semibold text-gray-800">AI Documentation</h3>
+                  <button
+                    onClick={fetchData}
+                    className="text-[10px] text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                     </svg>
-                    Uploading...
-                  </span>
-                ) : `Upload${selectedFiles.length > 0 ? ` (${selectedFiles.length})` : ''}`}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    )}
+                    Refresh
+                  </button>
+                </div>
 
-    {/* ── Create / Edit Info-Object Modal ── */}
-    {isModallOpen && (
-      <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 px-3">
-        <div className="bg-white rounded-lg shadow-lg w-full max-w-sm p-4">
-          <h3 className="text-base font-semibold mb-4">
-            {editRow ? 'Edit Info-Object' : 'Create New Info-Object'}
-          </h3>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-gray-700 text-xs font-bold mb-1.5">
-                Info-Object Name
-              </label>
-              <input
-                type="text"
-                name="tableName"
-                value={formData.tableName}
-                onChange={handleChange}
-                required
-                disabled={isSavingInfoObject}
-                className="border rounded w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-100"
-              />
-            </div>
-            <div>
-              <label className="block text-gray-700 text-xs font-bold mb-1.5">
-                Info-Object Description
-              </label>
-              <input
-                type="text"
-                name="tableDescription"
-                value={formData.tableDescription}
-                onChange={handleChange}
-                required
-                disabled={isSavingInfoObject}
-                className="border rounded w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-100"
-              />
-            </div>
-            <div className="flex gap-2 pt-1">
-              <button
-                type="submit"
-                disabled={isSavingInfoObject}
-                className={`flex-1 text-white text-xs font-bold py-2 px-4 rounded focus:outline-none flex items-center justify-center gap-2 ${
-                  isSavingInfoObject ? 'bg-blue-300 cursor-not-allowed' : 'bg-blue-500 hover:bg-blue-700'
-                }`}
-              >
-                {isSavingInfoObject ? (
-                  <>
-                    <svg className="animate-spin h-3.5 w-3.5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg>
-                    {editRow ? 'Updating...' : 'Creating...'}
-                  </>
-                ) : (
-                  editRow ? 'Update' : 'Save'
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={handleeCloseModal}
-                disabled={isSavingInfoObject}
-                className="flex-1 bg-gray-500 hover:bg-gray-700 text-white text-xs font-bold py-2 px-4 rounded focus:outline-none disabled:bg-gray-300 disabled:cursor-not-allowed"
-              >
-                Close
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    )}
-  </div>
-)}
-
-
-       {activeTab === "documentation" && (
-  <div className="w-full">
-    <div className="max-w-[1400px] mx-auto px-3 py-3">
-
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3">
-          <p className="text-[10px] text-gray-500 uppercase tracking-wide font-medium">Total Sources</p>
-          <p className="text-2xl font-bold text-blue-600 mt-0.5">{data.length}</p>
-        </div>
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3">
-          <p className="text-[10px] text-gray-500 uppercase tracking-wide font-medium">Total Columns</p>
-          <p className="text-2xl font-bold text-green-600 mt-0.5">
-            {data.reduce((acc, src) => acc + (src.columns?.length || 0), 0)}
-          </p>
-        </div>
-      </div>
-
-      {/* AI Documentation Table */}
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden border border-gray-200 mb-4">
-
-        {/* Table Header */}
-        <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
-          <h3 className="text-xs font-semibold text-gray-800">AI Documentation</h3>
-          <button
-            onClick={fetchData}
-            className="text-[10px] text-blue-600 hover:text-blue-800 flex items-center gap-1"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            Refresh
-          </button>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="w-8 px-3 py-2"></th>
-                <th className="px-3 py-2 text-left text-[10px] font-medium text-gray-600 uppercase tracking-wider">Source Name</th>
-                <th className="px-3 py-2 text-left text-[10px] font-medium text-gray-600 uppercase tracking-wider">Type</th>
-                <th className="px-3 py-2 text-left text-[10px] font-medium text-gray-600 uppercase tracking-wider">Columns</th>
-                <th className="px-3 py-2 text-center text-[10px] font-medium text-gray-600 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {data.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center">
-                    <p className="text-gray-400 text-xs">No data available for this board.</p>
-                  </td>
-                </tr>
-              ) : (
-                data.map((source) => {
-                  const isExpanded = expandedRow === source.id;
-                  return (
-                    <React.Fragment key={source.id}>
-                      <tr className={`hover:bg-gray-50 transition-colors ${isExpanded ? "bg-blue-50" : ""}`}>
-                        {/* Status dot */}
-                        <td className="px-3 py-2 text-center">
-                          <div className="w-1.5 h-1.5 rounded-full bg-green-400 mx-auto"></div>
-                        </td>
-
-                        {/* Source name */}
-                        <td className="px-3 py-2">
-                          <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-md bg-blue-100 flex items-center justify-center flex-shrink-0">
-                              <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4" />
-                              </svg>
-                            </div>
-                            <p className="text-xs font-semibold text-gray-800">{source.source_name}</p>
-                          </div>
-                        </td>
-
-                        {/* Type badge */}
-                        <td className="px-3 py-2">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${
-                            source.source_type === "table_data"
-                              ? "bg-purple-100 text-purple-700"
-                              : "bg-green-100 text-green-700"
-                          }`}>
-                            {source.source_type === "table_data" ? "Table" : source.source_type}
-                          </span>
-                        </td>
-
-                        {/* Column count */}
-                        <td className="px-3 py-2">
-                          <span className="text-xs text-gray-600">
-                            <span className="font-medium text-blue-600">{source.columns?.length || 0}</span> cols
-                          </span>
-                        </td>
-
-                        {/* Expand button */}
-                        <td className="px-3 py-2 text-center">
-                          <button
-                            onClick={() => setExpandedRow(isExpanded ? null : source.id)}
-                            className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-colors ${
-                              isExpanded
-                                ? "bg-blue-100 text-blue-700 hover:bg-blue-200"
-                                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                            }`}
-                          >
-                            {isExpanded
-                              ? <><MdArrowDropUp size={14} /> Collapse</>
-                              : <><MdArrowDropDown size={14} /> View Columns</>}
-                          </button>
-                        </td>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="w-8 px-3 py-2"></th>
+                        <th className="px-3 py-2 text-left text-[10px] font-medium text-gray-600 uppercase tracking-wider">Source Name</th>
+                        <th className="px-3 py-2 text-left text-[10px] font-medium text-gray-600 uppercase tracking-wider">Type</th>
+                        <th className="px-3 py-2 text-left text-[10px] font-medium text-gray-600 uppercase tracking-wider">Columns</th>
+                        <th className="px-3 py-2 text-center text-[10px] font-medium text-gray-600 uppercase tracking-wider">Actions</th>
                       </tr>
-
-                      {/* Expanded columns */}
-                      {isExpanded && (
-                        <tr className="bg-blue-50">
-                          <td colSpan={5} className="px-0 py-0">
-                            <div className="px-5 py-3">
-                              <div className="flex items-center justify-between mb-2">
-                                <h4 className="text-xs font-semibold text-gray-700">
-                                  Column Documentation — {source.source_name}
-                                </h4>
-                                <span className="text-[10px] text-gray-500 bg-white px-2 py-0.5 rounded-full border border-gray-200">
-                                  {source.columns?.length || 0} columns
-                                </span>
-                              </div>
-
-                              <div className="rounded-lg overflow-hidden border border-gray-200 shadow-sm">
-                                <table className="min-w-full bg-white">
-                                  <thead>
-                                    <tr className="bg-gray-100">
-                                      <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-600 uppercase w-6">#</th>
-                                      <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-600 uppercase w-48">Column Name</th>
-                                      <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-600 uppercase">Description</th>
-                                      <th className="px-3 py-2 text-center text-[10px] font-semibold text-gray-600 uppercase w-16">Edit</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-gray-100">
-                                    {source.columns && source.columns.length > 0 ? (
-                                      source.columns.map((col: DocumentationColumn, colIdx: number) => {
-                                        const isEditingCol =
-                                          editRowId === source.id &&
-                                          editRowKey === col.column_name;
-                                        return (
-                                          <tr key={colIdx} className="hover:bg-gray-50">
-                                            <td className="px-3 py-2 text-[10px] text-gray-400">{colIdx + 1}</td>
-                                            <td className="px-3 py-2">
-                                              <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-gray-100 text-[10px] font-mono text-gray-700 border border-gray-200">
-                                                {col.column_name}
-                                              </span>
-                                            </td>
-                                            <td className="px-3 py-2">
-                                              {isEditingCol ? (
-                                                <input
-                                                  type="text"
-                                                  value={
-                                                    editValues[source.id]?.[col.column_name] ??
-                                                    col.description
-                                                  }
-                                                  onChange={(e) =>
-                                                    handleChanges(source.id, col.column_name, e.target.value)
-                                                  }
-                                                  className="w-full border border-blue-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                                  autoFocus
-                                                />
-                                              ) : (
-                                                <span className="text-xs text-gray-600">
-                                                  {col.description || (
-                                                    <span className="text-gray-300 italic text-[10px]">No description</span>
-                                                  )}
-                                                </span>
-                                              )}
-                                            </td>
-                                            <td className="px-3 py-2 text-center">
-                                              {isEditingCol ? (
-                                                <button
-                                                  onClick={() => handleSaveClicks(source.id, boardId)}
-                                                  className="inline-flex items-center gap-1 px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-[10px] rounded"
-                                                >
-                                                  <FiSave size={10} /> Save
-                                                </button>
-                                              ) : (
-                                                <button
-                                                  onClick={() => {
-                                                    setEditRowId(source.id);
-                                                    setEditRowKey(col.column_name);
-                                                    setEditValues((prev) => ({
-                                                      ...prev,
-                                                      [source.id]: {
-                                                        ...(prev[source.id] || {}),
-                                                        [col.column_name]: col.description,
-                                                      },
-                                                    }));
-                                                  }}
-                                                  className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 text-[10px] rounded"
-                                                >
-                                                  <FaPen size={9} /> Edit
-                                                </button>
-                                              )}
-                                            </td>
-                                          </tr>
-                                        );
-                                      })
-                                    ) : (
-                                      <tr>
-                                        <td colSpan={4} className="px-4 py-5 text-center text-xs text-gray-400 italic">
-                                          No columns documented yet.
-                                        </td>
-                                      </tr>
-                                    )}
-                                  </tbody>
-                                </table>
-                              </div>
-                            </div>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {data.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="px-4 py-8 text-center">
+                            <p className="text-gray-400 text-xs">No data available for this board.</p>
                           </td>
                         </tr>
-                      )}
-                    </React.Fragment>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                      ) : (
+                        data.map((source) => {
+                          const isExpanded = expandedRow === source.id;
+                          return (
+                            <React.Fragment key={source.id}>
+                              <tr className={`hover:bg-gray-50 transition-colors ${isExpanded ? "bg-blue-50" : ""}`}>
+                                {/* Status dot */}
+                                <td className="px-3 py-2 text-center">
+                                  <div className="w-1.5 h-1.5 rounded-full bg-green-400 mx-auto"></div>
+                                </td>
 
-    </div>
-  </div>
-)}
+                                {/* Source name */}
+                                <td className="px-3 py-2">
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-6 h-6 rounded-md bg-blue-100 flex items-center justify-center flex-shrink-0">
+                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4" />
+                                      </svg>
+                                    </div>
+                                    <p className="text-xs font-semibold text-gray-800">{source.source_name}</p>
+                                  </div>
+                                </td>
+
+                                {/* Type badge */}
+                                <td className="px-3 py-2">
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${source.source_type === "table_data"
+                                      ? "bg-purple-100 text-purple-700"
+                                      : "bg-green-100 text-green-700"
+                                    }`}>
+                                    {source.source_type === "table_data" ? "Table" : source.source_type}
+                                  </span>
+                                </td>
+
+                                {/* Column count */}
+                                <td className="px-3 py-2">
+                                  <span className="text-xs text-gray-600">
+                                    <span className="font-medium text-blue-600">{source.columns?.length || 0}</span> cols
+                                  </span>
+                                </td>
+
+                                {/* Expand button */}
+                                <td className="px-3 py-2 text-center">
+                                  <button
+                                    onClick={() => setExpandedRow(isExpanded ? null : source.id)}
+                                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-colors ${isExpanded
+                                        ? "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                                      }`}
+                                  >
+                                    {isExpanded
+                                      ? <><MdArrowDropUp size={14} /> Collapse</>
+                                      : <><MdArrowDropDown size={14} /> View Columns</>}
+                                  </button>
+                                </td>
+                              </tr>
+
+                              {/* Expanded columns */}
+                              {isExpanded && (
+                                <tr className="bg-blue-50">
+                                  <td colSpan={5} className="px-0 py-0">
+                                    <div className="px-5 py-3">
+                                      <div className="flex items-center justify-between mb-2">
+                                        <h4 className="text-xs font-semibold text-gray-700">
+                                          Column Documentation — {source.source_name}
+                                        </h4>
+                                        <span className="text-[10px] text-gray-500 bg-white px-2 py-0.5 rounded-full border border-gray-200">
+                                          {source.columns?.length || 0} columns
+                                        </span>
+                                      </div>
+
+                                      <div className="rounded-lg overflow-hidden border border-gray-200 shadow-sm">
+                                        <table className="min-w-full bg-white">
+                                          <thead>
+                                            <tr className="bg-gray-100">
+                                              <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-600 uppercase w-6">#</th>
+                                              <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-600 uppercase w-48">Column Name</th>
+                                              <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-600 uppercase">Description</th>
+                                              <th className="px-3 py-2 text-center text-[10px] font-semibold text-gray-600 uppercase w-16">Edit</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody className="divide-y divide-gray-100">
+                                            {source.columns && source.columns.length > 0 ? (
+                                              source.columns.map((col: DocumentationColumn, colIdx: number) => {
+                                                const isEditingCol =
+                                                  editRowId === source.id &&
+                                                  editRowKey === col.column_name;
+                                                return (
+                                                  <tr key={colIdx} className="hover:bg-gray-50">
+                                                    <td className="px-3 py-2 text-[10px] text-gray-400">{colIdx + 1}</td>
+                                                    <td className="px-3 py-2">
+                                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-gray-100 text-[10px] font-mono text-gray-700 border border-gray-200">
+                                                        {col.column_name}
+                                                      </span>
+                                                    </td>
+                                                    <td className="px-3 py-2">
+                                                      {isEditingCol ? (
+                                                        <input
+                                                          type="text"
+                                                          value={
+                                                            editValues[source.id]?.[col.column_name] ??
+                                                            col.description
+                                                          }
+                                                          onChange={(e) =>
+                                                            handleChanges(source.id, col.column_name, e.target.value)
+                                                          }
+                                                          className="w-full border border-blue-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                                          autoFocus
+                                                        />
+                                                      ) : (
+                                                        <span className="text-xs text-gray-600">
+                                                          {col.description || (
+                                                            <span className="text-gray-300 italic text-[10px]">No description</span>
+                                                          )}
+                                                        </span>
+                                                      )}
+                                                    </td>
+                                                    <td className="px-3 py-2 text-center">
+                                                      {isEditingCol ? (
+                                                        <button
+                                                          onClick={() => handleSaveClicks(source.id, boardId)}
+                                                          className="inline-flex items-center gap-1 px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-[10px] rounded"
+                                                        >
+                                                          <FiSave size={10} /> Save
+                                                        </button>
+                                                      ) : (
+                                                        <button
+                                                          onClick={() => {
+                                                            setEditRowId(source.id);
+                                                            setEditRowKey(col.column_name);
+                                                            setEditValues((prev) => ({
+                                                              ...prev,
+                                                              [source.id]: {
+                                                                ...(prev[source.id] || {}),
+                                                                [col.column_name]: col.description,
+                                                              },
+                                                            }));
+                                                          }}
+                                                          className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 text-[10px] rounded"
+                                                        >
+                                                          <FaPen size={9} /> Edit
+                                                        </button>
+                                                      )}
+                                                    </td>
+                                                  </tr>
+                                                );
+                                              })
+                                            ) : (
+                                              <tr>
+                                                <td colSpan={4} className="px-4 py-5 text-center text-xs text-gray-400 italic">
+                                                  No columns documented yet.
+                                                </td>
+                                              </tr>
+                                            )}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        )}
 
         {/* Modal for Editing Table Details */}
         {isModalOpen && (
@@ -5767,375 +5761,374 @@ const fetchRows = async () => {
           </div>
         )}
 
-    {isModalOpen && (
-  <div className="fixed inset-0 bg-white z-50 flex flex-col overflow-hidden">
+        {isModalOpen && (
+          <div className="fixed inset-0 bg-white z-50 flex flex-col overflow-hidden">
 
-    {/* ── Header ── */}
-    <div className="flex items-center justify-between px-4 py-2 border-b bg-white flex-shrink-0">
-      <h2 className="text-sm font-bold text-gray-800">Run Your Prompt</h2>
-      <button
-        onClick={handleCloseModal}
-        className="text-gray-400 hover:text-gray-600 text-lg leading-none"
-      >
-        ✖
-      </button>
-    </div>
-
-    {/* ── Scrollable Body ── */}
-    <div className="flex-1 overflow-y-auto px-4 py-3">
-
-      {/* Textarea */}
-      <textarea
-        className="w-full p-2 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"
-        placeholder="Type your prompt here..."
-        value={newPromptName}
-        rows={4}
-        ref={textareaRef}
-        onChange={(e) => setNewPromptName(e.target.value)}
-      />
-
-      {/* Action Buttons */}
-      <div className="mt-2 flex flex-wrap justify-end gap-1.5">
-        <button
-          className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium whitespace-nowrap"
-          onClick={handleViewPromptsClick}
-        >
-          View Prompts
-        </button>
-        <button
-          onClick={handleRePrompt}
-          className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium whitespace-nowrap disabled:opacity-50"
-          disabled={isLoading}
-        >
-          Reprompt
-        </button>
-        <button
-          onClick={handleRunPrompt}
-          className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium whitespace-nowrap disabled:opacity-50"
-          disabled={!newPromptName.trim() || isLoading}
-        >
-          Run
-        </button>
-        <button
-          onClick={handleSavePrompt}
-          className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium whitespace-nowrap disabled:opacity-50"
-          disabled={isLoading}
-        >
-          Save
-        </button>
-      </div>
-
-      {/* Loading spinner */}
-      {isLoading && (
-        <div className="flex justify-end mt-2">
-          <Spinner />
-        </div>
-      )}
-
-      {/* ── Run Results ── */}
-      {isRunClicked && runResult && (
-        <div className="mt-3">
-
-          {/* Result Tab buttons */}
-          <div className="flex justify-end gap-1.5 mb-2">
-            {['message', 'table', 'charts'].map((tab) => (
+            {/* ── Header ── */}
+            <div className="flex items-center justify-between px-4 py-2 border-b bg-white flex-shrink-0">
+              <h2 className="text-sm font-bold text-gray-800">Run Your Prompt</h2>
               <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
-                  activeTab === tab
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
+                onClick={handleCloseModal}
+                className="text-gray-400 hover:text-gray-600 text-lg leading-none"
               >
-                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                ✖
               </button>
-            ))}
-          </div>
+            </div>
 
-          {/* Tab Content */}
-          <div className="tab-content">
+            {/* ── Scrollable Body ── */}
+            <div className="flex-1 overflow-y-auto px-4 py-3">
 
-            {/* Message Tab */}
-            {activeTab === 'message' && (
-              <div className="bg-gray-50 rounded-lg p-3">
-                {runResult?.message && runResult.message.length > 0 ? (
-                  <div>
-                    <h4 className="font-semibold text-xs text-gray-700 mb-1">Message:</h4>
-                    <p className="text-xs text-gray-600">{runResult.message[0]}</p>
-                  </div>
-                ) : (
-                  <p className="text-xs text-gray-400">No message found.</p>
-                )}
+              {/* Textarea */}
+              <textarea
+                className="w-full p-2 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"
+                placeholder="Type your prompt here..."
+                value={newPromptName}
+                rows={4}
+                ref={textareaRef}
+                onChange={(e) => setNewPromptName(e.target.value)}
+              />
+
+              {/* Action Buttons */}
+              <div className="mt-2 flex flex-wrap justify-end gap-1.5">
+                <button
+                  className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium whitespace-nowrap"
+                  onClick={handleViewPromptsClick}
+                >
+                  View Prompts
+                </button>
+                <button
+                  onClick={handleRePrompt}
+                  className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium whitespace-nowrap disabled:opacity-50"
+                  disabled={isLoading}
+                >
+                  Reprompt
+                </button>
+                <button
+                  onClick={handleRunPrompt}
+                  className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium whitespace-nowrap disabled:opacity-50"
+                  disabled={!newPromptName.trim() || isLoading}
+                >
+                  Run
+                </button>
+                <button
+                  onClick={handleSavePrompt}
+                  className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium whitespace-nowrap disabled:opacity-50"
+                  disabled={isLoading}
+                >
+                  Save
+                </button>
               </div>
-            )}
 
-            {/* Table Tab */}
-            {activeTab === 'table' && runResult.table && (
-              <div>
-                {runResult?.table && runResult.table.columns?.length > 0 ? (
-                  <div>
-                    <div className="flex justify-end mb-1.5">
-                      <button
-                        onClick={downloadExcel}
-                        className="px-3 py-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 text-xs font-medium"
-                      >
-                        Download Excel
-                      </button>
-                    </div>
-                    <div className="overflow-auto border border-gray-200 rounded">
-                      <table className="min-w-full text-xs">
-                        <thead className="bg-gray-50 sticky top-0">
-                          <tr>
-                            {runResult.table.columns.map((col, index) => (
-                              <th
-                                key={`header-${index}`}
-                                className="px-3 py-2 border-b text-left font-semibold text-gray-600 whitespace-nowrap"
-                              >
-                                {col}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                          {runResult.table.data.length > 0 ? (
-                            runResult.table.data.map((row, rowIdx) => (
-                              <tr key={`row-${rowIdx}`} className="hover:bg-gray-50">
-                                {row.map((cell, cellIdx) => (
-                                  <td
-                                    key={`cell-${rowIdx}-${cellIdx}`}
-                                    className="px-3 py-1.5 text-gray-700 whitespace-nowrap"
-                                  >
-                                    {cell}
-                                  </td>
-                                ))}
-                              </tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td
-                                colSpan={runResult.table.columns.length}
-                                className="text-center py-4 text-xs text-gray-400"
-                              >
-                                No data available.
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-xs text-gray-400">No table data found.</p>
-                )}
-              </div>
-            )}
-
-            {/* Charts Tab */}
-            {activeTab === 'charts' && runResult.charts && (
-              <div>
-                <div className="flex justify-end mb-2">
-                  <button
-                    onClick={() => setShowDownloadModal(true)}
-                    className="px-3 py-1.5 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600"
-                  >
-                    Download PPT
-                  </button>
+              {/* Loading spinner */}
+              {isLoading && (
+                <div className="flex justify-end mt-2">
+                  <Spinner />
                 </div>
+              )}
 
-                {/* PPT Modal */}
-                {showDownloadModal && (
-                  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-3">
-                    <div className="bg-white p-4 rounded-lg shadow-xl w-full max-w-sm">
-                      <h3 className="text-sm font-bold text-blue-700 mb-3">Download Report Options</h3>
-                      <p className="text-xs text-gray-600 mb-3">Select the type of report to download:</p>
+              {/* ── Run Results ── */}
+              {isRunClicked && runResult && (
+                <div className="mt-3">
+
+                  {/* Result Tab buttons */}
+                  <div className="flex justify-end gap-1.5 mb-2">
+                    {['message', 'table', 'charts'].map((tab) => (
                       <button
-                        onClick={() => { setShowDownloadModal(false); downloadPPT(false, 'limited'); }}
-                        className="w-full mb-3 py-2 bg-blue-500 text-white rounded text-xs font-bold hover:bg-blue-600"
+                        key={tab}
+                        onClick={() => setActiveTab(tab)}
+                        className={`px-3 py-1 rounded text-xs font-medium transition-colors ${activeTab === tab
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          }`}
                       >
-                        Charts Only
+                        {tab.charAt(0).toUpperCase() + tab.slice(1)}
                       </button>
-                      <div className="border-t border-gray-200 pt-3 mb-3">
-                        <p className="text-xs font-bold mb-2 text-gray-700">Include table data:</p>
-                        <div className="space-y-1.5 mb-3">
-                          <label className="flex items-center gap-2 text-xs cursor-pointer">
-                            <input type="radio" name="tableRows" value="limited" defaultChecked className="accent-blue-600" />
-                            First 20 rows only
-                          </label>
-                          <label className="flex items-center gap-2 text-xs cursor-pointer">
-                            <input type="radio" name="tableRows" value="all" className="accent-blue-600" />
-                            All table rows
-                          </label>
-                        </div>
-                        <button
-                          onClick={() => {
-                            const el = document.querySelector('input[name="tableRows"]:checked');
-                            const val = el ? (el as HTMLInputElement).value : 'limited';
-                            setShowDownloadModal(false);
-                            downloadPPT(true, val);
-                          }}
-                          className="w-full py-2 bg-blue-700 text-white rounded text-xs font-bold hover:bg-blue-800"
-                        >
-                          Download Complete Report
-                        </button>
-                      </div>
-                      <button
-                        onClick={() => setShowDownloadModal(false)}
-                        className="w-full py-1.5 bg-gray-100 text-gray-700 rounded text-xs border border-gray-300 hover:bg-gray-200"
-                      >
-                        Cancel
-                      </button>
-                    </div>
+                    ))}
                   </div>
-                )}
 
-                {/* Charts Grid */}
-          {/* Charts Grid */}
-<div className="flex flex-wrap justify-center gap-3 items-stretch">
+                  {/* Tab Content */}
+                  <div className="tab-content">
 
-  {runResult.charts.map((chart: ChartData, index: number) => {
-    switch (chart.chart_type) {
+                    {/* Message Tab */}
+                    {activeTab === 'message' && (
+                      <div className="bg-gray-50 rounded-lg p-3">
+                        {runResult?.message && runResult.message.length > 0 ? (
+                          <div>
+                            <h4 className="font-semibold text-xs text-gray-700 mb-1">Message:</h4>
+                            <p className="text-xs text-gray-600">{runResult.message[0]}</p>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-gray-400">No message found.</p>
+                        )}
+                      </div>
+                    )}
 
-      case 'pie':
-        return (
-          <div key={`pie-chart-${index}`} className="w-full max-w-[400px] flex-1 flex flex-col">
-            <h5 className="text-xs font-semibold text-center mb-1 text-gray-700">Pie Chart</h5>
-            {/* Fixed height chart area */}
-            <div style={{ height: "300px", flexShrink: 0 }}>
-              <Pie
-                data={getPieData(chart)}
-                options={{
-                  maintainAspectRatio: false,
-                  plugins: { legend: { display: true, position: "top" } }
-                }}
-              />
-            </div>
-            {/* Insights pinned to bottom */}
-            <div className="mt-auto pt-2">
-              <div className="p-2 bg-gray-50 rounded border border-gray-100">
-                <h6 className="text-xs font-semibold mb-1">Insights:</h6>
-                <ul className="list-disc list-inside space-y-0.5">
-                  {chart.insight?.map((insight, i) => (
-                    <li key={i} className="text-[10px] text-gray-600">{insight}</li>
-                  ))}
-                </ul>
-              </div>
+                    {/* Table Tab */}
+                    {activeTab === 'table' && runResult.table && (
+                      <div>
+                        {runResult?.table && runResult.table.columns?.length > 0 ? (
+                          <div>
+                            <div className="flex justify-end mb-1.5">
+                              <button
+                                onClick={downloadExcel}
+                                className="px-3 py-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 text-xs font-medium"
+                              >
+                                Download Excel
+                              </button>
+                            </div>
+                            <div className="overflow-auto border border-gray-200 rounded">
+                              <table className="min-w-full text-xs">
+                                <thead className="bg-gray-50 sticky top-0">
+                                  <tr>
+                                    {runResult.table.columns.map((col, index) => (
+                                      <th
+                                        key={`header-${index}`}
+                                        className="px-3 py-2 border-b text-left font-semibold text-gray-600 whitespace-nowrap"
+                                      >
+                                        {col}
+                                      </th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                  {runResult.table.data.length > 0 ? (
+                                    runResult.table.data.map((row, rowIdx) => (
+                                      <tr key={`row-${rowIdx}`} className="hover:bg-gray-50">
+                                        {row.map((cell, cellIdx) => (
+                                          <td
+                                            key={`cell-${rowIdx}-${cellIdx}`}
+                                            className="px-3 py-1.5 text-gray-700 whitespace-nowrap"
+                                          >
+                                            {cell}
+                                          </td>
+                                        ))}
+                                      </tr>
+                                    ))
+                                  ) : (
+                                    <tr>
+                                      <td
+                                        colSpan={runResult.table.columns.length}
+                                        className="text-center py-4 text-xs text-gray-400"
+                                      >
+                                        No data available.
+                                      </td>
+                                    </tr>
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-gray-400">No table data found.</p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Charts Tab */}
+                    {activeTab === 'charts' && runResult.charts && (
+                      <div>
+                        <div className="flex justify-end mb-2">
+                          <button
+                            onClick={() => setShowDownloadModal(true)}
+                            className="px-3 py-1.5 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600"
+                          >
+                            Download PPT
+                          </button>
+                        </div>
+
+                        {/* PPT Modal */}
+                        {showDownloadModal && (
+                          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-3">
+                            <div className="bg-white p-4 rounded-lg shadow-xl w-full max-w-sm">
+                              <h3 className="text-sm font-bold text-blue-700 mb-3">Download Report Options</h3>
+                              <p className="text-xs text-gray-600 mb-3">Select the type of report to download:</p>
+                              <button
+                                onClick={() => { setShowDownloadModal(false); downloadPPT(false, 'limited'); }}
+                                className="w-full mb-3 py-2 bg-blue-500 text-white rounded text-xs font-bold hover:bg-blue-600"
+                              >
+                                Charts Only
+                              </button>
+                              <div className="border-t border-gray-200 pt-3 mb-3">
+                                <p className="text-xs font-bold mb-2 text-gray-700">Include table data:</p>
+                                <div className="space-y-1.5 mb-3">
+                                  <label className="flex items-center gap-2 text-xs cursor-pointer">
+                                    <input type="radio" name="tableRows" value="limited" defaultChecked className="accent-blue-600" />
+                                    First 20 rows only
+                                  </label>
+                                  <label className="flex items-center gap-2 text-xs cursor-pointer">
+                                    <input type="radio" name="tableRows" value="all" className="accent-blue-600" />
+                                    All table rows
+                                  </label>
+                                </div>
+                                <button
+                                  onClick={() => {
+                                    const el = document.querySelector('input[name="tableRows"]:checked');
+                                    const val = el ? (el as HTMLInputElement).value : 'limited';
+                                    setShowDownloadModal(false);
+                                    downloadPPT(true, val);
+                                  }}
+                                  className="w-full py-2 bg-blue-700 text-white rounded text-xs font-bold hover:bg-blue-800"
+                                >
+                                  Download Complete Report
+                                </button>
+                              </div>
+                              <button
+                                onClick={() => setShowDownloadModal(false)}
+                                className="w-full py-1.5 bg-gray-100 text-gray-700 rounded text-xs border border-gray-300 hover:bg-gray-200"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Charts Grid */}
+                        {/* Charts Grid */}
+                        <div className="flex flex-wrap justify-center gap-3 items-stretch">
+
+                          {runResult.charts.map((chart: ChartData, index: number) => {
+                            switch (chart.chart_type) {
+
+                              case 'pie':
+                                return (
+                                  <div key={`pie-chart-${index}`} className="w-full max-w-[400px] flex-1 flex flex-col">
+                                    <h5 className="text-xs font-semibold text-center mb-1 text-gray-700">Pie Chart</h5>
+                                    {/* Fixed height chart area */}
+                                    <div style={{ height: "300px", flexShrink: 0 }}>
+                                      <Pie
+                                        data={getPieData(chart)}
+                                        options={{
+                                          maintainAspectRatio: false,
+                                          plugins: { legend: { display: true, position: "top" } }
+                                        }}
+                                      />
+                                    </div>
+                                    {/* Insights pinned to bottom */}
+                                    <div className="mt-auto pt-2">
+                                      <div className="p-2 bg-gray-50 rounded border border-gray-100">
+                                        <h6 className="text-xs font-semibold mb-1">Insights:</h6>
+                                        <ul className="list-disc list-inside space-y-0.5">
+                                          {chart.insight?.map((insight, i) => (
+                                            <li key={i} className="text-[10px] text-gray-600">{insight}</li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+
+                              case 'bar':
+                                return (
+                                  <div key={`bar-chart-${index}`} className="w-full max-w-[500px] flex-1 flex flex-col">
+                                    <h5 className="text-xs font-semibold text-center mb-1 text-gray-700">Bar Chart</h5>
+                                    <div style={{ height: "300px", flexShrink: 0 }}>
+                                      <Bar
+                                        data={getChartData(chart, 'bar')}
+                                        options={{
+                                          maintainAspectRatio: false,
+                                          plugins: {
+                                            legend: { display: true, position: "top" },
+                                            tooltip: {
+                                              callbacks: { title: (items) => items.map(i => i.label) }
+                                            }
+                                          },
+                                          scales: {
+                                            x: {
+                                              ticks: {
+                                                maxRotation: 45,
+                                                minRotation: 30,
+                                                font: { size: 9 },
+                                                callback: function (value) {
+                                                  const label = this.getLabelForValue(value as number);
+                                                  return label && label.length > 12
+                                                    ? label.substring(0, 12) + '…'
+                                                    : label;
+                                                },
+                                              },
+                                            },
+                                            y: { beginAtZero: true },
+                                          },
+                                        }}
+                                      />
+                                    </div>
+                                    <div className="mt-auto pt-2">
+                                      <div className="p-2 bg-gray-50 rounded border border-gray-100">
+                                        <h6 className="text-xs font-semibold mb-1">Insights:</h6>
+                                        <ul className="list-disc list-inside space-y-0.5">
+                                          {chart.insight?.map((insight, i) => (
+                                            <li key={i} className="text-[10px] text-gray-600">{insight}</li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+
+                              case 'line':
+                                return (
+                                  <div key={`line-chart-${index}`} className="w-full max-w-[500px] flex-1 flex flex-col">
+                                    <h5 className="text-xs font-semibold text-center mb-1 text-gray-700">Line Chart</h5>
+                                    <div style={{ height: "300px", flexShrink: 0 }}>
+                                      <Line
+                                        data={getChartData(chart, 'line')}
+                                        options={{
+                                          maintainAspectRatio: false,
+                                          plugins: {
+                                            legend: { display: true, position: "top" },
+                                            tooltip: {
+                                              callbacks: { title: (items) => items.map(i => i.label) }
+                                            }
+                                          },
+                                          scales: {
+                                            x: {
+                                              ticks: {
+                                                maxRotation: 45,
+                                                minRotation: 30,
+                                                font: { size: 9 },
+                                                callback: function (value) {
+                                                  const label = this.getLabelForValue(value as number);
+                                                  return label && label.length > 12
+                                                    ? label.substring(0, 12) + '…'
+                                                    : label;
+                                                },
+                                              },
+                                            },
+                                            y: { beginAtZero: true },
+                                          },
+                                        }}
+                                      />
+                                    </div>
+                                    <div className="mt-auto pt-2">
+                                      <div className="p-2 bg-gray-50 rounded border border-gray-100">
+                                        <h6 className="text-xs font-semibold mb-1">Insights:</h6>
+                                        <ul className="list-disc list-inside space-y-0.5">
+                                          {chart.insight?.map((insight, i) => (
+                                            <li key={i} className="text-[10px] text-gray-600">{insight}</li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+
+                              default:
+                                return null;
+                            }
+                          })}
+                        </div>
+
+
+
+
+                      </div>
+                    )}
+
+                  </div>
+                </div>
+              )}
             </div>
           </div>
-        );
-
-      case 'bar':
-        return (
-          <div key={`bar-chart-${index}`} className="w-full max-w-[500px] flex-1 flex flex-col">
-            <h5 className="text-xs font-semibold text-center mb-1 text-gray-700">Bar Chart</h5>
-            <div style={{ height: "300px", flexShrink: 0 }}>
-              <Bar
-                data={getChartData(chart, 'bar')}
-                options={{
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: { display: true, position: "top" },
-                    tooltip: {
-                      callbacks: { title: (items) => items.map(i => i.label) }
-                    }
-                  },
-                  scales: {
-                    x: {
-                      ticks: {
-                        maxRotation: 45,
-                        minRotation: 30,
-                        font: { size: 9 },
-                        callback: function (value) {
-                          const label = this.getLabelForValue(value as number);
-                          return label && label.length > 12
-                            ? label.substring(0, 12) + '…'
-                            : label;
-                        },
-                      },
-                    },
-                    y: { beginAtZero: true },
-                  },
-                }}
-              />
-            </div>
-            <div className="mt-auto pt-2">
-              <div className="p-2 bg-gray-50 rounded border border-gray-100">
-                <h6 className="text-xs font-semibold mb-1">Insights:</h6>
-                <ul className="list-disc list-inside space-y-0.5">
-                  {chart.insight?.map((insight, i) => (
-                    <li key={i} className="text-[10px] text-gray-600">{insight}</li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          </div>
-        );
-
-      case 'line':
-        return (
-          <div key={`line-chart-${index}`} className="w-full max-w-[500px] flex-1 flex flex-col">
-            <h5 className="text-xs font-semibold text-center mb-1 text-gray-700">Line Chart</h5>
-            <div style={{ height: "300px", flexShrink: 0 }}>
-              <Line
-                data={getChartData(chart, 'line')}
-                options={{
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: { display: true, position: "top" },
-                    tooltip: {
-                      callbacks: { title: (items) => items.map(i => i.label) }
-                    }
-                  },
-                  scales: {
-                    x: {
-                      ticks: {
-                        maxRotation: 45,
-                        minRotation: 30,
-                        font: { size: 9 },
-                        callback: function (value) {
-                          const label = this.getLabelForValue(value as number);
-                          return label && label.length > 12
-                            ? label.substring(0, 12) + '…'
-                            : label;
-                        },
-                      },
-                    },
-                    y: { beginAtZero: true },
-                  },
-                }}
-              />
-            </div>
-            <div className="mt-auto pt-2">
-              <div className="p-2 bg-gray-50 rounded border border-gray-100">
-                <h6 className="text-xs font-semibold mb-1">Insights:</h6>
-                <ul className="list-disc list-inside space-y-0.5">
-                  {chart.insight?.map((insight, i) => (
-                    <li key={i} className="text-[10px] text-gray-600">{insight}</li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          </div>
-        );
-
-      default:
-        return null;
-    }
-  })}
-</div>
-
-
-
-
-              </div>
-            )}
-
-          </div>
-        </div>
-      )}
-    </div>
-  </div>
-)}
+        )}
 
 
         {activeTab === "master" && (
