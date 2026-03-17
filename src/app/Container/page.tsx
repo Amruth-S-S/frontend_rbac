@@ -623,7 +623,7 @@ export default function Page() {
       }
 
       const result = await response.json();
-      console.log('Upload success:', result);
+      // console.log('Upload success:', result);
 
       // Handle success
       toast.success("Files uploaded successfully!");
@@ -682,7 +682,7 @@ export default function Page() {
       }
 
       const data = await response.json();
-      console.log("PG Tables API response:", data);
+      // console.log("PG Tables API response:", data);
       setPgTables(data.tables || []);
       setPgDbInfo({
         database_name: data.database_name,
@@ -1001,7 +1001,7 @@ export default function Page() {
           }
 
           const csvResult = await addCsvResponse.json();
-          console.log("CSV added successfully:", csvResult);
+          // console.log("CSV added successfully:", csvResult);
 
           // Update loading toast
           toast.update(loadingToast, {
@@ -1388,7 +1388,7 @@ export default function Page() {
       const data = await response.json();
 
       // 👇 ADD THIS — check browser console to see actual field names
-      console.log('Comments API response:', JSON.stringify(data, null, 2));
+      // console.log('Comments API response:', JSON.stringify(data, null, 2));
 
       const comments: PromptComment[] = Array.isArray(data) ? data : data.comments || [];
       setCommentsMap(prev => ({ ...prev, [promptId]: comments }));
@@ -1554,7 +1554,7 @@ export default function Page() {
 
   const handleEditDropdownItem = (index: number) => {
     // Logic to handle editing the dropdown row
-    console.log("Editing dropdown row at index:", index);
+    // console.log("Editing dropdown row at index:", index);
     // Example: Enable edit mode for the row or open a modal
   };
 
@@ -1566,17 +1566,17 @@ export default function Page() {
 
   const handleEditItem = (id: number) => {
     // This will be replaced with your backend implementation
-    console.log(`Edit item with id: ${id}`);
+    // console.log(`Edit item with id: ${id}`);
   };
 
   const handleSaveItem = (id: number) => {
     // This will be replaced with your backend implementation
-    console.log(`Save item with id: ${id}`);
+    // console.log(`Save item with id: ${id}`);
   };
 
   const handleDeleteItem = (id: number) => {
     // This will be replaced with your backend implementation
-    console.log(`Delete item with id: ${id}`);
+    // console.log(`Delete item with id: ${id}`);
   };
 
 
@@ -1686,7 +1686,7 @@ export default function Page() {
   // This is your existing PPT download function, modified to work with React
   // This is your fixed PPT download function with clean prompt handling
   const downloadPPT = (includeTableData = true, tableRowOption = 'limited') => {
-    console.log(`Downloading PPT with includeTableData=${includeTableData}, tableOption=${tableRowOption}`);
+    // console.log(`Downloading PPT with includeTableData=${includeTableData}, tableOption=${tableRowOption}`);
 
     try {
       // Create PptxGenJS instance
@@ -1917,12 +1917,12 @@ export default function Page() {
           // IMPORTANT: Determine data to display based on the tableRowOption
           let dataToDisplay;
           if (tableRowOption === 'all') {
-            console.log(`Using ALL ${runResult.table.data.length} rows from data`);
+            // console.log(`Using ALL ${runResult.table.data.length} rows from data`);
             dataToDisplay = runResult.table.data;
           } else {
             // Use limited data (default 20 rows)
             const limitRows = Math.min(20, runResult.table.data.length);
-            console.log(`Using LIMITED ${limitRows} rows from data`);
+            // console.log(`Using LIMITED ${limitRows} rows from data`);
             dataToDisplay = runResult.table.data.slice(0, limitRows);
           }
 
@@ -1931,7 +1931,7 @@ export default function Page() {
 
           if (columns.length > COLUMNS_PER_SLIDE_THRESHOLD) {
             // We have many columns, use horizontal splitting approach
-            console.log(`Table has ${columns.length} columns, using horizontal splitting`);
+            // console.log(`Table has ${columns.length} columns, using horizontal splitting`);
 
             // First, add a column navigator slide
             const navSlide = ppt.addSlide({ masterName: "CLEAN_MASTER_SLIDE" });
@@ -2458,7 +2458,7 @@ export default function Page() {
         }
       );
 
-      console.log("Fetched Documentation:", response.data);
+      // console.log("Fetched Documentation:", response.data);
       // API returns { board_id, board_name, sources: [...] }
       setData(response.data.sources || []);
     } catch (error) {
@@ -2491,13 +2491,13 @@ export default function Page() {
         }
       );
 
-      console.log("Fetched All Documentation:", response.data);
+      // console.log("Fetched All Documentation:", response.data);
 
       const filteredData = response.data.filter(
         (item: { board_id: string }) => String(item.board_id) === String(boardId)
       );
 
-      console.log("Filtered Documentation:", filteredData);
+      // console.log("Filtered Documentation:", filteredData);
       setDataFiltered(filteredData);
     } catch (error) {
       console.error("Error fetching AI documentation (filtered):", error);
@@ -2570,7 +2570,7 @@ export default function Page() {
         source_type: source.source_type,
       };
 
-      console.log("PUT payload (filtered):", payload);
+      // console.log("PUT payload (filtered):", payload);
 
       const response = await fetch(
         `${API_BASE_URL}/main-boards/boards/ai-documentation/${id}`,
@@ -2592,7 +2592,7 @@ export default function Page() {
       }
 
       const result = await response.json();
-      console.log("Update successful:", result);
+      // console.log("Update successful:", result);
 
       // Update local dataFiltered state with edited descriptions
       setDataFiltered((prevData) =>
@@ -2664,7 +2664,7 @@ export default function Page() {
         source_type: source.source_type,
       };
 
-      console.log("PUT payload:", payload);
+      // console.log("PUT payload:", payload);
 
       const response = await fetch(
         `${API_BASE_URL}/main-boards/boards/ai-documentation/${id}`,
@@ -2686,7 +2686,7 @@ export default function Page() {
       }
 
       const result = await response.json();
-      console.log("Update successful:", result);
+      // console.log("Update successful:", result);
 
       // Update local state — apply edited descriptions back into columns
       setData((prevData) =>
@@ -2890,14 +2890,14 @@ export default function Page() {
         );
 
         const endTime = performance.now(); // End timer
-        console.log(`API Response Time: ${(endTime - startTime).toFixed(2)} ms`);
+        // console.log(`API Response Time: ${(endTime - startTime).toFixed(2)} ms`);
 
         if (!response.ok) {
           throw new Error("Failed to fetch prompts");
         }
 
         const data: Prompt[] = await response.json();
-        console.log("Fetched prompts data:", data);
+        // console.log("Fetched prompts data:", data);
 
         setPrompts(data);
       } catch (error) {
@@ -3062,7 +3062,7 @@ export default function Page() {
       url.searchParams.append("user_name", "");
       url.searchParams.append("use_cache", "true");
 
-      console.log("Making request to:", url.href);
+      // console.log("Making request to:", url.href);
 
       // Make the POST request with Axios
       const response = await axios.post(
@@ -3082,7 +3082,7 @@ export default function Page() {
 
       // Process the API response
       if (response?.data) {
-        console.log("Prompt run successfully:", response.data);
+        // console.log("Prompt run successfully:", response.data);
         setRunResult(response.data); // Set the result to display it
 
         const hasCharts = (response.data.charts ?? []).length > 0;
@@ -3100,12 +3100,12 @@ export default function Page() {
           setActiveTab("message"); // If neither charts nor table exist, show message tab
         }
 
-        console.log("Active Tab:", activeTab);
+        // console.log("Active Tab:", activeTab);
 
         // Check if the user asked for charts
         const chartKeywords = ["chart", "visualization"];
         const responseDetails = response.data.detail?.toLowerCase() || "";
-        console.log("Response Details:", responseDetails); // Debugging
+        // console.log("Response Details:", responseDetails); // Debugging
 
         // Determine if charts are needed based on prompt or response details
         const shouldShowCharts =
@@ -3114,7 +3114,7 @@ export default function Page() {
           ) ||
           chartKeywords.some((keyword) => responseDetails.includes(keyword));
 
-        console.log("Should Show Charts:", shouldShowCharts); // Debugging
+        // console.log("Should Show Charts:", shouldShowCharts); // Debugging
         setShowCharts(shouldShowCharts); // Display the chart if applicable
       } else {
         console.warn("Warning: API returned no data.");
@@ -3163,7 +3163,7 @@ export default function Page() {
         }
       );
 
-      console.log('API Response:', response.data);
+      // console.log('API Response:', response.data);
 
       // Assuming the new prompt name is in response.data.newPromptName
       const fetchedPromptName = response.data.newPromptName || response.data;
@@ -3421,8 +3421,8 @@ export default function Page() {
       return;
     }
 
-    console.log("Logged-in User:", loggedInUserName);
-    console.log("User ID:", loggedInUserId);
+    // console.log("Logged-in User:", loggedInUserName);
+    // console.log("User ID:", loggedInUserId);
 
     // Prepare request body
     const promptData = {
@@ -3432,7 +3432,7 @@ export default function Page() {
       user_name: loggedInUserName, // Use the logged-in user's name
       created_by: loggedInUserName
     };
-    console.log("Prompt Data:", promptData);
+    // console.log("Prompt Data:", promptData);
 
     // Determine the URL and method based on edit mode
     const url = editPromptId
@@ -3460,7 +3460,7 @@ export default function Page() {
       }
 
       const newPromptData = await response.json();
-      console.log("API Response Data:", newPromptData);
+      // console.log("API Response Data:", newPromptData);
 
       // Update the prompts state
       setPrompts((prevPrompts) =>
@@ -3492,7 +3492,7 @@ export default function Page() {
 
 
 
-  console.log("Board ID:", boardId);
+  // conle.log("Board ID:", boardId);
   // console.log("Table ID:", tableId);
 
 
