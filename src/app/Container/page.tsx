@@ -3733,9 +3733,9 @@ export default function Page() {
                   { key: "documentation", label: "AI Documentation" },
                   { key: "prompts", label: "Manage Prompts" },
                   { key: "repository", label: "Prompts Repository" },
-                  
+
                   // { key: "tally",        label: "Manage ETL" },
-                  
+
                   // { key: "master",       label: "Master Settings" },
                   // { key: "parameters",   label: "Parameter Settings" },
                   // { key: "timeline",     label: "Timeline Settings" },
@@ -3743,8 +3743,8 @@ export default function Page() {
                   <button
                     key={tab.key}
                     className={`flex-shrink-0 px-3 py-1.5 rounded-md font-medium transition-all duration-200 text-xs whitespace-nowrap ${activeTab === tab.key
-                        ? "bg-white text-blue-600 shadow-sm"
-                        : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+                      ? "bg-white text-blue-600 shadow-sm"
+                      : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
                       }`}
                     onClick={() => setActiveTab(tab.key)}
                   >
@@ -3794,8 +3794,8 @@ export default function Page() {
                         <button
                           key={tab.key}
                           className={`w-full text-left px-3 py-2 rounded-md transition-colors text-xs ${activeTab === tab.key
-                              ? "bg-blue-50 text-blue-600 font-semibold"
-                              : "text-gray-700 hover:bg-gray-100"
+                            ? "bg-blue-50 text-blue-600 font-semibold"
+                            : "text-gray-700 hover:bg-gray-100"
                             }`}
                           onClick={() => {
                             setActiveTab(tab.key);
@@ -4127,14 +4127,17 @@ export default function Page() {
 
                         <div className="mt-auto">
                           <hr className="my-1.5 border-t border-gray-100" />
-                         <div>
-                                <p className="text-gray-600 truncate">
-                                  Created By: {prompt.user_name && prompt.user_name !== "undefined" ? prompt.user_name : ""}
-                                </p>
-                                <p className="text-gray-600">
-                                  Updated: {new Date(prompt.updated_at || prompt.created_at).toLocaleDateString()}
-                                </p>
-                              </div>
+                          <div className="mt-2 text-xs space-y-1">
+                            {/* <p className="opacity-80">
+                              Dataset used: {prompt.filename}
+                            </p> */}
+                            <p className="opacity-90 truncate">
+                              Created By: {prompt.user_name && prompt.user_name !== "undefined" ? prompt.user_name : ""}
+                            </p>
+                            <p className="opacity-80">
+                              Updated: {new Date(prompt.updated_at).toLocaleDateString()}
+                            </p>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -4809,8 +4812,8 @@ export default function Page() {
                               </td>
                               <td className="px-2 py-2">
                                 <span className={`px-1.5 py-0.5 text-xs font-semibold rounded-full ${source.source_type === "table_data"
-                                    ? "bg-purple-100 text-purple-700"
-                                    : "bg-green-100 text-green-700"
+                                  ? "bg-purple-100 text-purple-700"
+                                  : "bg-green-100 text-green-700"
                                   }`}>
                                   {source.source_type_display}
                                 </span>
@@ -5303,8 +5306,8 @@ export default function Page() {
                       onClick={handleAddPgTableAsDataSource}
                       disabled={isAddingDataSource || !addDataSourceForm.source_name || !addDataSourceForm.description}
                       className={`px-3 py-2 rounded-md text-xs text-white font-medium transition-colors ${isAddingDataSource || !addDataSourceForm.source_name || !addDataSourceForm.description
-                          ? "bg-blue-300 cursor-not-allowed"
-                          : "bg-blue-600 hover:bg-blue-700"
+                        ? "bg-blue-300 cursor-not-allowed"
+                        : "bg-blue-600 hover:bg-blue-700"
                         }`}
                     >
                       {isAddingDataSource ? (
@@ -5562,8 +5565,8 @@ export default function Page() {
                                 {/* Type badge */}
                                 <td className="px-3 py-2">
                                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${source.source_type === "table_data"
-                                      ? "bg-purple-100 text-purple-700"
-                                      : "bg-green-100 text-green-700"
+                                    ? "bg-purple-100 text-purple-700"
+                                    : "bg-green-100 text-green-700"
                                     }`}>
                                     {source.source_type === "table_data" ? "Table" : source.source_type}
                                   </span>
@@ -5581,8 +5584,8 @@ export default function Page() {
                                   <button
                                     onClick={() => setExpandedRow(isExpanded ? null : source.id)}
                                     className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-colors ${isExpanded
-                                        ? "bg-blue-100 text-blue-700 hover:bg-blue-200"
-                                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                                      ? "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
                                       }`}
                                   >
                                     {isExpanded
@@ -5837,8 +5840,8 @@ export default function Page() {
                         key={tab}
                         onClick={() => setActiveTab(tab)}
                         className={`px-3 py-1 rounded text-xs font-medium transition-colors ${activeTab === tab
-                            ? 'bg-blue-500 text-white'
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                           }`}
                       >
                         {tab.charAt(0).toUpperCase() + tab.slice(1)}
