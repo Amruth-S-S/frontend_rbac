@@ -3760,11 +3760,13 @@ const fetchRows = async () => {
         >
           <span>
             {[
+               { key: "tables",        label: "Manage Tables" },
+                { key: "documentation", label: "AI Documentation" },
               { key: "prompts",        label: "Manage Prompts" },
               { key: "repository",    label: "Prompts Repository" },
-              { key: "tables",        label: "Manage Tables" },
+           
               // { key: "tally",         label: "Manage ETL" },
-              { key: "documentation", label: "AI Documentation" },
+             
               // { key: "master",        label: "Master Settings" },
               // { key: "parameters",    label: "Parameter Settings" },
               // { key: "timeline",      label: "Timeline Settings" },
@@ -3777,11 +3779,13 @@ const fetchRows = async () => {
           <div className="mt-1 bg-white border border-gray-200 rounded-lg shadow-md z-50">
             <div className="p-1.5 space-y-0.5 max-h-52 overflow-y-auto">
               {[
+                  { key: "tables",        label: "Manage Tables" },
+                     { key: "documentation", label: "AI Documentation" },
                 { key: "prompts",        label: "Manage Prompts" },
                 { key: "repository",    label: "Prompts Repository" },
-                { key: "tables",        label: "Manage Tables" },
+              
                 // { key: "tally",         label: "Manage ETL" },
-                { key: "documentation", label: "AI Documentation" },
+             
                 // { key: "master",        label: "Master Settings" },
                 // { key: "parameters",    label: "Parameter Settings" },
                 // { key: "timeline",      label: "Timeline Settings" },
