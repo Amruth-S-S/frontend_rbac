@@ -3738,7 +3738,7 @@ export default function Page() {
                   { key: "prompts", label: "Manage Prompts" },
                   { key: "repository", label: "Prompts Repository" },
 
-                  // { key: "tally",        label: "Manage ETL" },
+                  { key: "tally",        label: "Manage ETL" },
 
                   { key: "master",       label: "Master Settings" },
                   // { key: "parameters",   label: "Parameter Settings" },

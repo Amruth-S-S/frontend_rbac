@@ -37,7 +37,7 @@ interface Board {
 }
 
 interface MainBoard {
-  id(id: string): React.Key | null | undefined;
+  id?: string | number;
   main_board_id: string;
   name: string;
   boards: { [key: string]: Board };
@@ -50,7 +50,7 @@ type SelectedBoard = {
 } | null;
 
 interface SidebarProps {
-  clientUserId: string | number;
+  clientUserId?: string | number;
 }
 
 interface UserData {
@@ -260,9 +260,11 @@ const Sidebar: React.FC<SidebarProps> = ({ }) => {
   // ─── Admin nav items ──────────────────────────────────────────────────────────
   const adminNavigationItems = [
     { id: 'users', label: 'User', href: '/UserList' },
-    { id: 'roles', label: 'Role', href: '/RoleList' },
-    { id: 'board-assignment', label: 'Assign Boards to Roles', href: '/BoardRoleAssignment' },
-    { id: 'user-assignment', label: 'Assign User to Roles', href: '/UserRoleAssignment' }
+    { id: 'organization', label: 'Organization', href: '/create-org-list' },
+    { id: 'members', label: 'Members', href: '/member-list' },
+     { id: 'groups', label: 'Groups', href: '/user-groups' },
+    // { id: 'board-assignment', label: 'Assign Boards to Roles', href: '/BoardRoleAssignment' },
+    // { id: 'user-assignment', label: 'Assign User to Roles', href: '/UserRoleAssignment' }
   ];
 
   // ─── Search filtering ─────────────────────────────────────────────────────────
