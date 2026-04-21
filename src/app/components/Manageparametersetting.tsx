@@ -1545,7 +1545,7 @@ const [quickSelectInput, setQuickSelectInput] = useState("");
                       <option value="">-- Select a data source --</option>
                       {dataSources.map(ds => (
                         <option key={ds.id} value={ds.id}>
-                          {ds.slot_number ? `[Slot ${ds.slot_number}] ` : ""}{ds.source_name || (ds as any).name} (ID: {ds.id})
+                      {ds.source_name || (ds as any).name} 
                         </option>
                       ))}
                     </select>
