@@ -192,7 +192,7 @@ export default function CXO() {
     if (!newPromptName?.trim()) { alert("Please enter a valid prompt."); setIsLoading(false); return; }
     if (!selectedBoardId) { alert("Board ID is required."); setIsLoading(false); return; }
     try {
-      const url = new URL(`${API_BASE_URL}/main-boards/boards/prompts/run_prompt_v3?`);
+      const url = new URL(`${API_BASE_URL}/main-boards/boards/prompts/run_prompt_v4?`);
       url.searchParams.append("input_text", newPromptName.trim());
       url.searchParams.append("board_id", selectedBoardId);
       url.searchParams.append("user_name", userData.userName || "Unknown User");

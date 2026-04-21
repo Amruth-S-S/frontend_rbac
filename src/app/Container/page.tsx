@@ -345,6 +345,7 @@ export default function Page() {
   const [showExportModal, setShowExportModal] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
+  const [filterStatusMap, setFilterStatusMap] = useState<Record<number, boolean>>({});
 
 
   // New states for approval functionality
@@ -377,6 +378,84 @@ export default function Page() {
     source: any | null;
   }>({ isOpen: false, source: null });
   const [isDeletingDataSource, setIsDeletingDataSource] = useState(false);
+  const [anyFilterEnabled, setAnyFilterEnabled] = useState<boolean | null>(null);
+const [paramFilterMap, setParamFilterMap] = useState<Record<number, boolean>>({}); 
+
+const fetchParamFilterStatuses = async () => {
+  if (!boardId || dataSources.length === 0) return;
+  try {
+    const map: Record<number, boolean> = {};
+    await Promise.allSettled(
+      dataSources.map(async (ds) => {
+        try {
+          const res = await fetch(
+            `${API_BASE_URL}/api/parameter-settings/data-source/${ds.id}/settings`,
+            { headers: { "X-API-Key": EXCEL_API_KEY } }
+          );
+          if (!res.ok) return;
+          const json = await res.json();
+          const items: any[] = Array.isArray(json) ? json
+            : Array.isArray(json.settings) ? json.settings
+            : json.parameter_setting ? [json.parameter_setting]
+            : json.id ? [json] : [];
+          items.forEach((item: any) => {
+            if (item.is_filter_enabled !== undefined) {
+              map[Number(ds.id)] = Boolean(item.is_filter_enabled);
+            }
+          });
+        } catch {}
+      })
+    );
+    setParamFilterMap(map);
+    setAnyFilterEnabled(Object.values(map).some(v => v === true));
+  } catch {}
+};
+
+useEffect(() => {
+  if (boardId) {
+    fetchDataSources();
+  }
+}, [boardId]);
+
+useEffect(() => {
+  if (dataSources.length === 0) return;
+  
+  fetchParamFilterStatuses(); // initial fetch
+  
+  // Poll every 5 seconds when on parameter tab
+  const interval = setInterval(() => {
+    if (activeTab === "parameter" || activeTab === "prompts") {
+      fetchParamFilterStatuses();
+    }
+  }, 5000);
+  
+  return () => clearInterval(interval);
+}, [dataSources, activeTab]);
+
+  const fetchFilterStatuses = async () => {
+  if (!boardId || dataSources.length === 0) return;
+  try {
+    const statusMap: Record<number, boolean> = {};
+    await Promise.allSettled(
+      dataSources.map(async (ds) => {
+        const res = await fetch(
+          `${API_BASE_URL}/main-boards/boards/data-sources/${ds.id}/settings`,
+          { headers: { "X-API-Key": EXCEL_API_KEY } }
+        );
+        if (res.ok) {
+          const json = await res.json();
+          const items: any[] = Array.isArray(json) ? json : json.settings || [];
+          items.forEach((item: any) => {
+            if (item.is_filter_enabled !== undefined) {
+              statusMap[Number(ds.id)] = Boolean(item.is_filter_enabled);
+            }
+          });
+        }
+      })
+    );
+    setFilterStatusMap(statusMap);
+  } catch (e) {}
+};
 
 
   const handleDeleteDataSource = async () => {
@@ -532,6 +611,13 @@ export default function Page() {
       fetchDataSources(); // ✅ always fetch, not just for tables tab
     }
   }, [boardId]);
+
+  // ADD THIS NEW ONE:
+useEffect(() => {
+  if (dataSources.length > 0) {
+    fetchFilterStatuses();
+  }
+}, [dataSources]);
 
 
   // Add this helper function near your other helpers
@@ -2933,7 +3019,7 @@ export default function Page() {
     }
 
     try {
-      const url = new URL(`${API_BASE_URL}/main-boards/boards/prompts/run_prompt_v3?`);
+      const url = new URL(`${API_BASE_URL}/main-boards/boards/prompts/run_prompt_v4?`);
       url.searchParams.append("input_text", promptText);
       url.searchParams.append("board_id", boardId);
       url.searchParams.append("user_name", "");
@@ -3058,7 +3144,7 @@ export default function Page() {
 
     try {
       const url = new URL(
-        `${API_BASE_URL}/main-boards/boards/prompts/run_prompt_v3?`
+        `${API_BASE_URL}/main-boards/boards/prompts/run_prompt_v4?`
       );
 
       // Append parameters
@@ -3739,7 +3825,7 @@ export default function Page() {
                   { key: "prompts", label: "Manage Prompts" },
                   { key: "repository", label: "Prompts Repository" },
 
-                  // { key: "tally",        label: "Manage ETL" },
+                  { key: "tally",        label: "Manage ETL" },
 
                   { key: "master",       label: "Master Settings" },
                   { key: "parameter",   label: "Parameter Settings" },
@@ -3925,43 +4011,64 @@ export default function Page() {
 
                           <div className="mt-auto">
                             {/* Meta row */}
-                            <div className="mb-1 text-[10px] flex items-center justify-between gap-1">
-                              <div>
-                                <p className="text-gray-600 truncate">
-                                  Created By: {prompt.user_name && prompt.user_name !== "undefined" ? prompt.user_name : ""}
-                                </p>
-                                <p className="text-gray-600">
-                                  Updated: {new Date(prompt.updated_at || prompt.created_at).toLocaleDateString()}
-                                </p>
-                              </div>
+                           <div className="mb-1 text-[10px] flex items-center justify-between gap-1">
+  <div>
+    <p className="text-gray-600 truncate">
+      Created By: {prompt.user_name && prompt.user_name !== "undefined" ? prompt.user_name : ""}
+    </p>
+    <p className="text-gray-600">
+      Updated: {new Date(prompt.updated_at || prompt.created_at).toLocaleDateString()}
+    </p>
+  </div>
 
-                              {/* C/T badge */}
-                              {outputType && (
-                                <div className="flex gap-0.5 shrink-0">
-                                  {(outputType === 'C' || outputType === 'CT') && (
-                                    <span
-                                      className="w-4 h-4 rounded-full bg-purple-100 text-purple-700 text-[9px] font-bold flex items-center justify-center border border-purple-300"
-                                      title="Chart"
-                                    >
-                                      C
-                                    </span>
-                                  )}
-                                  {(outputType === 'T' || outputType === 'CT') && (
-                                    <span
-                                      className="w-4 h-4 rounded-full bg-green-100 text-green-700 text-[9px] font-bold flex items-center justify-center border border-green-300"
-                                      title="Table"
-                                    >
-                                      T
-                                    </span>
-                                  )}
-                                </div>
-                              )}
-                            </div>
+  <div className="flex flex-col items-end gap-1">
+    {/* Existing C/T badge */}
+    {outputType && (
+      <div className="flex gap-0.5 shrink-0">
+        {(outputType === 'C' || outputType === 'CT') && (
+          <span className="w-4 h-4 rounded-full bg-purple-100 text-purple-700 text-[9px] font-bold flex items-center justify-center border border-purple-300" title="Chart">C</span>
+        )}
+        {(outputType === 'T' || outputType === 'CT') && (
+          <span className="w-4 h-4 rounded-full bg-green-100 text-green-700 text-[9px] font-bold flex items-center justify-center border border-green-300" title="Table">T</span>
+        )}
+      </div>
+    )}
 
-                            <hr className="my-1.5 border-t border-gray-100" />
+    {/* ✅ NEW: Filter status badge */}
+    {prompt.data_source_id && filterStatusMap[prompt.data_source_id] !== undefined && (
+      <span
+        className={`inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full font-bold border ${
+          filterStatusMap[prompt.data_source_id]
+            ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+            : "bg-gray-100 text-gray-500 border-gray-300"
+        }`}
+      >
+        <span className={`w-1.5 h-1.5 rounded-full ${filterStatusMap[prompt.data_source_id] ? "bg-emerald-500" : "bg-gray-400"}`} />
+        Filter: {filterStatusMap[prompt.data_source_id] ? "ON" : "OFF"}
+      </span>
+    )}
+  </div>
+</div>
 
-                            {/* Action buttons */}
-                            <div className="flex justify-center items-center gap-2 mt-1">
+                            {anyFilterEnabled !== null && (
+  <div className="mb-1.5 flex justify-end">
+    <span className={`inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full font-bold border ${
+      anyFilterEnabled
+        ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+        : "bg-gray-100 text-gray-400 border-gray-200"
+    }`}>
+      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+        anyFilterEnabled ? "bg-emerald-500" : "bg-gray-400"
+      }`} />
+      {anyFilterEnabled ? "Filter ON" : "Filter OFF"}
+    </span>
+  </div>
+)}
+
+<hr className="my-1.5 border-t border-gray-100" />
+
+{/* Action buttons */}
+<div className="flex justify-center items-center gap-2 mt-1">
                               <button
                                 className="text-gray-500 hover:text-blue-600 transition-colors p-0.5"
                                 onClick={() => handlePlayClick(prompt)}
@@ -5805,7 +5912,21 @@ export default function Page() {
 
             {/* ── Header ── */}
             <div className="flex items-center justify-between px-4 py-2 border-b bg-white flex-shrink-0">
-              <h2 className="text-sm font-bold text-gray-800">Run Your Prompt</h2>
+          <div className="flex items-center gap-2 flex-wrap">
+  <h2 className="text-sm font-bold text-gray-800">Run Your Prompt</h2>
+  {anyFilterEnabled !== null && (
+    <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold border ${
+      anyFilterEnabled
+        ? "bg-emerald-100 text-emerald-700 border-emerald-300"
+        : "bg-gray-100 text-gray-500 border-gray-200"
+    }`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${
+        anyFilterEnabled ? "bg-emerald-500 animate-pulse" : "bg-gray-400"
+      }`} />
+      Parameter Filter: {anyFilterEnabled ? "ON" : "OFF"}
+    </span>
+  )}
+</div>
               <button
                 onClick={handleCloseModal}
                 className="text-gray-400 hover:text-gray-600 text-lg leading-none"
@@ -6535,10 +6656,13 @@ export default function Page() {
           <ParameterSettings boardId={boardId ?? ""} />
         )} */}
 
+   
+
        {activeTab === "parameter" && (
   <ManageParameterSetting 
     boardId={boardId ?? ""} 
-    dataSources={dataSources}   // ← add this
+    dataSources={dataSources}  
+    onFilterToggle={fetchParamFilterStatuses}  // ← add this
   />
 )}
         

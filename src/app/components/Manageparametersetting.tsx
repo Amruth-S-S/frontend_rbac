@@ -3,8 +3,8 @@ import React, { useMemo, useCallback, memo, useState, useEffect, useRef } from "
 import {
   X, FileText, FileSpreadsheet, FileJson, Check, Eye, Database, Plus, Loader2,
   AlertTriangle, RefreshCw, Trash2, Edit3, Type, Filter, Calendar, RotateCcw,
-  History, Table, Save, Hash, BookMarked, SaveAll, Settings2, ChevronDown,
-  Search, SlidersHorizontal, Info, Layers
+  History, Save, Hash, BookMarked, SaveAll, Settings2, ChevronDown, ChevronUp,
+  Info, Layers, ToggleLeft, ToggleRight, Tag
 } from "lucide-react";
 
 // ─────────────────────────── TYPES ───────────────────────────
@@ -20,19 +20,7 @@ interface ParameterSetting {
   is_filter_enabled?: boolean;
   created_at?: string;
   updated_at?: string;
-  // nested data_source from GET /api/parameter-settings/{param_id}
-  data_source?: {
-    id: number;
-    source_name: string;
-    source_type: string;
-  };
-}
-
-interface DataSource {
-  id: number;
-  name: string;
-  source_type?: string;
-  file_name?: string;
+  data_source?: { id: number; source_name: string; source_type: string };
 }
 
 interface SelectedDataset {
@@ -52,13 +40,12 @@ interface ToastMessage {
   message: string;
 }
 
-interface HistoryItem {
-  track_id: string;
-  note: string;
-}
+interface HistoryItem { track_id: string; note: string; }
 
-// ─────────────────────────── PROPS ───────────────────────────
+interface VersionInfo { version: number; version_name: string; row_count_original?: number | null; row_count_filtered?: number | null; source_type?: string; }
+
 interface ExternalDataSource {
+  name: string;
   id: number | string;
   source_name: string;
   slot_number?: number;
@@ -70,14 +57,19 @@ interface ManageParameterSettingProps {
   boardId?: string | number;
   userId?: string | number;
   orgId?: string | number;
-  /** Pass already-fetched dataSources from the parent Container */
   dataSources?: ExternalDataSource[];
+  onFilterToggle?: () => void; // ← ADD THIS
 }
+
+// interface ManageParameterSettingProps {
+//   boardId?: string | number;
+//   userId?: string | number;
+//   orgId?: string | number;
+//   dataSources?: ExternalDataSource[];
+// }
 
 // ─────────────────────────── COMPONENT ───────────────────────────
 export default function ManageParameterSetting(props: ManageParameterSettingProps = {}) {
-
-  // ── env ──
   const API_BASE = process.env.NEXT_PUBLIC_GBUSINESS_API_URL || "https://gbus-dev1-35486280762.us-central1.run.app";
   const API_KEY  = process.env.NEXT_PUBLIC_API_KEY || "";
 
@@ -87,10 +79,9 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
     return h;
   };
 
-  // ── board / user: props take priority, fallback to sessionStorage ──
-  const [boardId,   setBoardId]   = useState<number>(Number(props.boardId || 0));
-  const [userId,    setUserId]    = useState<number>(Number(props.userId  || 0));
-  const [orgId,     setOrgId]     = useState<number>(Number(props.orgId   || 0));
+  const [boardId, setBoardId] = useState<number>(Number(props.boardId || 0));
+  const [userId,  setUserId]  = useState<number>(Number(props.userId  || 0));
+  const [orgId,   setOrgId]   = useState<number>(Number(props.orgId   || 0));
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -109,277 +100,285 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 5000);
   };
 
-  // ─────────── PARAMETER SETTINGS LIST ───────────
+  // ─────────── PARAMETER SETTINGS ───────────
   const [parameterSettings, setParameterSettings] = useState<ParameterSetting[]>([]);
-  const [loadingSettings, setLoadingSettings] = useState(false);
+  const [loadingSettings, setLoadingSettings]     = useState(false);
+  const [togglingIds, setTogglingIds]             = useState<Set<number>>(new Set());
+  const [loadingCardIds, setLoadingCardIds]       = useState<Set<number>>(new Set());
+  const [loadingVersionIds, setLoadingVersionIds] = useState<Set<number>>(new Set());
+  const [paramVersions, setParamVersions]         = useState<Record<number, VersionInfo>>({});
+  // Track which rows have their version dropdown open
+  const [openVersionDropdowns, setOpenVersionDropdowns] = useState<Set<number>>(new Set());
 
-  /**
-   * Step 1: GET /api/parameter-settings/data-source/{ds_id}/settings  → extract param_ids
-   * Step 2: GET /api/parameter-settings/{param_id}                     → full record per setting
-   * This matches exactly what the swagger shows for "Get Parameter Settings".
-   */
+  const toggleVersionDropdown = (id: number) => {
+    setOpenVersionDropdowns(prev => {
+      const s = new Set(prev);
+      s.has(id) ? s.delete(id) : s.add(id);
+      return s;
+    });
+  };
+
   const fetchParameterSettings = async () => {
     setLoadingSettings(true);
     try {
-      const sources = props.dataSources && props.dataSources.length > 0
-        ? props.dataSources
-        : [];
+      const sources = props.dataSources && props.dataSources.length > 0 ? props.dataSources : [];
+      if (sources.length === 0) { setParameterSettings([]); setLoadingSettings(false); return; }
 
-      if (sources.length === 0) {
-        setParameterSettings([]);
-        setLoadingSettings(false);
-        return;
-      }
-
-      // ── Step 1: collect all param_ids from each data source ──────────────
       const paramIds: number[] = [];
+      await Promise.allSettled(sources.map(async ds => {
+        try {
+          const res = await fetch(`${API_BASE}/api/parameter-settings/data-source/${ds.id}/settings`, { method: "GET", headers: getHeaders() });
+          if (!res.ok) return;
+          const json = await res.json();
+          const items: any[] = Array.isArray(json) ? json
+            : Array.isArray(json.settings) ? json.settings
+            : json.parameter_setting ? [json.parameter_setting]
+            : json.id ? [json] : [];
+          items.forEach(item => {
+            const id = Number(item.id ?? item.param_id);
+            if (id && !paramIds.includes(id)) paramIds.push(id);
+          });
+        } catch { }
+      }));
 
-      await Promise.allSettled(
-        sources.map(async ds => {
-          try {
-            const res = await fetch(
-              `${API_BASE}/api/parameter-settings/data-source/${ds.id}/settings`,
-              { method: "GET", headers: getHeaders() }
-            );
-            if (!res.ok) return;
-            const json = await res.json();
+      if (paramIds.length === 0) { setParameterSettings([]); setLoadingSettings(false); return; }
 
-            // Response shape varies: array | { settings: [] } | { parameter_setting: {} } | single {}
-            const items: any[] = Array.isArray(json)
-              ? json
-              : Array.isArray(json.settings) ? json.settings
-              : json.parameter_setting ? [json.parameter_setting]
-              : json.id ? [json]
-              : [];
-
-            items.forEach(item => {
-              const id = Number(item.id ?? item.param_id);
-              if (id && !paramIds.includes(id)) paramIds.push(id);
-            });
-          } catch { /* skip failed sources silently */ }
-        })
-      );
-
-      if (paramIds.length === 0) {
-        setParameterSettings([]);
-        setLoadingSettings(false);
-        return;
-      }
-
-      // ── Step 2: GET /api/parameter-settings/{param_id} for each id ───────
       const fullResults = await Promise.allSettled(
-        paramIds.map(id =>
-          fetch(`${API_BASE}/api/parameter-settings/${id}`, {
-            method: "GET",
-            headers: getHeaders(),
-          }).then(r => r.ok ? r.json() : null)
-        )
+        paramIds.map(id => fetch(`${API_BASE}/api/parameter-settings/${id}`, { method: "GET", headers: getHeaders() }).then(r => r.ok ? r.json() : null))
       );
 
       const allSettings: ParameterSetting[] = [];
       fullResults.forEach(result => {
         if (result.status === "fulfilled" && result.value) {
           const val = result.value;
-          // Unwrap { success, parameter_setting: {...}, data_source: {...} }
           const ps: ParameterSetting = val.parameter_setting
             ? { ...val.parameter_setting, data_source: val.data_source }
             : val.id ? val : null;
           if (ps) allSettings.push(ps);
         }
       });
-
       setParameterSettings(allSettings);
-    } catch (err) {
+      allSettings.forEach(ps => fetchLatestVersion(ps.id));
+    } catch {
       showToast("error", "Failed to load parameter settings");
     } finally {
       setLoadingSettings(false);
     }
   };
 
-    // Re-fetch whenever boardId or the parent's dataSources list changes
-  useEffect(() => {
-    if (boardId && props.dataSources && props.dataSources.length > 0) {
-      fetchParameterSettings();
+  const fetchLatestVersion = async (paramId: number) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/parameter-settings/${paramId}/versions`, { method: "GET", headers: getHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        const versions: any[] = data.versions || (Array.isArray(data) ? data : []);
+        if (versions.length > 0) {
+          const latest = versions[versions.length - 1];
+          setParamVersions(prev => ({
+            ...prev,
+            [paramId]: {
+              version:            latest.version,
+              version_name:       latest.version_name || latest.name || `v${latest.version}`,
+              row_count_original: latest.row_count_original ?? null,
+              row_count_filtered: latest.row_count_filtered ?? null,
+              source_type:        latest.source_type ?? "csv",
+            }
+          }));
+        }
+      }
+    } catch { }
+  };
+
+  const openFilteredVersionViewer = async (ps: ParameterSetting, vInfo: VersionInfo) => {
+    setLoadingVersionIds(prev => new Set(prev).add(ps.id));
+    try {
+      const versionRes = await fetch(
+        `${API_BASE}/api/parameter-settings/${ps.id}/versions/${vInfo.version}`,
+        { method: "GET", headers: getHeaders() }
+      );
+      if (versionRes.ok) {
+        const vData = await versionRes.json();
+        setIsViewerOpen(true);
+        setIsPreviewMode(false); setPreviewData(null); setCurrentFilterType(null);
+        setHasTransformations(false); setSortColumn(null); setSortOrder("asc");
+        setIsEditPanelOpen(false); setSelectedTransformation(null);
+        resetFilterForms();
+
+        const init: SelectedDataset = {
+          param_id:      ps.id,
+          name:          vInfo.version_name,
+          description:   `Filtered version of "${ps.name}" — v${vInfo.version}`,
+          type:          "csv",
+          rows:          vData.row_count_filtered ?? vInfo.row_count_filtered ?? 0,
+          columns:       0,
+          fullData:      [],
+          columnHeaders: [],
+        };
+        setSelectedDataset(init);
+
+        const dataRes = await fetch(`${API_BASE}/api/parameter-settings/${ps.id}/view-data/`, { method: "GET", headers: getHeaders() });
+        if (dataRes.ok) {
+          const json          = await dataRes.json();
+          const fullData      = json.data || json.preview || [];
+          const columnHeaders = json.columns || [];
+          const rows          = json.rows || fullData.length;
+          setSelectedDataset({ ...init, fullData, columnHeaders, rows, columns: columnHeaders.length });
+          showToast("success", `Loaded filtered version: ${rows.toLocaleString()} rows`);
+        } else {
+          showToast("warning", "Could not load filtered data — showing version metadata only");
+        }
+      } else {
+        await openViewer(ps);
+      }
+    } catch {
+      showToast("error", "Network error loading filtered version");
+      setIsViewerOpen(false);
+    } finally {
+      setLoadingVersionIds(prev => { const s = new Set(prev); s.delete(ps.id); return s; });
     }
+  };
+
+  useEffect(() => {
+    if (boardId && props.dataSources && props.dataSources.length > 0) fetchParameterSettings();
   }, [boardId, props.dataSources]);
 
-  // ─────────── LIST FILTER POPUP ───────────
-  const [showListFilter, setShowListFilter] = useState(false);
-  const [listFilterName, setListFilterName] = useState("");
-  const [listFilterSource, setListFilterSource] = useState<number | "">("");
-  // For the "select & load" action in the filter popup
-  const [selectedParamToLoad, setSelectedParamToLoad] = useState<number | "">("");
-  const [isLoadingFromFilter, setIsLoadingFromFilter] = useState(false);
+  // ─────────── TOGGLE FILTER ───────────
+  const handleToggleFilter = async (ps: ParameterSetting, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setTogglingIds(prev => new Set(prev).add(ps.id));
+    const newValue = !ps.is_filter_enabled;
+    try {
+      const res = await fetch(`${API_BASE}/api/parameter-settings/${ps.id}/toggle`, {
+        method: "PUT", headers: getHeaders(true),
+        body: JSON.stringify({ is_filter_enabled: newValue })
+      });
+      if (res.ok) {
+  setParameterSettings(prev => prev.map(p => p.id === ps.id ? { ...p, is_filter_enabled: newValue } : p));
+  showToast("success", `Filter ${newValue ? "enabled" : "disabled"} for "${ps.name}"`);
+  props.onFilterToggle?.(); // ← ADD THIS — notifies Container instantly
+}
+       else { showToast("error", `Toggle failed: ${await res.text()}`); }
+    } catch { showToast("error", "Network error toggling filter"); }
+    finally { setTogglingIds(prev => { const s = new Set(prev); s.delete(ps.id); return s; }); }
+  };
 
-  const filteredSettings = useMemo(() => {
-    return parameterSettings.filter(p => {
-      const nameMatch  = !listFilterName  || p.name.toLowerCase().includes(listFilterName.toLowerCase());
-      const srcMatch   = !listFilterSource || p.data_source_id === Number(listFilterSource);
-      return nameMatch && srcMatch;
-    });
-  }, [parameterSettings, listFilterName, listFilterSource]);
+  // ─────────── CARD INFO: quick load & open ───────────
+  const handleCardInfoClick = async (ps: ParameterSetting, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setLoadingCardIds(prev => new Set(prev).add(ps.id));
+    try {
+      showToast("info", `Loading "${ps.name}"...`);
+      const loadRes = await fetch(`${API_BASE}/api/parameter-settings/${ps.id}/load-source`, { method: "POST", headers: getHeaders(true) });
+      if (!loadRes.ok && loadRes.status !== 400 && loadRes.status !== 409) {
+        showToast("error", `Load failed: ${await loadRes.text()}`); return;
+      }
+      await openViewer(ps);
+    } catch { showToast("error", "Network error loading parameter setting"); }
+    finally { setLoadingCardIds(prev => { const s = new Set(prev); s.delete(ps.id); return s; }); }
+  };
+
+  // ─────────── FILTER LIST ───────────
+  const [listFilterName,   setListFilterName]   = useState("");
+  const [listFilterSource, setListFilterSource] = useState<number | "">("");
+
+  const filteredSettings = useMemo(() => parameterSettings.filter(p => {
+    const nameMatch = !listFilterName || p.name.toLowerCase().includes(listFilterName.toLowerCase());
+    const srcMatch  = !listFilterSource || p.data_source_id === Number(listFilterSource);
+    return nameMatch && srcMatch;
+  }), [parameterSettings, listFilterName, listFilterSource]);
 
   // ─────────── CREATE MODAL ───────────
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [createForm, setCreateForm] = useState({ name: "", description: "", data_source_id: "" });
-  const [isCreating, setIsCreating] = useState(false);
-  // Use parent-provided dataSources if available, else fetch internally
+  const [createForm, setCreateForm]           = useState({ name: "", description: "", data_source_id: "" });
+  const [isCreating, setIsCreating]           = useState(false);
   const [internalDataSources, setInternalDataSources] = useState<ExternalDataSource[]>([]);
-  const [loadingDS, setLoadingDS] = useState(false);
+  const [loadingDS, setLoadingDS]             = useState(false);
 
-  // Merge: parent prop wins if provided
-  const dataSources: ExternalDataSource[] = (props.dataSources && props.dataSources.length > 0)
-    ? props.dataSources
-    : internalDataSources;
+  const dataSources: ExternalDataSource[] = (props.dataSources && props.dataSources.length > 0) ? props.dataSources : internalDataSources;
 
   const fetchDataSources = async () => {
-    // Skip internal fetch if parent already provided dataSources
     if (props.dataSources && props.dataSources.length > 0) return;
     if (!boardId) return;
     setLoadingDS(true);
     try {
-      const res = await fetch(
-        `${API_BASE}/main-boards/boards/data-sources/board/${boardId}?user_id=${userId}`,
-        { method: "GET", headers: getHeaders() }
-      );
+      const res = await fetch(`${API_BASE}/main-boards/boards/data-sources/board/${boardId}?user_id=${userId}`, { method: "GET", headers: getHeaders() });
       if (res.ok) {
         const data = await res.json();
-        const list = Array.isArray(data) ? data : data.data_sources || data.sources || [];
-        setInternalDataSources(list);
-      } else {
-        showToast("error", "Failed to load data sources");
-      }
-    } catch {
-      showToast("error", "Network error loading data sources");
-    } finally {
-      setLoadingDS(false);
-    }
+        setInternalDataSources(Array.isArray(data) ? data : data.data_sources || data.sources || []);
+      } else { showToast("error", "Failed to load data sources"); }
+    } catch { showToast("error", "Network error loading data sources"); }
+    finally { setLoadingDS(false); }
   };
 
   const openCreateModal = () => {
     setCreateForm({ name: "", description: "", data_source_id: "" });
     setShowCreateModal(true);
-    // Only fetch if parent didn't pass dataSources
-    if (!props.dataSources || props.dataSources.length === 0) {
-      fetchDataSources();
-    }
+    if (!props.dataSources || props.dataSources.length === 0) fetchDataSources();
   };
 
   const handleCreate = async () => {
-    if (!createForm.name.trim() || !createForm.data_source_id) {
-      showToast("warning", "Please fill in all required fields"); return;
-    }
+    if (!createForm.name.trim() || !createForm.data_source_id) { showToast("warning", "Please fill in all required fields"); return; }
     setIsCreating(true);
     try {
       const res = await fetch(`${API_BASE}/api/parameter-settings/`, {
-        method: "POST",
-        headers: getHeaders(true),
-        body: JSON.stringify({
-          board_id: boardId,
-          data_source_id: Number(createForm.data_source_id),
-          description: createForm.description,
-          name: createForm.name.trim()
-        })
+        method: "POST", headers: getHeaders(true),
+        body: JSON.stringify({ board_id: boardId, data_source_id: Number(createForm.data_source_id), description: createForm.description, name: createForm.name.trim() })
       });
       if (res.ok) {
         const created = await res.json();
-        // API may wrap response in { parameter_setting: {...} }
         const createdObj = created.parameter_setting || created;
         const newId = createdObj.id || createdObj.param_id;
         showToast("success", `Parameter setting "${createForm.name}" created!`);
         setShowCreateModal(false);
-        // auto load source then open viewer
         if (newId) {
-          await loadSourceAndOpenViewer(newId, createForm.name);
+          await fetch(`${API_BASE}/api/parameter-settings/${newId}/load-source`, { method: "POST", headers: getHeaders(true) });
+          const pseudo: ParameterSetting = { id: newId, name: createForm.name, description: createForm.description, board_id: boardId, data_source_id: Number(createForm.data_source_id) };
+          await openViewer(pseudo);
         }
         await fetchParameterSettings();
-      } else {
-        const err = await res.text();
-        showToast("error", `Create failed: ${err}`);
-      }
-    } catch {
-      showToast("error", "Network error creating parameter setting");
-    } finally {
-      setIsCreating(false);
-    }
-  };
-
-  const loadSourceAndOpenViewer = async (paramId: number, name: string) => {
-    try {
-      const res = await fetch(`${API_BASE}/api/parameter-settings/${paramId}/load-source`, {
-        method: "POST", headers: getHeaders()
-      });
-      if (res.ok) {
-        const ds = dataSources.find(d => d.id === Number(createForm.data_source_id));
-        const pseudo: ParameterSetting = {
-          id: paramId, name, description: createForm.description,
-          board_id: boardId, data_source_id: Number(createForm.data_source_id)
-        };
-        await openViewer(pseudo);
-      }
-    } catch {
-      showToast("warning", "Could not auto-load source. Open the item to view data.");
-    }
+      } else { showToast("error", `Create failed: ${await res.text()}`); }
+    } catch { showToast("error", "Network error creating parameter setting"); }
+    finally { setIsCreating(false); }
   };
 
   // ─────────── DELETE ───────────
   const [deleteTarget, setDeleteTarget] = useState<ParameterSetting | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
+  const [isDeleting, setIsDeleting]     = useState(false);
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     setIsDeleting(true);
     try {
-      const res = await fetch(`${API_BASE}/api/parameter-settings/${deleteTarget.id}`, {
-        method: "DELETE", headers: getHeaders()
-      });
+      const res = await fetch(`${API_BASE}/api/parameter-settings/${deleteTarget.id}`, { method: "DELETE", headers: getHeaders() });
       if (res.ok) {
         showToast("success", `"${deleteTarget.name}" deleted`);
         setDeleteTarget(null);
         fetchParameterSettings();
-      } else {
-        showToast("error", `Delete failed: ${await res.text()}`);
-      }
-    } catch {
-      showToast("error", "Network error deleting");
-    } finally {
-      setIsDeleting(false);
-    }
+      } else { showToast("error", `Delete failed: ${await res.text()}`); }
+    } catch { showToast("error", "Network error deleting"); }
+    finally { setIsDeleting(false); }
   };
 
   // ─────────── VIEWER ───────────
-  const [isViewerOpen, setIsViewerOpen] = useState(false);
+  const [isViewerOpen, setIsViewerOpen]       = useState(false);
   const [selectedDataset, setSelectedDataset] = useState<SelectedDataset | null>(null);
 
   const openViewer = async (ps: ParameterSetting) => {
     setIsViewerOpen(true);
     setIsPreviewMode(false); setPreviewData(null); setCurrentFilterType(null);
-    setHasTransformations(false); setSortColumn(null);
+    setHasTransformations(false); setSortColumn(null); setSortOrder("asc");
+    setIsEditPanelOpen(false); setSelectedTransformation(null);
     resetFilterForms();
-
-    const init: SelectedDataset = {
-      param_id: ps.id, name: ps.name, description: ps.description,
-      type: "csv", rows: 0, columns: 0, fullData: [], columnHeaders: []
-    };
+    const init: SelectedDataset = { param_id: ps.id, name: ps.name, description: ps.description, type: "csv", rows: 0, columns: 0, fullData: [], columnHeaders: [] };
     setSelectedDataset(init);
-
     try {
-      // Fetch the data for the table viewer
-      // Note: load-source must be called before openViewer (done in filter popup or create flow)
-      const res = await fetch(
-        `${API_BASE}/api/parameter-settings/${ps.id}/view-data/`,
-        { method: "GET", headers: getHeaders() }
-      );
-
+      const res = await fetch(`${API_BASE}/api/parameter-settings/${ps.id}/view-data/`, { method: "GET", headers: getHeaders() });
       if (res.ok) {
         const json = await res.json();
         const fullData      = json.data || json.preview || [];
         const columnHeaders = json.columns || [];
         const rows          = json.rows || fullData.length;
-        setSelectedDataset({
-          ...init, fullData, columnHeaders,
-          rows, columns: columnHeaders.length,
-        });
+        setSelectedDataset({ ...init, fullData, columnHeaders, rows, columns: columnHeaders.length });
         showToast("success", `Loaded: ${rows.toLocaleString()} rows × ${columnHeaders.length} columns`);
         await checkHistory(ps.id);
       } else {
@@ -396,48 +395,59 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
     setIsViewerOpen(false); setSelectedDataset(null);
     setIsEditPanelOpen(false); setSelectedTransformation(null);
     setIsPreviewMode(false); setPreviewData(null); setCurrentFilterType(null);
-    setHasTransformations(false); setSortColumn(null);
+    setHasTransformations(false); setSortColumn(null); setSortOrder("asc");
     resetFilterForms();
   };
 
-  // helper
-  const pid = selectedDataset?.param_id;
+  const pid  = selectedDataset?.param_id;
   const purl = (path: string) => `${API_BASE}/api/parameter-settings/${pid}${path}`;
 
   // ─────────── EDIT PANEL ───────────
-  const [isEditPanelOpen, setIsEditPanelOpen] = useState(false);
-  const [selectedTransformation, setSelectedTransformation] = useState<string | null>(null);
+  const [isEditPanelOpen, setIsEditPanelOpen]                   = useState(false);
+  const [selectedTransformation, setSelectedTransformation]     = useState<string | null>(null);
 
-  const toggleEditPanel = () => {
-    setIsEditPanelOpen(p => !p);
-    setSelectedTransformation(null);
-  };
+  const toggleEditPanel = () => { setIsEditPanelOpen(p => !p); setSelectedTransformation(null); };
 
   const handleTransformationSelect = (t: string) => {
     setSelectedTransformation(t);
     setRenameOldColumn(""); setRenameNewColumn("");
     setTypeCastColumn(""); setTypeCastNewType("");
+    setGroupByColumns([]); setAggregateColumn(""); setAggregateFunction("");
+    setDateColumn(""); setDateSummaryLoaded(false); setSelectedYears([]); setSelectedMonths([]); setSelectedDays([]);
+    setFilterColumn(""); setUniqueValuesData(null); setSelectedFilterValues(new Set()); setUniqueValuesLoaded(false); setUniqueValuesSearch("");
+    setTextFilterColumn(""); setTextFilterType("equals"); setTextFilterValue(""); setTextFilterValue2(""); setTextFilterValues([]);
+    setNumberFilterColumn(""); setNumberFilterType("equals"); setNumberFilterValue(""); setNumberFilterValue2(""); setNumberFilterValues([]);
     setHistoryData([]);
     if (t === "get_history") fetchHistory();
   };
 
   const transformationOptions = useMemo(() => [
-    { id: "rename_column",     label: "Rename Column",    icon: <Type className="h-4 w-4" />,     color: "green"  },
-    { id: "type_cast",         label: "Type Cast",        icon: <FileText className="h-4 w-4" />, color: "purple" },
+    { id: "rename_column",       label: "Rename Column",     icon: <Type className="h-4 w-4" />,     color: "green"  },
+    { id: "type_cast",           label: "Type Cast",         icon: <FileText className="h-4 w-4" />, color: "purple" },
     { id: "group_and_aggregate", label: "Group & Aggregate", icon: <Database className="h-4 w-4" />, color: "orange" },
-    { id: "filter_by_date",    label: "Filter by Date",   icon: <Calendar className="h-4 w-4" />, color: "pink"   },
-    { id: "get_history",       label: "Get History",      icon: <History className="h-4 w-4" />,  color: "gray"   },
-    { id: "filter_by_values",  label: "Filter by Values", icon: <Filter className="h-4 w-4" />,  color: "indigo" },
-    { id: "text_filter",       label: "Text Filter",      icon: <Type className="h-4 w-4" />,     color: "blue"   },
-    { id: "number_filter",     label: "Number Filter",    icon: <Hash className="h-4 w-4" />,     color: "teal"   },
+    { id: "filter_by_date",      label: "Filter by Date",    icon: <Calendar className="h-4 w-4" />, color: "pink"   },
+    { id: "get_history",         label: "Get History",       icon: <History className="h-4 w-4" />,  color: "gray"   },
+    { id: "filter_by_values",    label: "Filter by Values",  icon: <Filter className="h-4 w-4" />,   color: "indigo" },
+    { id: "text_filter",         label: "Text Filter",       icon: <Type className="h-4 w-4" />,     color: "blue"   },
+    { id: "number_filter",       label: "Number Filter",     icon: <Hash className="h-4 w-4" />,     color: "teal"   },
   ], []);
 
   // ─────────── PREVIEW / FILTER STATE ───────────
-  const [isPreviewMode,    setIsPreviewMode]    = useState(false);
-  const [previewData,      setPreviewData]      = useState<any>(null);
-  const [currentFilterType, setCurrentFilterType] = useState<string | null>(null);
-  const [isSavingFilter,   setIsSavingFilter]   = useState(false);
+  const [isPreviewMode,      setIsPreviewMode]      = useState(false);
+  const [previewData,        setPreviewData]        = useState<any>(null);
+  const [currentFilterType,  setCurrentFilterType]  = useState<string | null>(null);
+  const [isSavingFilter,     setIsSavingFilter]     = useState(false);
   const [hasTransformations, setHasTransformations] = useState(false);
+
+  const checkHistory = async (paramId: number) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/parameter-settings/${paramId}/history/`, { method: "GET", headers: getHeaders() });
+      if (res.ok) {
+        const result = await res.json();
+        setHasTransformations((result.history || []).length > 0);
+      }
+    } catch { }
+  };
 
   const refreshCurrentDataset = async () => {
     if (!selectedDataset) return;
@@ -446,36 +456,11 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
       const res = await fetch(url, { method: "GET", headers: getHeaders() });
       if (res.ok) {
         const json = await res.json();
-        const fullData     = json.data || json.preview || [];
+        const fullData      = json.data || json.preview || [];
         const columnHeaders = json.columns || [];
-        const rows = json.rows || fullData.length;
-        setSelectedDataset({ ...selectedDataset, fullData, columnHeaders, rows, columns: columnHeaders.length });
+        setSelectedDataset({ ...selectedDataset, fullData, columnHeaders, rows: json.rows || fullData.length, columns: columnHeaders.length });
       }
-    } catch { /* silent */ }
-  };
-
-  const saveCurrentFilter = async () => {
-    if (!selectedDataset) return;
-    setIsSavingFilter(true);
-    try {
-      const res = await fetch(purl("/save-filter/"), {
-        method: "POST", headers: getHeaders(true)
-      });
-      if (res.ok) {
-        showToast("success", "Changes saved! ✅");
-        setHasTransformations(true); setIsPreviewMode(false);
-        setPreviewData(null); setCurrentFilterType(null);
-        setSelectedTransformation(null);
-        resetFilterForms();
-        await refreshSavedDataset();
-      } else {
-        showToast("error", `Save failed: ${await res.text()}`);
-      }
-    } catch {
-      showToast("error", "Network error saving");
-    } finally {
-      setIsSavingFilter(false);
-    }
+    } catch { }
   };
 
   const refreshSavedDataset = async () => {
@@ -484,38 +469,11 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
       const res = await fetch(purl("/view-data/"), { method: "GET", headers: getHeaders() });
       if (res.ok) {
         const json = await res.json();
-        const fullData = json.data || json.preview || [];
+        const fullData      = json.data || json.preview || [];
         const columnHeaders = json.columns || [];
-        const rows = json.rows || fullData.length;
-        setSelectedDataset({ ...selectedDataset, fullData, columnHeaders, rows, columns: columnHeaders.length });
+        setSelectedDataset({ ...selectedDataset, fullData, columnHeaders, rows: json.rows || fullData.length, columns: columnHeaders.length });
       }
-    } catch { /* silent */ }
-  };
-
-  const cancelFilterPreview = async () => {
-    if (!selectedDataset) return;
-    if (currentFilterType === "rename_column" || currentFilterType === "type_cast") {
-      try {
-        await fetch(purl("/undo-latest/"), { method: "PUT", headers: getHeaders() });
-        showToast("info", "Change cancelled and reverted");
-      } catch { showToast("warning", "Could not auto-undo — use Undo button"); }
-    }
-    try {
-      const res = await fetch(purl("/view-data/"), { method: "GET", headers: getHeaders() });
-      if (res.ok) {
-        const json = await res.json();
-        const fullData = json.data || json.preview || [];
-        const columnHeaders = json.columns || [];
-        const rows = json.rows || fullData.length;
-        setSelectedDataset({ ...selectedDataset, fullData, columnHeaders, rows, columns: columnHeaders.length });
-      }
-    } catch { /* silent */ }
-    setIsPreviewMode(false); setPreviewData(null); setCurrentFilterType(null);
-    setSortColumn(null); setSortOrder("asc"); setHasTransformations(false);
-    resetFilterForms();
-    if (currentFilterType !== "rename_column" && currentFilterType !== "type_cast") {
-      showToast("info", "Preview cancelled — showing last saved state");
-    }
+    } catch { }
   };
 
   const fetchFilterPreview = async () => {
@@ -523,17 +481,59 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
     try {
       const res = await fetch(purl("/get-current-filtered/"), { method: "GET", headers: getHeaders() });
       if (res.ok) {
-        const result = await res.json();
-        setPreviewData(result); setIsPreviewMode(true);
-        const filteredData = result.preview || result.data || [];
+        const result        = await res.json();
+        const filteredData  = result.preview || result.data || [];
         const columnHeaders = result.columns || selectedDataset.columnHeaders || [];
-        const rows = result.rows || filteredData.length;
+        const rows          = result.rows || filteredData.length;
+        setPreviewData(result);
+        setIsPreviewMode(true);
         setSelectedDataset({ ...selectedDataset, fullData: filteredData, rows, columns: columnHeaders.length, columnHeaders });
-        showToast("success", `Preview: ${rows} rows (${result.dropped_rows || 0} filtered)`);
-      } else {
-        showToast("error", `Preview failed: ${await res.text()}`);
-      }
+        showToast("success", `Preview: ${rows} rows (${result.dropped_rows || 0} filtered out)`);
+      } else { showToast("error", `Preview failed: ${await res.text()}`); }
     } catch { showToast("error", "Network error loading preview"); }
+  };
+
+  const saveCurrentFilter = async () => {
+    if (!selectedDataset) return;
+    setIsSavingFilter(true);
+    try {
+      const res = await fetch(purl("/save-filter/"), { method: "POST", headers: getHeaders(true) });
+      if (res.ok) {
+        showToast("success", "Changes saved successfully! ✅");
+        setHasTransformations(true);
+        setIsPreviewMode(false); setPreviewData(null); setCurrentFilterType(null);
+        setSelectedTransformation(null);
+        resetFilterForms();
+        await refreshSavedDataset();
+      } else { showToast("error", `Save failed: ${await res.text()}`); }
+    } catch { showToast("error", "Network error saving"); }
+    finally { setIsSavingFilter(false); }
+  };
+
+  const cancelFilterPreview = async () => {
+    if (!selectedDataset) return;
+    if (currentFilterType === "rename_column" || currentFilterType === "type_cast") {
+      try {
+        const res = await fetch(purl("/undo-latest/"), { method: "PUT", headers: getHeaders() });
+        if (res.ok) showToast("info", "Change cancelled and reverted");
+        else showToast("warning", "Could not auto-undo — use Undo button to revert");
+      } catch { showToast("warning", "Could not auto-undo — use Undo button"); }
+    }
+    try {
+      const res = await fetch(purl("/view-data/"), { method: "GET", headers: getHeaders() });
+      if (res.ok) {
+        const json          = await res.json();
+        const fullData      = json.data || json.preview || [];
+        const columnHeaders = json.columns || [];
+        setSelectedDataset({ ...selectedDataset, fullData, columnHeaders, rows: json.rows || fullData.length, columns: columnHeaders.length });
+      }
+    } catch { }
+    setIsPreviewMode(false); setPreviewData(null); setCurrentFilterType(null);
+    setSortColumn(null); setSortOrder("asc"); setHasTransformations(false);
+    resetFilterForms();
+    if (currentFilterType !== "rename_column" && currentFilterType !== "type_cast") {
+      showToast("info", "Preview cancelled — showing last saved state");
+    }
   };
 
   // ─────────── SORT ───────────
@@ -553,76 +553,57 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
           if (v !== null && v !== undefined && v !== "") { isNumeric = !isNaN(Number(v)); break; }
         }
       }
-      const params = new URLSearchParams({
-        sort_column: columnName, order: newOrder, numeric: String(isNumeric)
-      });
+      const params = new URLSearchParams({ sort_column: columnName, order: newOrder, numeric: String(isNumeric) });
       const res = await fetch(`${purl("/sort-rows/")}?${params}`, { method: "GET", headers: getHeaders() });
       if (res.ok) {
-        const result = await res.json();
-        const sortedData = result.preview || result.data || [];
+        const result        = await res.json();
+        const sortedData    = result.preview || result.data || [];
         const columnHeaders = result.columns || selectedDataset.columnHeaders || [];
         setSelectedDataset({ ...selectedDataset, fullData: sortedData, rows: result.rows || sortedData.length, columns: columnHeaders.length, columnHeaders });
         showToast("success", `Sorted by "${columnName}" ${newOrder === "asc" ? "↑" : "↓"}`);
         setIsPreviewMode(true); setCurrentFilterType("sort");
         setPreviewData({ rows: result.rows, dropped_rows: 0, columns: columnHeaders, preview: sortedData, filter_type: "SORT", sort_column: columnName, sort_order: newOrder });
-      } else {
-        showToast("error", `Sort failed: ${await res.text()}`);
-      }
+      } else { showToast("error", `Sort failed: ${await res.text()}`); }
     } catch { showToast("error", "Network error sorting"); }
     finally { setIsSorting(false); }
   };
 
   const SortIndicator = memo(({ col }: { col: string }) => {
-    if (sortColumn !== col)
-      return <div className="flex flex-col opacity-30"><svg className="w-3 h-3 -mb-1" fill="currentColor" viewBox="0 0 12 12"><path d="M6 3l4 4H2z" /></svg><svg className="w-3 h-3" fill="currentColor" viewBox="0 0 12 12"><path d="M6 9l4-4H2z" /></svg></div>;
+    if (sortColumn !== col) return <div className="flex flex-col opacity-30"><svg className="w-3 h-3 -mb-1" fill="currentColor" viewBox="0 0 12 12"><path d="M6 3l4 4H2z" /></svg><svg className="w-3 h-3" fill="currentColor" viewBox="0 0 12 12"><path d="M6 9l4-4H2z" /></svg></div>;
     return <div>{sortOrder === "asc" ? <svg className="w-4 h-4 text-blue-400" fill="currentColor" viewBox="0 0 12 12"><path d="M6 3l4 4H2z" /></svg> : <svg className="w-4 h-4 text-blue-400" fill="currentColor" viewBox="0 0 12 12"><path d="M6 9l4-4H2z" /></svg>}</div>;
   });
 
   // ─────────── COLUMN FILTER DROPDOWN ───────────
-  const [filterDropdownOpen,          setFilterDropdownOpen]          = useState<string | null>(null);
-  const [filterDropdownPosition,      setFilterDropdownPosition]      = useState({ top: 0, left: 0 });
-  const [columnFilterValues,          setColumnFilterValues]          = useState<any>(null);
-  const [isLoadingColumnFilter,       setIsLoadingColumnFilter]       = useState(false);
-  const [selectedColumnFilterValues,  setSelectedColumnFilterValues]  = useState<Set<any>>(new Set());
-  const [columnFilterSearchTerm,      setColumnFilterSearchTerm]      = useState("");
-  const [isApplyingFilter,            setIsApplyingFilter]            = useState(false);
+  const [filterDropdownOpen,         setFilterDropdownOpen]         = useState<string | null>(null);
+  const [filterDropdownPosition,     setFilterDropdownPosition]     = useState({ top: 0, left: 0 });
+  const [columnFilterValues,         setColumnFilterValues]         = useState<any>(null);
+  const [isLoadingColumnFilter,      setIsLoadingColumnFilter]      = useState(false);
+  const [selectedColumnFilterValues, setSelectedColumnFilterValues] = useState<Set<any>>(new Set());
+  const [columnFilterSearchTerm,     setColumnFilterSearchTerm]     = useState("");
+  const [isApplyingFilter,           setIsApplyingFilter]           = useState(false);
 
   useEffect(() => {
     if (!filterDropdownOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (!(e.target as HTMLElement).closest(".fixed")) setFilterDropdownOpen(null);
-    };
+    const handler = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest(".fixed")) setFilterDropdownOpen(null); };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [filterDropdownOpen]);
 
   const fetchColumnFilterValues = async (col: string, event: React.MouseEvent) => {
     if (!selectedDataset) return;
-    const r = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    const dh = 500, dw = 384, vh = window.innerHeight, vw = window.innerWidth;
-    let top = r.bottom + 8, left = r.left;
-    if (top + dh > vh) top = Math.max(20, r.top - dh - 8);
-    if (left + dw > vw) left = vw - dw - 20;
+    const r  = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    let top  = r.bottom + 8, left = r.left;
+    if (top + 500  > window.innerHeight) top  = Math.max(20, r.top - 500 - 8);
+    if (left + 384 > window.innerWidth)  left = window.innerWidth - 384 - 20;
     setFilterDropdownPosition({ top, left });
     setIsLoadingColumnFilter(true); setFilterDropdownOpen(col); setColumnFilterSearchTerm("");
     try {
-      // GET /api/parameter-settings/{param_id}/unique-values/?column_name={col}
-      const res = await fetch(
-        `${purl("/unique-values/")}?column_name=${encodeURIComponent(col)}`,
-        { method: "GET", headers: getHeaders() }
-      );
+      const res = await fetch(`${purl("/unique-values/")}?column_name=${encodeURIComponent(col)}`, { method: "GET", headers: getHeaders() });
       if (res.ok) {
         const raw = await res.json();
-        // Normalise response shape
-        const normalized = {
-          unique_values:       raw.unique_values ?? raw.values ?? raw.data ?? (Array.isArray(raw) ? raw : []),
-          unique_values_count: raw.unique_values_count ?? raw.count ?? 0,
-          total_rows:          raw.total_rows ?? raw.total ?? 0,
-          null_rows:           raw.null_rows ?? raw.null_count ?? 0,
-          value_counts:        raw.value_counts ?? raw.counts ?? {},
-        };
+        const normalized = normalizeUniqueValues(raw);
         setColumnFilterValues(normalized);
-        setSelectedColumnFilterValues(new Set(normalized.unique_values)); // select all by default
+        setSelectedColumnFilterValues(new Set(normalized.unique_values));
       } else {
         showToast("error", "Failed to load filter values");
         setFilterDropdownOpen(null);
@@ -632,19 +613,14 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
   };
 
   const applyColumnFilter = async () => {
-    if (!selectedDataset || !filterDropdownOpen) return;
-    if (selectedColumnFilterValues.size === 0) { showToast("warning", "Select at least one value"); return; }
+    if (!selectedDataset || !filterDropdownOpen || selectedColumnFilterValues.size === 0) { showToast("warning", "Select at least one value"); return; }
     setIsApplyingFilter(true);
     const vals = Array.from(selectedColumnFilterValues);
     try {
-      // GET /api/parameter-settings/{param_id}/select-rows/?column_name={col}&value={val}
       const params = new URLSearchParams();
       params.append("column_name", filterDropdownOpen);
       vals.forEach(v => params.append("value", String(v)));
-      const res = await fetch(
-        `${purl("/select-rows/")}?${params}`,
-        { method: "GET", headers: getHeaders() }
-      );
+      const res = await fetch(`${purl("/select-rows/")}?${params}`, { method: "GET", headers: getHeaders() });
       if (res.ok) {
         showToast("success", `Filtered "${filterDropdownOpen}" by ${vals.length} value(s)`);
         setCurrentFilterType("filter_by_values");
@@ -658,10 +634,16 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
   const getFilteredColVals = () => {
     if (!columnFilterValues) return [];
     if (!columnFilterSearchTerm) return columnFilterValues.unique_values;
-    return columnFilterValues.unique_values.filter((v: any) =>
-      String(v).toLowerCase().includes(columnFilterSearchTerm.toLowerCase())
-    );
+    return columnFilterValues.unique_values.filter((v: any) => String(v).toLowerCase().includes(columnFilterSearchTerm.toLowerCase()));
   };
+
+  const normalizeUniqueValues = (raw: any) => ({
+    unique_values:       raw.unique_values ?? raw.values ?? raw.data ?? (Array.isArray(raw) ? raw : []),
+    unique_values_count: raw.unique_values_count ?? raw.count ?? 0,
+    total_rows:          raw.total_rows  ?? raw.total ?? 0,
+    null_rows:           raw.null_rows   ?? raw.null_count ?? 0,
+    value_counts:        raw.value_counts ?? raw.counts ?? {},
+  });
 
   // ─────────── RENAME COLUMN ───────────
   const [renameOldColumn,  setRenameOldColumn]  = useState("");
@@ -708,7 +690,7 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
         if (viewRes.ok) {
           const json = await viewRes.json();
           const fullData = json.data || json.preview || [];
-          const cols = json.columns || [];
+          const cols     = json.columns || [];
           setSelectedDataset({ ...selectedDataset, fullData, rows: json.rows || fullData.length, columns: cols.length, columnHeaders: cols });
           setPreviewData({ rows: json.rows, dropped_rows: 0, columns: cols, preview: fullData, filter_type: "TYPE_CAST", cast_column: typeCastColumn, cast_type: typeCastNewType });
           setIsPreviewMode(true); setCurrentFilterType("type_cast"); setHasTransformations(true);
@@ -734,8 +716,8 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
       groupByColumns.forEach(c => params.append("group_by", c));
       const res = await fetch(`${purl("/group-and-aggregate/")}?${params}`, { method: "GET", headers: getHeaders() });
       if (res.ok) {
-        const data = await res.json();
-        const filteredData = data.preview || data.data || [];
+        const data          = await res.json();
+        const filteredData  = data.preview || data.data || [];
         const columnHeaders = data.columns || selectedDataset.columnHeaders || [];
         setPreviewData(data); setIsPreviewMode(true);
         setSelectedDataset({ ...selectedDataset, fullData: filteredData, rows: data.rows || filteredData.length, columns: columnHeaders.length, columnHeaders });
@@ -747,15 +729,16 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
   };
 
   // ─────────── FILTER BY DATE ───────────
-  const [dateColumn,          setDateColumn]          = useState("");
-  const [availableYears,      setAvailableYears]      = useState<number[]>([]);
-  const [availableMonths,     setAvailableMonths]     = useState<Record<string, Record<string, number[]>>>({});
-  const [selectedYears,       setSelectedYears]       = useState<number[]>([]);
-  const [selectedMonths,      setSelectedMonths]      = useState<number[]>([]);
-  const [selectedDays,        setSelectedDays]        = useState<number[]>([]);
+  const [dateColumn,           setDateColumn]           = useState("");
+  const [availableYears,       setAvailableYears]       = useState<number[]>([]);
+  const [availableMonths,      setAvailableMonths]      = useState<Record<string, Record<string, number[]>>>({});
+  const [availableDays,        setAvailableDays]        = useState<number[]>([]);
+  const [selectedYears,        setSelectedYears]        = useState<number[]>([]);
+  const [selectedMonths,       setSelectedMonths]       = useState<number[]>([]);
+  const [selectedDays,         setSelectedDays]         = useState<number[]>([]);
   const [isLoadingDateSummary, setIsLoadingDateSummary] = useState(false);
-  const [isFilteringByDate,   setIsFilteringByDate]   = useState(false);
-  const [dateSummaryLoaded,   setDateSummaryLoaded]   = useState(false);
+  const [isFilteringByDate,    setIsFilteringByDate]    = useState(false);
+  const [dateSummaryLoaded,    setDateSummaryLoaded]    = useState(false);
 
   const fetchDateSummary = async () => {
     if (!selectedDataset || !dateColumn) { showToast("warning", "Select a date column"); return; }
@@ -763,9 +746,9 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
     try {
       const res = await fetch(`${purl("/filter-by-date/")}?date_column=${encodeURIComponent(dateColumn)}&flat_list=false`, { method: "GET", headers: getHeaders() });
       if (res.ok) {
-        const result = await res.json();
+        const result  = await res.json();
         const summary = result.unique_dates_summary || {};
-        const years = Object.keys(summary).map(Number).sort((a, b) => b - a);
+        const years   = Object.keys(summary).map(Number).sort((a, b) => b - a);
         setAvailableYears(years); setAvailableMonths(summary);
         setAvailableDays(Array.from({ length: result.unique_days_count || 31 }, (_, i) => i + 1));
         setDateSummaryLoaded(true);
@@ -774,7 +757,6 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
     } catch { showToast("error", "Network error loading dates"); }
     finally { setIsLoadingDateSummary(false); }
   };
-  const [availableDays, setAvailableDays] = useState<number[]>([]);
 
   const handleFilterByDate = async () => {
     if (!selectedDataset || !dateColumn) { showToast("warning", "Select a date column"); return; }
@@ -787,8 +769,8 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
       selectedDays.forEach(d => params.append("days", d.toString()));
       const res = await fetch(`${purl("/filter-by-date/")}?${params}`, { method: "GET", headers: getHeaders() });
       if (res.ok) {
-        const data = await res.json();
-        const filteredData = data.preview || data.data || [];
+        const data          = await res.json();
+        const filteredData  = data.preview || data.data || [];
         const columnHeaders = data.columns || selectedDataset.columnHeaders || [];
         setPreviewData(data); setIsPreviewMode(true);
         setSelectedDataset({ ...selectedDataset, fullData: filteredData, rows: data.rows || filteredData.length, columns: columnHeaders.length, columnHeaders });
@@ -807,43 +789,33 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
   const [uniqueValuesLoaded,    setUniqueValuesLoaded]    = useState(false);
   const [uniqueValuesSearch,    setUniqueValuesSearch]    = useState("");
 
+  useEffect(() => {
+    if (filterColumn && selectedTransformation === "filter_by_values") {
+      setUniqueValuesLoaded(false); setUniqueValuesData(null);
+      setSelectedFilterValues(new Set()); setUniqueValuesSearch("");
+    }
+  }, [filterColumn]);
+
   const fetchUniqueValues = async () => {
-    if (!selectedDataset || !filterColumn) { showToast("warning", "Select a column"); return; }
+    if (!selectedDataset || !filterColumn) { showToast("warning", "Select a column first"); return; }
     setIsLoadingUniqueValues(true);
     try {
-      // GET /api/parameter-settings/{param_id}/unique-values/?column_name={col}
-      const res = await fetch(
-        `${purl("/unique-values/")}?column_name=${encodeURIComponent(filterColumn)}`,
-        { method: "GET", headers: getHeaders() }
-      );
+      const res = await fetch(`${purl("/unique-values/")}?column_name=${encodeURIComponent(filterColumn)}`, { method: "GET", headers: getHeaders() });
       if (res.ok) {
-        const raw = await res.json();
-
-        // Normalise the response — new API may use different field names
-        const normalized = {
-          unique_values:       raw.unique_values       ?? raw.values          ?? raw.data   ?? [],
-          unique_values_count: raw.unique_values_count ?? raw.count           ?? raw.total  ?? 0,
-          total_rows:          raw.total_rows          ?? raw.total           ?? 0,
-          null_rows:           raw.null_rows           ?? raw.null_count      ?? 0,
-          value_counts:        raw.value_counts        ?? raw.counts          ?? {},
-        };
-
-        // If the API returned nothing useful, try inferring from an array response
+        const raw        = await res.json();
+        const normalized = normalizeUniqueValues(raw);
         if (normalized.unique_values.length === 0 && Array.isArray(raw)) {
-          normalized.unique_values = raw;
-          normalized.unique_values_count = raw.length;
+          normalized.unique_values = raw; normalized.unique_values_count = raw.length;
         }
-
         setUniqueValuesData(normalized);
         setUniqueValuesLoaded(true);
-        setSelectedFilterValues(new Set(normalized.unique_values)); // select all by default
+        setSelectedFilterValues(new Set(normalized.unique_values));
         showToast("success", `Found ${normalized.unique_values_count || normalized.unique_values.length} unique values in '${filterColumn}'`);
-      } else {
-        showToast("error", `Failed to load unique values: ${await res.text()}`);
-      }
+      } else { showToast("error", `Failed to load unique values: ${await res.text()}`); }
     } catch { showToast("error", "Network error loading unique values"); }
     finally { setIsLoadingUniqueValues(false); }
   };
+  
 
   const handleFilterByUniqueValues = async () => {
     if (!selectedDataset || !filterColumn || !selectedFilterValues.size) { showToast("warning", "Select values to filter by"); return; }
@@ -852,44 +824,28 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
     try {
       const params = new URLSearchParams({ column_name: filterColumn });
       vals.forEach(v => params.append("value", String(v)));
-      // GET /api/parameter-settings/{param_id}/select-rows/?column_name={col}&value={val}
-      const res = await fetch(
-        `${purl("/select-rows/")}?${params}`,
-        { method: "GET", headers: getHeaders() }
-      );
+      const res = await fetch(`${purl("/select-rows/")}?${params}`, { method: "GET", headers: getHeaders() });
       if (res.ok) {
-        const data = await res.json();
-        // Normalise response — preview / data / rows
-        const filteredData    = data.preview ?? data.data ?? data.rows_data ?? [];
-        const columnHeaders   = data.columns ?? selectedDataset.columnHeaders ?? [];
-        const rowCount        = data.rows ?? data.row_count ?? filteredData.length;
-        const droppedRows     = data.dropped_rows ?? data.filtered_count ?? 0;
-
-        setSelectedDataset({
-          ...selectedDataset,
-          fullData: filteredData,
-          rows: rowCount,
-          columns: columnHeaders.length,
-          columnHeaders,
-        });
+        const data          = await res.json();
+        const filteredData  = data.preview ?? data.data ?? data.rows_data ?? [];
+        const columnHeaders = data.columns ?? selectedDataset.columnHeaders ?? [];
+        const rowCount      = data.rows ?? data.row_count ?? filteredData.length;
+        const droppedRows   = data.dropped_rows ?? data.filtered_count ?? 0;
+        setSelectedDataset({ ...selectedDataset, fullData: filteredData, rows: rowCount, columns: columnHeaders.length, columnHeaders });
         setPreviewData({ ...data, rows: rowCount, dropped_rows: droppedRows, columns: columnHeaders, preview: filteredData });
-        setIsPreviewMode(true);
-        setCurrentFilterType("filter_by_values");
-        setSelectedTransformation(null);
+        setIsPreviewMode(true); setCurrentFilterType("filter_by_values"); setSelectedTransformation(null);
         showToast("success", `Filtered "${filterColumn}" by ${vals.length} value(s) — ${rowCount} rows remaining`);
-      } else {
-        showToast("error", `Filter failed: ${await res.text()}`);
-      }
+      } else { showToast("error", `Filter failed: ${await res.text()}`); }
     } catch { showToast("error", "Network error applying filter"); }
     finally { setIsApplyingFilter(false); }
   };
 
   // ─────────── TEXT FILTER ───────────
-  const [textFilterColumn, setTextFilterColumn] = useState("");
-  const [textFilterType,   setTextFilterType]   = useState("equals");
-  const [textFilterValue,  setTextFilterValue]  = useState("");
-  const [textFilterValue2, setTextFilterValue2] = useState("");
-  const [textFilterValues, setTextFilterValues] = useState<string[]>([]);
+  const [textFilterColumn,     setTextFilterColumn]     = useState("");
+  const [textFilterType,       setTextFilterType]       = useState("equals");
+  const [textFilterValue,      setTextFilterValue]      = useState("");
+  const [textFilterValue2,     setTextFilterValue2]     = useState("");
+  const [textFilterValues,     setTextFilterValues]     = useState<string[]>([]);
   const [isApplyingTextFilter, setIsApplyingTextFilter] = useState(false);
 
   const handleTextFilter = async () => {
@@ -902,8 +858,8 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
       else if (textFilterType === "in") textFilterValues.forEach(v => params.append("values", v));
       const res = await fetch(`${purl("/text-filter/")}?${params}`, { method: "GET", headers: getHeaders() });
       if (res.ok) {
-        const data = await res.json();
-        const filteredData = data.preview || data.data || [];
+        const data          = await res.json();
+        const filteredData  = data.preview || data.data || [];
         const columnHeaders = data.columns || selectedDataset.columnHeaders || [];
         setPreviewData(data); setIsPreviewMode(true);
         setSelectedDataset({ ...selectedDataset, fullData: filteredData, rows: data.rows || filteredData.length, columns: columnHeaders.length, columnHeaders });
@@ -915,11 +871,11 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
   };
 
   // ─────────── NUMBER FILTER ───────────
-  const [numberFilterColumn, setNumberFilterColumn] = useState("");
-  const [numberFilterType,   setNumberFilterType]   = useState("equals");
-  const [numberFilterValue,  setNumberFilterValue]  = useState("");
-  const [numberFilterValue2, setNumberFilterValue2] = useState("");
-  const [numberFilterValues, setNumberFilterValues] = useState<string[]>([]);
+  const [numberFilterColumn,     setNumberFilterColumn]     = useState("");
+  const [numberFilterType,       setNumberFilterType]       = useState("equals");
+  const [numberFilterValue,      setNumberFilterValue]      = useState("");
+  const [numberFilterValue2,     setNumberFilterValue2]     = useState("");
+  const [numberFilterValues,     setNumberFilterValues]     = useState<string[]>([]);
   const [isApplyingNumberFilter, setIsApplyingNumberFilter] = useState(false);
 
   const handleNumberFilter = async () => {
@@ -932,8 +888,8 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
       else if (numberFilterType === "in") numberFilterValues.forEach(v => params.append("values", v));
       const res = await fetch(`${purl("/number-filter/")}?${params}`, { method: "GET", headers: getHeaders() });
       if (res.ok) {
-        const data = await res.json();
-        const filteredData = data.preview || data.data || [];
+        const data          = await res.json();
+        const filteredData  = data.preview || data.data || [];
         const columnHeaders = data.columns || selectedDataset.columnHeaders || [];
         setPreviewData(data); setIsPreviewMode(true);
         setSelectedDataset({ ...selectedDataset, fullData: filteredData, rows: data.rows || filteredData.length, columns: columnHeaders.length, columnHeaders });
@@ -945,21 +901,11 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
   };
 
   // ─────────── UNDO / RESET / HISTORY ───────────
-  const [isUndoing,   setIsUndoing]   = useState(false);
-  const [isResetting, setIsResetting] = useState(false);
-  const [showResetModal, setShowResetModal] = useState(false);
-  const [historyData, setHistoryData] = useState<HistoryItem[]>([]);
+  const [isUndoing,        setIsUndoing]        = useState(false);
+  const [isResetting,      setIsResetting]      = useState(false);
+  const [showResetModal,   setShowResetModal]   = useState(false);
+  const [historyData,      setHistoryData]      = useState<HistoryItem[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-
-  const checkHistory = async (paramId: number) => {
-    try {
-      const res = await fetch(`${API_BASE}/api/parameter-settings/${paramId}/history/`, { method: "GET", headers: getHeaders() });
-      if (res.ok) {
-        const result = await res.json();
-        setHasTransformations((result.history || []).length > 0);
-      }
-    } catch { /* silent */ }
-  };
 
   const fetchHistory = async () => {
     if (!selectedDataset) return;
@@ -967,10 +913,10 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
     try {
       const res = await fetch(purl("/history/"), { method: "GET", headers: getHeaders() });
       if (res.ok) {
-        const result = await res.json();
+        const result  = await res.json();
         const history = result.history || [];
         setHistoryData(history); setHasTransformations(history.length > 0);
-        history.length === 0 ? showToast("info", "No history") : showToast("success", `${history.length} transformation(s) found`);
+        history.length === 0 ? showToast("info", "No history found") : showToast("success", `${history.length} transformation(s) found`);
       } else { showToast("error", `History failed: ${await res.text()}`); }
     } catch { showToast("error", "Network error loading history"); }
     finally { setIsLoadingHistory(false); }
@@ -1008,31 +954,38 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
     finally { setIsResetting(false); }
   };
 
-  // ─────────── SAVE AS ───────────
-  const [showSaveAsModal, setShowSaveAsModal] = useState(false);
-  const [saveAsFileName,  setSaveAsFileName]  = useState("");
-  const [isSavingAs,      setIsSavingAs]      = useState(false);
+  // ─────────── FINALIZE ───────────
+  const [showSaveAsModal,   setShowSaveAsModal]   = useState(false);
+  const [saveAsVersionNote, setSaveAsVersionNote] = useState("");
+  const [isSavingAs,        setIsSavingAs]        = useState(false);
 
   const openSaveAsModal = () => {
     if (!selectedDataset) return;
-    setSaveAsFileName(`${selectedDataset.name}_filtered`);
+    setSaveAsVersionNote(`${selectedDataset.name} filtered data`);
     setShowSaveAsModal(true);
   };
 
   const handleSaveAs = async () => {
-    if (!selectedDataset || !saveAsFileName.trim()) { showToast("warning", "Enter a file name"); return; }
+    if (!selectedDataset || !saveAsVersionNote.trim()) { showToast("warning", "Enter a version note"); return; }
     setIsSavingAs(true);
     try {
-      const res = await fetch(`${purl("/finalize")}?table_name=${encodeURIComponent(saveAsFileName.trim())}`, {
-        method: "POST", headers: getHeaders(true)
+      const res = await fetch(purl("/finalize"), {
+        method: "POST", headers: getHeaders(true),
+        body: JSON.stringify({ version_note: saveAsVersionNote.trim() })
       });
       if (res.ok) {
-        showToast("success", `Saved as "${saveAsFileName}" ✅`);
-        setShowSaveAsModal(false); setSaveAsFileName("");
+        const result      = await res.json();
+        const versionName = result.version_name || saveAsVersionNote.trim();
+        const versionNum  = result.version ?? 1;
+        if (pid) {
+          setParamVersions(prev => ({ ...prev, [pid]: { version: versionNum, version_name: versionName } }));
+        }
+        showToast("success", `Finalized & saved as "${versionName}" ✅`);
+        setShowSaveAsModal(false); setSaveAsVersionNote("");
         setIsPreviewMode(false); setPreviewData(null); setCurrentFilterType(null);
         setSelectedTransformation(null); resetFilterForms();
-      } else { showToast("error", `Save As failed: ${await res.text()}`); }
-    } catch { showToast("error", "Network error saving as"); }
+      } else { showToast("error", `Finalize failed: ${await res.text()}`); }
+    } catch { showToast("error", "Network error finalizing"); }
     finally { setIsSavingAs(false); }
   };
 
@@ -1042,9 +995,8 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
     setDateColumn(""); setSelectedYears([]); setSelectedMonths([]); setSelectedDays([]);
     setDateSummaryLoaded(false); setFilterColumn(""); setSelectedFilterValues(new Set());
     setUniqueValuesLoaded(false); setUniqueValuesData(null); setUniqueValuesSearch("");
-    setTextFilterColumn(""); setTextFilterType("equals"); setTextFilterValue("");
-    setTextFilterValue2(""); setTextFilterValues([]); setNumberFilterColumn("");
-    setNumberFilterType("equals"); setNumberFilterValue(""); setNumberFilterValue2(""); setNumberFilterValues([]);
+    setTextFilterColumn(""); setTextFilterType("equals"); setTextFilterValue(""); setTextFilterValue2(""); setTextFilterValues([]);
+    setNumberFilterColumn(""); setNumberFilterType("equals"); setNumberFilterValue(""); setNumberFilterValue2(""); setNumberFilterValues([]);
   };
 
   // ─────────── COLUMN HEADERS MEMO ───────────
@@ -1056,32 +1008,23 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
     return Object.keys(selectedDataset.fullData[0]);
   }, [selectedDataset]);
 
-  const getColumnHeaders = useCallback((ds: SelectedDataset) => {
-    if (ds.columnHeaders?.length) return ds.columnHeaders;
-    if (!ds.fullData?.length) return Array.from({ length: ds.columns }, (_, i) => `Column ${i + 1}`);
-    if (Array.isArray(ds.fullData[0])) return ds.fullData[0].map((_: any, i: number) => `Column ${i + 1}`);
-    return Object.keys(ds.fullData[0]);
-  }, []);
-
   // ─────────── VIRTUAL SCROLL ───────────
   const ROW_HEIGHT = 36, OVERSCAN = 8;
-  const tableScrollRef    = useRef<HTMLDivElement>(null);
-  const hScrollBarRef     = useRef<HTMLDivElement>(null);
-  const isSyncingScroll   = useRef(false);
+  const tableScrollRef  = useRef<HTMLDivElement>(null);
+  const hScrollBarRef   = useRef<HTMLDivElement>(null);
+  const isSyncingScroll = useRef(false);
   const [tableScrollTop,    setTableScrollTop]    = useState(0);
   const [tableClientHeight, setTableClientHeight] = useState(600);
   const [tableScrollWidth,  setTableScrollWidth]  = useState(0);
 
-  useEffect(() => {
-    if (tableScrollRef.current) setTableScrollWidth(tableScrollRef.current.scrollWidth);
-  }, [selectedDataset?.fullData, columnHeaders]);
+  useEffect(() => { if (tableScrollRef.current) setTableScrollWidth(tableScrollRef.current.scrollWidth); }, [selectedDataset?.fullData, columnHeaders]);
 
   const { virtualStart, virtualEnd, paddingTop, paddingBottom } = useMemo(() => {
     if (!selectedDataset?.fullData) return { virtualStart: 0, virtualEnd: 0, paddingTop: 0, paddingBottom: 0 };
-    const total = selectedDataset.fullData.length;
+    const total   = selectedDataset.fullData.length;
     const visible = Math.ceil(tableClientHeight / ROW_HEIGHT);
-    const start = Math.max(0, Math.floor(tableScrollTop / ROW_HEIGHT) - OVERSCAN);
-    const end   = Math.min(total, start + visible + OVERSCAN * 2);
+    const start   = Math.max(0, Math.floor(tableScrollTop / ROW_HEIGHT) - OVERSCAN);
+    const end     = Math.min(total, start + visible + OVERSCAN * 2);
     return { virtualStart: start, virtualEnd: end, paddingTop: start * ROW_HEIGHT, paddingBottom: Math.max(0, (total - end) * ROW_HEIGHT) };
   }, [tableScrollTop, tableClientHeight, selectedDataset?.fullData?.length]);
 
@@ -1104,13 +1047,7 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
   }, []);
 
   // ─────────── HELPERS ───────────
-  const getFileIcon = (type: FileType) => ({
-    csv:   <FileText       className="w-6 h-6 text-blue-600" />,
-    excel: <FileSpreadsheet className="w-6 h-6 text-green-600" />,
-    json:  <FileJson       className="w-6 h-6 text-purple-600" />
-  }[type]);
-
-  const toastColor = (t: string) => ({ success:"bg-green-500", error:"bg-red-500", warning:"bg-yellow-500", info:"bg-blue-500" }[t] || "bg-gray-500");
+  const toastColor = (t: string) => ({ success: "bg-green-500", error: "bg-red-500", warning: "bg-yellow-500", info: "bg-blue-500" }[t] || "bg-gray-500");
   const toastIcon  = (t: string) => t === "success" ? <Check className="h-5 w-5" /> : t === "error" ? <X className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />;
 
   // ═══════════════════════════════════════════════════════════════
@@ -1118,7 +1055,7 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
   // ═══════════════════════════════════════════════════════════════
   return (
     <div>
-      {/* ── TOASTS ── */}
+      {/* TOASTS */}
       <div className="fixed top-4 right-4 z-[100] space-y-2">
         {toasts.map(t => (
           <div key={t.id} className={`${toastColor(t.type)} text-white px-6 py-4 rounded-lg shadow-lg flex items-center gap-3 min-w-[300px] max-w-[500px] animate-slide-in`}>
@@ -1130,10 +1067,10 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
       </div>
 
       <div className="p-4 space-y-4">
-        {/* ── HEADER ── */}
+        {/* HEADER */}
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-gradient-to-br from-violet-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-md">
+            <div className="w-9 h-9 bg-gradient-to-br from-blue-600 to-blue-700 to-indigo-600 rounded-xl flex items-center justify-center shadow-md">
               <Settings2 className="h-5 w-5 text-white" />
             </div>
             <div>
@@ -1142,359 +1079,419 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {/* Filter List Button */}
-            <div className="relative">
-              <button
-                onClick={() => setShowListFilter(p => !p)}
-                className="px-4 py-2 bg-white border-2 border-gray-300 text-gray-700 rounded-lg flex items-center gap-2 hover:border-violet-400 hover:bg-violet-50 transition-all"
-              >
-                <SlidersHorizontal className="h-4 w-4 text-violet-600" />
-                <span className="text-sm font-medium">Filter</span>
-                {(listFilterName || listFilterSource) && <span className="w-2 h-2 rounded-full bg-violet-600" />}
-              </button>
-
-              {/* Filter popup */}
-              {showListFilter && (
-                <div className="absolute right-0 top-full mt-2 bg-white rounded-xl shadow-2xl border-2 border-gray-200 z-50 w-80 overflow-hidden">
-                  <div className="px-4 py-3 bg-gradient-to-r from-violet-50 to-indigo-50 border-b border-gray-200 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <SlidersHorizontal className="h-4 w-4 text-violet-600" />
-                      <span className="text-sm font-bold text-gray-900">Filter Parameter Settings</span>
-                    </div>
-                    <button onClick={() => setShowListFilter(false)} className="p-1 hover:bg-gray-200 rounded"><X className="h-4 w-4 text-gray-500" /></button>
-                  </div>
-                  <div className="p-4 space-y-4">
-
-                    {/* ── Section 1: Select & Load a specific parameter setting ── */}
-                    <div className="bg-violet-50 border border-violet-200 rounded-xl p-3 space-y-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-5 h-5 bg-violet-600 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">1</div>
-                        <p className="text-xs font-bold text-violet-800">Select Parameter Setting to Load</p>
-                      </div>
-                      <select
-                        value={selectedParamToLoad}
-                        onChange={e => setSelectedParamToLoad(e.target.value === "" ? "" : Number(e.target.value))}
-                        className="w-full px-3 py-2 border-2 border-violet-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white font-medium"
-                      >
-                        <option value="">-- Select by Name / ID --</option>
-                        {parameterSettings.map(ps => (
-                          <option key={ps.id} value={ps.id}>
-                            {ps.name} (ID: {ps.id})
-                            {ps.data_source?.source_name ? ` · ${ps.data_source.source_name}` : ""}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        onClick={async () => {
-                          if (!selectedParamToLoad) return;
-                          const ps = parameterSettings.find(p => p.id === Number(selectedParamToLoad));
-                          if (!ps) return;
-                          setIsLoadingFromFilter(true);
-                          setShowListFilter(false);
-                          try {
-                            showToast("info", `Loading "${ps.name}"...`);
-                            const loadRes = await fetch(
-                              `${API_BASE}/api/parameter-settings/${ps.id}/load-source`,
-                              { method: "POST", headers: getHeaders(true) }
-                            );
-                            if (!loadRes.ok && loadRes.status !== 400 && loadRes.status !== 409) {
-                              showToast("error", `Load failed: ${await loadRes.text()}`);
-                              return;
-                            }
-                            await openViewer(ps);
-                          } catch {
-                            showToast("error", "Network error loading parameter setting");
-                          } finally {
-                            setIsLoadingFromFilter(false);
-                            setSelectedParamToLoad("");
-                          }
-                        }}
-                        disabled={!selectedParamToLoad || isLoadingFromFilter}
-                        className="w-full py-2 bg-violet-600 text-white rounded-lg text-sm font-bold hover:bg-violet-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                      >
-                        {isLoadingFromFilter
-                          ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Loading...</span></>
-                          : <><Eye className="h-4 w-4" /><span>Load &amp; View Dataset</span></>
-                        }
-                      </button>
-                    </div>
-
-                    {/* ── Section 2: Filter the card list ── */}
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-5 h-5 bg-gray-500 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">2</div>
-                        <p className="text-xs font-bold text-gray-600">Filter List View</p>
-                      </div>
-                      <div>
-                        <label className="text-xs font-semibold text-gray-600 mb-1 block">Search by Name</label>
-                        <div className="relative">
-                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                          <input
-                            type="text" value={listFilterName} onChange={e => setListFilterName(e.target.value)}
-                            placeholder="Search name..."
-                            className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
-                          />
-                        </div>
-                      </div>
-                      <div>
-                        <label className="text-xs font-semibold text-gray-600 mb-1 block">Filter by Data Source</label>
-                        <select
-                          value={listFilterSource}
-                          onChange={e => setListFilterSource(e.target.value === "" ? "" : Number(e.target.value))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 bg-white"
-                        >
-                          <option value="">All data sources</option>
-                          {[...new Set(parameterSettings.map(p => p.data_source_id))].map(id => {
-                            const src = dataSources.find(d => Number(d.id) === id);
-                            const label = src ? `${src.source_name} (ID: ${id})` : `Data Source #${id}`;
-                            return <option key={id} value={id}>{label}</option>;
-                          })}
-                        </select>
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => { setListFilterName(""); setListFilterSource(""); }}
-                          className="flex-1 px-3 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm hover:bg-gray-200 transition-colors"
-                        >Clear</button>
-                        <button
-                          onClick={() => setShowListFilter(false)}
-                          className="flex-1 px-3 py-2 bg-gray-600 text-white rounded-lg text-sm hover:bg-gray-700 transition-colors font-medium"
-                        >Apply Filter</button>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="px-4 py-2 bg-gray-50 border-t border-gray-200">
-                    <p className="text-xs text-gray-500">Showing <strong>{filteredSettings.length}</strong> of <strong>{parameterSettings.length}</strong> items</p>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Refresh Button */}
-            <button
-              onClick={fetchParameterSettings}
-              disabled={loadingSettings}
-              className="px-3 py-2 bg-white border-2 border-gray-300 text-gray-600 rounded-lg flex items-center gap-1.5 hover:border-violet-400 hover:bg-violet-50 transition-all disabled:opacity-50"
-              title="Refresh list"
-            >
+            <button onClick={fetchParameterSettings} disabled={loadingSettings}
+              className="px-3 py-2 bg-white border border-gray-300 text-gray-600 rounded-lg flex items-center gap-1.5 hover:border-violet-400 hover:bg-violet-50 transition-all disabled:opacity-50 text-sm font-medium">
               <RefreshCw className={`h-4 w-4 ${loadingSettings ? "animate-spin text-violet-600" : ""}`} />
-              <span className="text-sm font-medium hidden sm:inline">Refresh</span>
+              <span className="hidden sm:inline">Refresh</span>
             </button>
-
-            {/* Create Button */}
-            <button
-              onClick={openCreateModal}
-              className="px-4 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 text-white rounded-lg flex items-center gap-2 shadow-md hover:shadow-lg hover:from-violet-700 hover:to-indigo-700 transition-all font-medium"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Create</span>
-            </button>
+           <button
+  onClick={openCreateModal}
+  className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg flex items-center gap-2 shadow-md hover:shadow-lg hover:from-blue-700 hover:to-blue-800 transition-all font-medium text-sm"
+>
+  <Plus className="h-4 w-4" />
+  <span>Create</span>
+</button>
           </div>
         </div>
 
-        {/* ── LIST ── */}
-        <div className="mt-2">
+        {/* TABLE */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
           {loadingSettings ? (
-            <div className="flex flex-col justify-center items-center h-64 border-2 border-dashed border-gray-300 rounded-xl">
-              <Loader2 className="h-12 w-12 animate-spin text-violet-600 mb-4" />
-              <span className="text-gray-600">Loading parameter settings...</span>
+            <div className="flex flex-col justify-center items-center h-48">
+              <Loader2 className="h-10 w-10 animate-spin text-violet-600 mb-3" />
+              <span className="text-gray-500 text-sm">Loading parameter settings...</span>
             </div>
           ) : filteredSettings.length === 0 ? (
-            <div className="flex flex-col justify-center items-center h-64 border-2 border-dashed border-gray-300 rounded-xl">
-              <Settings2 className="h-16 w-16 text-gray-300 mb-4" />
-              <p className="text-gray-600 text-lg font-medium">
-                {parameterSettings.length === 0 ? "No parameter settings yet" : "No results match your filter"}
-              </p>
-              <p className="text-gray-500 text-sm mt-2">
+            <div className="flex flex-col justify-center items-center h-48">
+              <Settings2 className="h-12 w-12 text-gray-300 mb-3" />
+              <p className="text-gray-500 font-medium text-sm">
                 {parameterSettings.length === 0
-                  ? (!props.dataSources || props.dataSources.length === 0)
-                    ? "No active data sources found. Please approve an Info-Object in Manage Tables first."
-                    : 'Click "Create" to add a new parameter setting'
-                  : "Try adjusting your filters"}
+                  ? (!props.dataSources || props.dataSources.length === 0) ? "No active data sources found." : 'Click "+ Create" to add a new parameter setting'
+                  : "No results match your filter"}
               </p>
-              {loadingSettings && (
-                <div className="mt-4 flex items-center gap-2 text-violet-600">
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  <span className="text-sm">Loading...</span>
-                </div>
-              )}
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {filteredSettings.map(ps => (
-                <div key={ps.id} className="bg-white rounded-xl shadow-md hover:shadow-xl transition-all duration-300 border-2 border-gray-200 hover:border-violet-400 overflow-hidden group">
-                  <div className="p-4 border-b border-gray-100 bg-gradient-to-r from-violet-50 to-indigo-50">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <div className="w-10 h-10 bg-gradient-to-br from-violet-500 to-indigo-500 rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm">
-                          <Settings2 className="h-5 w-5 text-white" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <h3 className="text-sm font-bold text-gray-900 truncate" title={ps.name}>{ps.name}</h3>
-                          <p className="text-xs text-gray-500 mt-0.5">ID: {ps.id}</p>
-                        </div>
-                      </div>
-                      <button
-                        onClick={e => { e.stopPropagation(); setDeleteTarget(ps); }}
-                        className="ml-2 p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="p-4 space-y-2">
-                    {ps.description && (
-                      <p className="text-xs text-gray-600 line-clamp-2">{ps.description}</p>
-                    )}
-                    <div className="flex gap-2">
-                      <div className="flex-1 bg-violet-50 rounded-lg p-2">
-                        <p className="text-xs text-violet-600 font-medium">Board ID</p>
-                        <p className="text-sm font-bold text-gray-800">{ps.board_id}</p>
-                      </div>
-                      <div className="flex-1 bg-indigo-50 rounded-lg p-2">
-                        <p className="text-xs text-indigo-600 font-medium">Data Source</p>
-                        <p className="text-sm font-bold text-gray-800 truncate" title={ps.data_source?.source_name || String(ps.data_source_id)}>
-                          {ps.data_source?.source_name || `ID: ${ps.data_source_id}`}
-                        </p>
-                      </div>
-                    </div>
-                    {ps.is_active !== undefined && (
-                      <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${ps.is_active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"}`}>
-                        <div className={`w-1.5 h-1.5 rounded-full ${ps.is_active ? "bg-green-500" : "bg-gray-400"}`} />
-                        {ps.is_active ? "Active" : "Inactive"}
-                      </div>
-                    )}
-                    <button
-                      onClick={() => openViewer(ps)}
-                      className="w-full mt-1 px-4 py-2.5 bg-gradient-to-r from-violet-600 to-indigo-600 text-white rounded-lg flex items-center justify-center gap-2 hover:from-violet-700 hover:to-indigo-700 transition-all font-medium shadow-sm group-hover:shadow-md text-sm"
-                    >
-                      <Eye className="h-4 w-4" /><span>View Dataset</span>
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-12">#</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Description</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Data Source</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Filter</th>
+
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredSettings.map((ps, idx) => {
+                  const isToggling    = togglingIds.has(ps.id);
+                  const isLoadingCard = loadingCardIds.has(ps.id);
+                  const isLoadingVer  = loadingVersionIds.has(ps.id);
+                  const filterEnabled = ps.is_filter_enabled ?? false;
+                  const versionInfo   = paramVersions[ps.id];
+                  const isDropdownOpen = openVersionDropdowns.has(ps.id);
+
+                  return (
+                    <React.Fragment key={ps.id}>
+                      {/* MAIN ROW */}
+                      <tr className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                        {/* # */}
+                        <td className="px-4 py-3 text-gray-400 font-medium text-xs">{idx + 1}</td>
+
+                        {/* Name */}
+                        <td className="px-4 py-3">
+                          <span className="font-semibold text-gray-800">{ps.name}</span>
+                        </td>
+
+                        {/* Description */}
+                        <td className="px-4 py-3 text-gray-500 text-xs max-w-[200px] truncate">
+                          {ps.description || <span className="italic text-gray-300">—</span>}
+                        </td>
+
+                        {/* Data Source */}
+                        <td className="px-4 py-3">
+                          <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs font-medium">
+                            <Database className="h-3 w-3" />
+                            {ps.data_source?.source_name || `ID: ${ps.data_source_id}`}
+                          </span>
+                        </td>
+
+                        {/* Status */}
+                        <td className="px-4 py-3">
+                          {ps.is_active !== undefined ? (
+                            <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${ps.is_active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+                              <div className={`w-1.5 h-1.5 rounded-full ${ps.is_active ? "bg-green-500" : "bg-gray-400"}`} />
+                              {ps.is_active ? "Active" : "Inactive"}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                              <div className="w-1.5 h-1.5 rounded-full bg-green-500" />Active
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Filter Toggle */}
+                        <td className="px-4 py-3">
+                          <button
+                            onClick={e => handleToggleFilter(ps, e)}
+                            disabled={isToggling}
+                           title={filterEnabled ? "Data Filter Enabled — click to disable" : "Data Filter Disabled — click to enable"}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all disabled:opacity-50 ${
+                              filterEnabled
+                                ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+                                : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                            }`}>
+                            {isToggling
+                              ? <Loader2 className="h-3 w-3 animate-spin" />
+                              : filterEnabled
+                                ? <ToggleRight className="h-3.5 w-3.5" />
+                                : <ToggleLeft className="h-3.5 w-3.5" />
+                            }
+                            {filterEnabled ? "On" : "Off"}
+                          </button>
+                        </td>
+                          {/* Filter / Load button */}
+                   
+                        {/* Actions */}
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-end gap-1.5">
+                              {/* Filter / Load button */}
+                            <button
+  onClick={e => handleCardInfoClick(ps, e)}
+  disabled={isLoadingCard}
+  title="Load & Apply Filter"
+  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-gray-500 hover:text-emerald-700 hover:bg-emerald-50 border border-gray-200 hover:border-emerald-300 transition-all disabled:opacity-50">
+  {isLoadingCard
+    ? <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" />
+    : <Filter className="h-3.5 w-3.5" />
+  }
+  <span>{isLoadingCard ? "Loading..." : "Load Data"}</span>
+</button>
+                            {/* View Dataset */}
+                            <button
+                              onClick={() => openViewer(ps)}
+                              title="View Dataset"
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-violet-600 hover:bg-violet-50 transition-all">
+                              <Eye className="h-4 w-4" />
+                            </button>
+
+                            {/* Filtered version dropdown trigger — only show if version exists */}
+                            {versionInfo && (
+                              <button
+                                onClick={() => toggleVersionDropdown(ps.id)}
+                                title="View Filtered Version"
+                                className={`p-1.5 rounded-lg transition-all flex items-center gap-0.5 ${
+                                  isDropdownOpen
+                                    ? "text-emerald-600 bg-emerald-50"
+                                    : "text-gray-400 hover:text-emerald-600 hover:bg-emerald-50"
+                                }`}>
+                                {isDropdownOpen
+                                  ? <ChevronUp className="h-4 w-4" />
+                                  : <ChevronDown className="h-4 w-4" />
+                                }
+                              </button>
+                            )}
+
+                            {/* Delete */}
+                            <button
+                              onClick={e => { e.stopPropagation(); setDeleteTarget(ps); }}
+                              title="Delete"
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all">
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+
+                      {/* ────── FILTERED VERSION DROPDOWN ROW ────── */}
+                      {versionInfo && isDropdownOpen && (
+                        <tr className="border-b border-emerald-100 bg-emerald-50/60">
+                          <td colSpan={7} className="px-6 py-0">
+                            {/* Animated expand */}
+                       <div className="py-3">
+  <div className="flex items-stretch gap-4">
+    {/* Left accent bar */}
+    <div className="w-1 rounded-full bg-gradient-to-b from-emerald-400 to-teal-500 flex-shrink-0" />
+
+    {/* Content — all in one row now */}
+    <div className="flex-1 flex flex-wrap items-center gap-4">
+
+      {/* Label */}
+      <div className="flex items-center gap-2">
+        <div className="w-7 h-7 bg-emerald-500 rounded-lg flex items-center justify-center flex-shrink-0">
+          <SaveAll className="h-3.5 w-3.5 text-white" />
+        </div>
+        <div>
+          <p className="text-xs text-emerald-600 font-semibold">Filtered Version</p>
+          <p className="text-sm font-bold text-emerald-800 leading-tight">{versionInfo.version_name}</p>
+        </div>
+      </div>
+
+      {/* Version badge */}
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-200 text-emerald-800 rounded-full text-xs font-bold">
+        <Check className="h-3 w-3" /> v{versionInfo.version}
+      </span>
+
+      {/* Divider */}
+      <div className="w-px h-8 bg-emerald-200 hidden sm:block" />
+
+      {/* Original rows */}
+      <div className="text-center">
+        <p className="text-xs text-emerald-500 font-medium">Original Rows</p>
+        <p className="text-sm font-bold text-emerald-900">
+          {versionInfo.row_count_original != null ? versionInfo.row_count_original.toLocaleString() : "—"}
+        </p>
+      </div>
+
+      {/* Arrow */}
+      <svg className="h-4 w-4 text-emerald-400 hidden sm:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+      </svg>
+
+      {/* Filtered rows */}
+      <div className="text-center">
+        <p className="text-xs text-emerald-500 font-medium">Filtered Rows</p>
+        <p className="text-sm font-bold text-emerald-900">
+          {versionInfo.row_count_filtered != null ? versionInfo.row_count_filtered.toLocaleString() : "—"}
+        </p>
+      </div>
+
+      {/* Progress bar */}
+      {versionInfo.row_count_original != null && versionInfo.row_count_filtered != null && versionInfo.row_count_original > 0 && (
+        <div className="flex items-center gap-2 min-w-[120px]">
+          <div className="flex-1 bg-emerald-200 rounded-full h-1.5 overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full"
+              style={{ width: `${Math.min(100, (versionInfo.row_count_filtered! / versionInfo.row_count_original!) * 100).toFixed(1)}%` }}
+            />
+          </div>
+          <span className="text-xs text-emerald-600 font-semibold whitespace-nowrap">
+            {((versionInfo.row_count_filtered! / versionInfo.row_count_original!) * 100).toFixed(1)}% kept
+          </span>
+        </div>
+      )}
+
+      {/* Saved As tag */}
+      <div className="flex items-center gap-1.5 px-2.5 py-1 bg-white border border-emerald-200 rounded-lg">
+        <Tag className="h-3 w-3 text-emerald-500" />
+        <span className="text-xs text-emerald-700 font-medium truncate max-w-[160px]">{versionInfo.version_name}</span>
+      </div>
+
+      {/* Spacer */}
+      <div className="flex-1" />
+
+      {/* ✅ View button — now inline on the same row */}
+      <button
+        onClick={() => openFilteredVersionViewer(ps, versionInfo)}
+        disabled={isLoadingVer}
+        className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg transition-all shadow-sm disabled:opacity-60 whitespace-nowrap">
+        {isLoadingVer
+          ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /><span>Loading...</span></>
+          : <><Eye className="h-3.5 w-3.5" /><span>View Filtered Dataset</span></>
+        }
+      </button>
+
+    </div>
+  </div>
+</div>
+
+
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
           )}
         </div>
       </div>
 
-      {/* ════════════════════════════════════════════
-          CREATE MODAL
-      ════════════════════════════════════════════ */}
+      {/* CREATE MODAL */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden">
-            <div className="px-6 py-5 bg-gradient-to-r from-violet-600 to-indigo-600">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-white/20 rounded-lg"><Settings2 className="h-6 w-6 text-white" /></div>
-                  <div>
-                    <h3 className="text-lg font-bold text-white">Create Parameter Setting</h3>
-                    <p className="text-violet-200 text-sm">Configure a new data source parameter</p>
-                  </div>
-                </div>
-                <button onClick={() => setShowCreateModal(false)} className="text-white/70 hover:text-white p-1 rounded transition-colors"><X className="h-6 w-6" /></button>
-              </div>
-            </div>
+  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden">
 
-            <div className="px-6 py-5 space-y-5">
-              {/* Name */}
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                  Name <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={createForm.name}
-                  onChange={e => setCreateForm(p => ({ ...p, name: e.target.value }))}
-                  placeholder="e.g. Sales Data Filters"
-                  className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500 text-gray-900"
-                  autoFocus
-                />
-              </div>
-
-              {/* Description */}
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Description</label>
-                <textarea
-                  value={createForm.description}
-                  onChange={e => setCreateForm(p => ({ ...p, description: e.target.value }))}
-                  placeholder="Optional description..."
-                  rows={3}
-                  className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500 text-gray-900 resize-none"
-                />
-              </div>
-
-              {/* Board ID (read-only from session) */}
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Board ID</label>
-                <div className="px-4 py-3 bg-gray-100 border-2 border-gray-200 rounded-lg text-gray-700 flex items-center gap-2">
-                  <Layers className="h-4 w-4 text-gray-500" />
-                  <span className="font-semibold">{boardId || "Not set in session"}</span>
-                  <span className="text-xs text-gray-500 ml-auto">From session</span>
-                </div>
-              </div>
-
-              {/* Data Source Dropdown */}
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                  Data Source <span className="text-red-500">*</span>
-                </label>
-                {(loadingDS && (!props.dataSources || props.dataSources.length === 0)) ? (
-                  <div className="flex items-center gap-2 px-4 py-3 border-2 border-gray-300 rounded-lg text-gray-500">
-                    <Loader2 className="h-4 w-4 animate-spin" /><span className="text-sm">Loading data sources...</span>
-                  </div>
-                ) : (
-                  <div className="relative">
-                    <select
-                      value={createForm.data_source_id}
-                      onChange={e => setCreateForm(p => ({ ...p, data_source_id: e.target.value }))}
-                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500 bg-white text-gray-900 appearance-none pr-10"
-                    >
-                      <option value="">-- Select a data source --</option>
-                      {dataSources.map(ds => (
-                        <option key={ds.id} value={ds.id}>
-                          {ds.slot_number ? `[Slot ${ds.slot_number}] ` : ""}{ds.source_name || (ds as any).name} (ID: {ds.id})
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400 pointer-events-none" />
-                  </div>
-                )}
-                {dataSources.length === 0 && !loadingDS && boardId && (
-                  <p className="mt-1.5 text-xs text-amber-600 flex items-center gap-1">
-                    <AlertTriangle className="h-3 w-3" /> No active data sources found for this board.
-                    Please approve an Info-Object in the Manage Tables tab first.
-                  </p>
-                )}
-              </div>
-
-              {/* Info box */}
-              <div className="bg-violet-50 border border-violet-200 rounded-lg p-3 flex items-start gap-2">
-                <Info className="h-4 w-4 text-violet-600 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-violet-800">After creating, the data source will be loaded automatically and you can apply transformations.</p>
-              </div>
-            </div>
-
-            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
-              <button onClick={() => setShowCreateModal(false)} disabled={isCreating} className="px-5 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors font-medium disabled:opacity-50">
-                Cancel
-              </button>
-              <button
-                onClick={handleCreate}
-                disabled={isCreating || !createForm.name.trim() || !createForm.data_source_id}
-                className="px-5 py-2.5 bg-gradient-to-r from-violet-600 to-indigo-600 text-white rounded-lg hover:from-violet-700 hover:to-indigo-700 transition-all font-medium flex items-center gap-2 disabled:opacity-50 shadow-sm"
-              >
-                {isCreating ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Creating...</span></> : <><Plus className="h-4 w-4" /><span>Create</span></>}
-              </button>
-            </div>
+      {/* Header */}
+      <div className="px-6 py-5 bg-gradient-to-r from-blue-600 to-blue-700 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-white/20 rounded-lg">
+            <Settings2 className="h-6 w-6 text-white" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-white">Create Parameter Setting</h3>
+            <p className="text-blue-200 text-sm">
+              Configure a new data source parameter
+            </p>
           </div>
         </div>
-      )}
+        <button
+          onClick={() => setShowCreateModal(false)}
+          className="text-white/70 hover:text-white p-1"
+        >
+          <X className="h-6 w-6" />
+        </button>
+      </div>
 
-      {/* ════════════════════════════════════════════
-          DELETE MODAL
-      ════════════════════════════════════════════ */}
+      {/* Body */}
+      <div className="px-6 py-5 space-y-5">
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+            Data Source <span className="text-red-500">*</span>
+          </label>
+
+          {(loadingDS && (!props.dataSources || props.dataSources.length === 0)) ? (
+            <div className="flex items-center gap-2 px-4 py-3 border-2 border-gray-300 rounded-lg text-gray-500">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">Loading...</span>
+            </div>
+          ) : (
+            <div className="relative">
+              <select
+                value={createForm.data_source_id}
+                onChange={e => {
+  const selectedId = e.target.value;
+
+  const selectedDS = dataSources.find(
+    ds => String(ds.id) === selectedId
+  );
+
+  setCreateForm(prev => ({
+    ...prev,
+    data_source_id: selectedId,
+    name: selectedDS?.source_name || selectedDS?.name || ""
+  }));
+}}
+                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 appearance-none pr-10"
+              >
+                <option value="">-- Select a data source --</option>
+                {dataSources.map(ds => (
+                  <option key={ds.id} value={ds.id}>
+                    {ds.slot_number ? `[Slot ${ds.slot_number}] ` : ""}
+                    {ds.source_name || (ds).name} (ID: {ds.id})
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400 pointer-events-none" />
+            </div>
+          )}
+
+          {dataSources.length === 0 && !loadingDS && boardId && (
+            <p className="mt-1.5 text-xs text-amber-600 flex items-center gap-1">
+              <AlertTriangle className="h-3 w-3" /> No active data sources found.
+            </p>
+          )}
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+            Name <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="text"
+            value={createForm.name}
+            onChange={e =>
+              setCreateForm(p => ({ ...p, name: e.target.value }))
+            }
+            placeholder="e.g. Sales Data Filters"
+            className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900"
+            autoFocus
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+            Description
+          </label>
+          <textarea
+            value={createForm.description}
+            onChange={e =>
+              setCreateForm(p => ({ ...p, description: e.target.value }))
+            }
+            placeholder="Optional..."
+            rows={2}
+            className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 resize-none"
+          />
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
+        <button
+          onClick={() => setShowCreateModal(false)}
+          disabled={isCreating}
+          className="px-5 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 disabled:opacity-50"
+        >
+          Cancel
+        </button>
+
+        <button
+          onClick={handleCreate}
+          disabled={isCreating || !createForm.name.trim() || !createForm.data_source_id}
+          className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 font-medium flex items-center gap-2 disabled:opacity-50 shadow-sm"
+        >
+          {isCreating ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>Creating...</span>
+            </>
+          ) : (
+            <>
+              <Plus className="h-4 w-4" />
+              <span>Create</span>
+            </>
+          )}
+        </button>
+      </div>
+
+    </div>
+  </div>
+)}
+
+      {/* DELETE MODAL */}
       {deleteTarget && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4">
@@ -1505,7 +1502,7 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
             <div className="px-6 py-4 flex items-center gap-3">
               <AlertTriangle className="h-8 w-8 text-red-500 flex-shrink-0" />
               <div>
-                <p className="text-gray-700">Are you sure you want to delete <strong className="text-red-800">"{deleteTarget.name}"</strong>?</p>
+                <p className="text-gray-700">Delete <strong className="text-red-800">"{deleteTarget.name}"</strong>?</p>
                 <p className="text-sm text-gray-500 mt-1">This action cannot be undone.</p>
               </div>
             </div>
@@ -1519,9 +1516,7 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
         </div>
       )}
 
-      {/* ════════════════════════════════════════════
-          RESET MODAL
-      ════════════════════════════════════════════ */}
+      {/* RESET MODAL */}
       {showResetModal && selectedDataset && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4">
@@ -1532,7 +1527,7 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
             <div className="px-6 py-4 flex items-start gap-3">
               <AlertTriangle className="h-8 w-8 text-orange-500 flex-shrink-0" />
               <div>
-                <p className="text-gray-700">Reset <strong className="text-orange-800">{selectedDataset.name}</strong> to its original state?</p>
+                <p className="text-gray-700">Reset <strong className="text-orange-800">{selectedDataset.name}</strong> to original state?</p>
                 <p className="text-sm text-gray-500 mt-1">All transformations will be removed. This cannot be undone.</p>
               </div>
             </div>
@@ -1546,19 +1541,14 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
         </div>
       )}
 
-      {/* ════════════════════════════════════════════
-          SAVE AS MODAL
-      ════════════════════════════════════════════ */}
+      {/* FINALIZE MODAL */}
       {showSaveAsModal && selectedDataset && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[110]">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
             <div className="px-6 py-4 bg-gradient-to-r from-emerald-600 to-emerald-700 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-white/20 rounded-lg"><SaveAll className="h-5 w-5 text-white" /></div>
-                <div>
-                  <h3 className="text-lg font-bold text-white">Save As New Dataset</h3>
-                  <p className="text-emerald-100 text-sm">Finalize filtered data with a custom name</p>
-                </div>
+                <div><h3 className="text-lg font-bold text-white">Finalize Dataset</h3><p className="text-emerald-100 text-sm">Save filtered data to permanent storage</p></div>
               </div>
               <button onClick={() => setShowSaveAsModal(false)} disabled={isSavingAs} className="text-white/70 hover:text-white"><X className="h-5 w-5" /></button>
             </div>
@@ -1570,36 +1560,30 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                 </div>
               )}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Dataset Name <span className="text-red-500">*</span></label>
-                <input
-                  type="text" value={saveAsFileName} onChange={e => setSaveAsFileName(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter" && saveAsFileName.trim()) handleSaveAs(); }}
-                  placeholder="Enter name..." autoFocus disabled={isSavingAs}
-                  className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                />
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Version Note <span className="text-red-500">*</span></label>
+                <input type="text" value={saveAsVersionNote} onChange={e => setSaveAsVersionNote(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && saveAsVersionNote.trim()) handleSaveAs(); }}
+                  placeholder="e.g. Q1 2024 filtered data" autoFocus disabled={isSavingAs}
+                  className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500" />
               </div>
               <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 flex items-start gap-2">
                 <BookMarked className="h-4 w-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-emerald-800">The filtered dataset will be finalized and saved. The original parameter setting remains unchanged.</p>
+                <p className="text-xs text-emerald-800">Finalized data is saved as a versioned snapshot. The original parameter setting remains unchanged.</p>
               </div>
             </div>
             <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
               <button onClick={() => setShowSaveAsModal(false)} disabled={isSavingAs} className="px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 disabled:opacity-50">Cancel</button>
-              <button onClick={handleSaveAs} disabled={isSavingAs || !saveAsFileName.trim()} className="px-4 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 flex items-center gap-2 disabled:opacity-50 font-medium">
-                {isSavingAs ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Saving...</span></> : <><SaveAll className="h-4 w-4" /><span>Save As</span></>}
+              <button onClick={handleSaveAs} disabled={isSavingAs || !saveAsVersionNote.trim()} className="px-4 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 flex items-center gap-2 disabled:opacity-50 font-medium">
+                {isSavingAs ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Finalizing...</span></> : <><SaveAll className="h-4 w-4" /><span>Finalize &amp; Save</span></>}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ════════════════════════════════════════════
-          FULLSCREEN DATASET VIEWER
-      ════════════════════════════════════════════ */}
+      {/* FULLSCREEN DATASET VIEWER */}
       {isViewerOpen && selectedDataset && (
         <div className="fixed inset-0 bg-white z-50 flex flex-col overflow-hidden">
-
-          {/* Viewer Header */}
           <div className="flex items-center justify-between px-4 py-2 border-b-2 border-gray-200 bg-gradient-to-r from-violet-50 to-white shadow-sm">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 bg-gradient-to-br from-violet-500 to-indigo-500 rounded-lg flex items-center justify-center">
@@ -1609,42 +1593,30 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                 <h3 className="text-base font-bold text-gray-900">{selectedDataset.name}</h3>
                 {selectedDataset.description && <p className="text-xs text-gray-500">{selectedDataset.description}</p>}
               </div>
-              <button
-                onClick={toggleEditPanel}
-                className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 text-sm font-medium transition-all duration-200 ${isEditPanelOpen ? "bg-violet-600 text-white shadow-md" : "bg-white text-violet-600 border-2 border-violet-600 hover:bg-violet-50"}`}
-              >
+              <button onClick={toggleEditPanel}
+                className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 text-sm font-medium transition-all duration-200 ${isEditPanelOpen ? "bg-violet-600 text-white shadow-md" : "bg-white text-violet-600 border-2 border-violet-600 hover:bg-violet-50"}`}>
                 <Edit3 className="h-4 w-4" />
                 <span>{isEditPanelOpen ? "Close Edit" : "Edit Dataset"}</span>
               </button>
             </div>
-            <button onClick={closeViewer} className="p-1.5 rounded-lg hover:bg-red-50 hover:text-red-600 transition-all group" title="Close">
+            <button onClick={closeViewer} className="p-1.5 rounded-lg hover:bg-red-50 hover:text-red-600 transition-all group">
               <X className="w-5 h-5 text-gray-600 group-hover:text-red-600" />
             </button>
           </div>
 
-          {/* Main layout */}
           <div className="flex-1 flex overflow-hidden">
-
             {/* Left edit panel */}
             <div className={`bg-gray-50 border-r-2 border-gray-200 transition-all duration-300 flex-shrink-0 ${isEditPanelOpen ? "w-52" : "w-0"} overflow-hidden`}>
               {isEditPanelOpen && (
                 <div className="h-full flex flex-col w-52">
                   <div className="flex items-center justify-between px-3 py-2 bg-white border-b-2 border-gray-200">
-                    <div className="flex items-center gap-1.5">
-                      <Edit3 className="h-3.5 w-3.5 text-violet-600" />
-                      <span className="text-xs font-bold text-gray-800">Edit Dataset</span>
-                    </div>
-                    <button onClick={toggleEditPanel} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 hover:bg-red-100 text-gray-500 hover:text-red-600 transition-all">
-                      <X className="h-3 w-3" />
-                    </button>
+                    <div className="flex items-center gap-1.5"><Edit3 className="h-3.5 w-3.5 text-violet-600" /><span className="text-xs font-bold text-gray-800">Edit Dataset</span></div>
+                    <button onClick={toggleEditPanel} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 hover:bg-red-100 text-gray-500 hover:text-red-600 transition-all"><X className="h-3 w-3" /></button>
                   </div>
                   <div className="flex-1 overflow-y-auto p-2 space-y-1">
                     {transformationOptions.map(opt => (
-                      <button
-                        key={opt.id}
-                        onClick={() => handleTransformationSelect(opt.id)}
-                        className={`w-full p-2 rounded-md flex items-center gap-2 transition-all duration-200 text-left border-2 ${selectedTransformation === opt.id ? `bg-${opt.color}-100 border-${opt.color}-500 shadow-sm` : "bg-white border-gray-200 hover:border-gray-300 hover:shadow-sm hover:bg-gray-50"}`}
-                      >
+                      <button key={opt.id} onClick={() => handleTransformationSelect(opt.id)}
+                        className={`w-full p-2 rounded-md flex items-center gap-2 transition-all duration-200 text-left border-2 ${selectedTransformation === opt.id ? `bg-${opt.color}-100 border-${opt.color}-500 shadow-sm` : "bg-white border-gray-200 hover:border-gray-300 hover:shadow-sm hover:bg-gray-50"}`}>
                         <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 ${selectedTransformation === opt.id ? `bg-${opt.color}-200 text-${opt.color}-700` : `bg-${opt.color}-50 text-${opt.color}-500`}`}>{opt.icon}</div>
                         <span className={`text-xs font-medium ${selectedTransformation === opt.id ? "text-gray-900" : "text-gray-700"}`}>{opt.label}</span>
                       </button>
@@ -1654,10 +1626,10 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
               )}
             </div>
 
-            {/* Slim toggle strip */}
+            {/* Slim toggle */}
             {!isEditPanelOpen && (
-              <button onClick={toggleEditPanel} className="flex-shrink-0 w-9 bg-white border-r-2 border-gray-200 flex flex-col items-center justify-start pt-4 gap-1 hover:bg-violet-50 transition-colors group" title="Open Edit Panel">
-                <div className="w-6 h-6 rounded-md bg-violet-100 group-hover:bg-violet-200 flex items-center justify-center transition-colors">
+              <button onClick={toggleEditPanel} className="flex-shrink-0 w-9 bg-white border-r-2 border-gray-200 flex flex-col items-center justify-start pt-4 hover:bg-violet-50 transition-colors group">
+                <div className="w-6 h-6 rounded-md bg-violet-100 group-hover:bg-violet-200 flex items-center justify-center">
                   <svg className="w-3.5 h-3.5 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                 </div>
               </button>
@@ -1665,7 +1637,6 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
 
             {/* Middle table area */}
             <div className="flex-1 flex flex-col overflow-hidden">
-
               {/* Stats bar */}
               {selectedDataset.rows > 0 && (
                 <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 border-b border-gray-200 flex-wrap">
@@ -1691,12 +1662,12 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                   </button>
                   <button onClick={openSaveAsModal} disabled={isSavingAs || !hasTransformations || currentFilterType === "rename_column" || currentFilterType === "type_cast"} className="flex items-center gap-1 px-3 py-1 bg-emerald-100 rounded-md hover:bg-emerald-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                     {isSavingAs ? <Loader2 className="h-3 w-3 animate-spin text-emerald-700" /> : <SaveAll className="h-3 w-3 text-emerald-700" />}
-                    <span className="text-xs font-medium text-emerald-700">Save As</span>
+                    <span className="text-xs font-medium text-emerald-700">Finalize</span>
                   </button>
                 </div>
               )}
 
-              {/* Preview Mode Banner */}
+              {/* Preview Banner */}
               {isPreviewMode && previewData && (
                 <div className="px-4 py-2 bg-yellow-50 border-b-2 border-yellow-300">
                   <div className="space-y-2">
@@ -1706,27 +1677,27 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                         <div>
                           <p className="text-sm font-bold text-yellow-900">🔍 Preview Mode — Changes Not Saved</p>
                           <p className="text-xs text-yellow-700">
-                            {currentFilterType === "rename_column" ? "Column renamed. Click Save to confirm or Cancel to undo." :
-                             currentFilterType === "type_cast"     ? "Type cast applied. Click Save to confirm or Cancel to undo." :
-                             "Use Save to overwrite, or Save As to create a new dataset."}
+                            {currentFilterType === "rename_column" ? 'Column renamed. Click "Save" to confirm or "Cancel" to undo.' :
+                             currentFilterType === "type_cast"     ? 'Type cast applied. Click "Save" to confirm or "Cancel" to undo.' :
+                             'Use "Save" to overwrite the current state, or "Finalize" to create a permanent version.'}
                           </p>
                         </div>
                       </div>
                       <div className="flex items-center gap-1.5 flex-shrink-0">
-                        <button onClick={cancelFilterPreview} disabled={isSavingFilter} className="px-3 py-1.5 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors flex items-center gap-1 text-xs font-medium disabled:opacity-50">
+                        <button onClick={cancelFilterPreview} disabled={isSavingFilter} className="px-3 py-1.5 bg-red-600 text-white rounded-md hover:bg-red-700 flex items-center gap-1 text-xs font-medium disabled:opacity-50">
                           <X className="h-3 w-3" /><span>Cancel</span>
                         </button>
-                        <button onClick={saveCurrentFilter} disabled={isSavingFilter} className="px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors flex items-center gap-1 text-xs font-medium disabled:opacity-50">
+                        <button onClick={saveCurrentFilter} disabled={isSavingFilter} className="px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-1 text-xs font-medium disabled:opacity-50">
                           {isSavingFilter ? <><Loader2 className="h-3 w-3 animate-spin" /><span>Saving...</span></> : <><Save className="h-3 w-3" /><span>Save</span></>}
                         </button>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
                       {[
-                        { label: "Rows",    val: previewData.rows?.toLocaleString() || 0,           cls: "text-blue-600" },
-                        { label: "Filtered", val: previewData.dropped_rows?.toLocaleString() || 0,  cls: "text-red-600"  },
-                        { label: "Total",   val: ((previewData.rows||0)+(previewData.dropped_rows||0)).toLocaleString(), cls: "text-gray-600" },
-                        { label: "Kept",    val: previewData.rows && (previewData.rows+(previewData.dropped_rows||0))>0 ? `${((previewData.rows/(previewData.rows+(previewData.dropped_rows||0)))*100).toFixed(1)}%` : "0%", cls: "text-green-600" },
+                        { label: "Rows",     val: previewData.rows?.toLocaleString() || 0,         cls: "text-blue-600"  },
+                        { label: "Filtered", val: previewData.dropped_rows?.toLocaleString() || 0, cls: "text-red-600"   },
+                        { label: "Total",    val: ((previewData.rows||0)+(previewData.dropped_rows||0)).toLocaleString(), cls: "text-gray-600" },
+                        { label: "Kept",     val: previewData.rows && (previewData.rows+(previewData.dropped_rows||0))>0 ? `${((previewData.rows/(previewData.rows+(previewData.dropped_rows||0)))*100).toFixed(1)}%` : "0%", cls: "text-green-600" },
                       ].map(s => (
                         <div key={s.label} className="flex items-center gap-1 px-2 py-1 bg-white rounded border border-yellow-300 text-xs">
                           <span className="text-gray-500">{s.label}:</span><span className={`font-bold ${s.cls}`}>{s.val}</span>
@@ -1737,9 +1708,9 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                           <span className="text-gray-500 flex-shrink-0">Transform:</span>
                           <span className="font-bold text-gray-900 truncate">
                             {currentFilterType === "sort"          ? `SORT: ${previewData?.sort_column} (${previewData?.sort_order === "asc" ? "↑" : "↓"})` :
-                             currentFilterType === "rename_column"  ? `RENAME: '${previewData?.old_column}' → '${previewData?.new_column}'` :
-                             currentFilterType === "type_cast"      ? `CAST: '${previewData?.cast_column}' → ${previewData?.cast_type}` :
-                             currentFilterType.replace(/_/g," ").toUpperCase()}
+                             currentFilterType === "rename_column" ? `RENAME: '${previewData?.old_column}' → '${previewData?.new_column}'` :
+                             currentFilterType === "type_cast"     ? `CAST: '${previewData?.cast_column}' → ${previewData?.cast_type}` :
+                             currentFilterType.replace(/_/g, " ").toUpperCase()}
                           </span>
                         </div>
                       )}
@@ -1759,16 +1730,10 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                           {columnHeaders.map((header, idx) => (
                             <th key={idx} className="px-4 py-2 text-left text-xs font-semibold text-white border-r border-gray-600 whitespace-nowrap min-w-[130px] group relative">
                               <div className="flex items-center justify-between gap-2">
-                                <span
-                                  className={`flex-1 cursor-pointer ${sortColumn === header ? "text-blue-300 font-bold" : ""}`}
-                                  onClick={() => handleColumnSort(header)}
-                                  title={`Sort by ${header}`}
-                                >{header}</span>
+                                <span className={`flex-1 cursor-pointer ${sortColumn === header ? "text-blue-300 font-bold" : ""}`} onClick={() => handleColumnSort(header)}>{header}</span>
                                 <div className="flex items-center gap-1">
-                                  <div className="opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer" onClick={() => handleColumnSort(header)}>
-                                    <SortIndicator col={header} />
-                                  </div>
-                                  <button onClick={e => { e.stopPropagation(); fetchColumnFilterValues(header, e); }} className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-gray-600 rounded" title={`Filter ${header}`}>
+                                  <div className="opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer" onClick={() => handleColumnSort(header)}><SortIndicator col={header} /></div>
+                                  <button onClick={e => { e.stopPropagation(); fetchColumnFilterValues(header, e); }} className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-gray-600 rounded">
                                     <Filter className="h-4 w-4 text-gray-300 hover:text-white" />
                                   </button>
                                 </div>
@@ -1797,7 +1762,7 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                     </table>
                   </div>
                 ) : (
-                  <div className="flex flex-col justify-center items-center h-full bg-gradient-to-br from-gray-50 to-gray-100">
+                  <div className="flex flex-col justify-center items-center h-full">
                     <Loader2 className="h-16 w-16 animate-spin text-violet-600 mb-4" />
                     <span className="text-xl text-gray-700 font-semibold">Loading dataset...</span>
                   </div>
@@ -1822,7 +1787,7 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
               )}
             </div>
 
-            {/* ── RIGHT FORM PANEL ── */}
+            {/* RIGHT FORM PANEL */}
             <div className={`bg-white border-l-2 border-gray-200 transition-all duration-300 ease-in-out ${selectedTransformation ? "w-80" : "w-0"} overflow-hidden`}>
 
               {/* RENAME COLUMN */}
@@ -1830,7 +1795,7 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                 <div className="h-full flex flex-col">
                   <div className="p-4 border-b border-gray-200 bg-gradient-to-r from-green-50 to-white">
                     <div className="flex items-center gap-2"><Type className="h-6 w-6 text-green-600" /><h3 className="text-lg font-bold text-gray-900">Rename Column</h3></div>
-                    <p className="text-sm text-gray-600 mt-1">Change a column's name</p>
+                    <p className="text-sm text-gray-600 mt-1">Change a column's display name</p>
                   </div>
                   <div className="flex-1 overflow-y-auto p-6 space-y-5">
                     <div>
@@ -1841,18 +1806,16 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">New Column Name <span className="text-red-500">*</span></label>
-                      <input type="text" value={renameNewColumn} onChange={e => setRenameNewColumn(e.target.value)} placeholder="Enter new name" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500" />
+                      <label className="block text-sm font-medium text-gray-700 mb-2">New Name <span className="text-red-500">*</span></label>
+                      <input type="text" value={renameNewColumn} onChange={e => setRenameNewColumn(e.target.value)} placeholder="Enter new column name" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500" />
                     </div>
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800">
-                      Preview the rename in the table, then click <strong>Save</strong> in the banner to persist.
-                    </div>
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800">Preview the rename in the table, then click <strong>Save</strong> in the banner to persist.</div>
                   </div>
                   <div className="p-6 border-t border-gray-200 bg-gray-50 space-y-3">
-                    <button onClick={handleRenameColumn} disabled={!renameOldColumn || !renameNewColumn || isRenamingColumn} className="w-full px-6 py-3 bg-green-600 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-green-700 transition-colors font-medium disabled:opacity-50">
+                    <button onClick={handleRenameColumn} disabled={!renameOldColumn || !renameNewColumn || isRenamingColumn} className="w-full px-6 py-3 bg-green-600 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-green-700 font-medium disabled:opacity-50">
                       {isRenamingColumn ? <><Loader2 className="h-5 w-5 animate-spin" /><span>Renaming...</span></> : <><Eye className="h-5 w-5" /><span>Preview Rename</span></>}
                     </button>
-                    <button onClick={() => { setSelectedTransformation(null); setRenameOldColumn(""); setRenameNewColumn(""); }} disabled={isRenamingColumn} className="w-full px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium disabled:opacity-50">Cancel</button>
+                    <button onClick={() => { setSelectedTransformation(null); setRenameOldColumn(""); setRenameNewColumn(""); }} disabled={isRenamingColumn} className="w-full px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium disabled:opacity-50">Cancel</button>
                   </div>
                 </div>
               )}
@@ -1883,15 +1846,13 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                         <option value="datetime">DateTime (datetime)</option>
                       </select>
                     </div>
-                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-xs text-yellow-800">
-                      <strong>Warning:</strong> Invalid conversions will be set to null/NaN.
-                    </div>
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-xs text-yellow-800"><strong>Warning:</strong> Invalid conversions will be set to null/NaN.</div>
                   </div>
                   <div className="p-6 border-t border-gray-200 bg-gray-50 space-y-3">
-                    <button onClick={handleTypeCast} disabled={!typeCastColumn || !typeCastNewType || isTypeCasting} className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-purple-700 transition-colors font-medium disabled:opacity-50">
+                    <button onClick={handleTypeCast} disabled={!typeCastColumn || !typeCastNewType || isTypeCasting} className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-purple-700 font-medium disabled:opacity-50">
                       {isTypeCasting ? <><Loader2 className="h-5 w-5 animate-spin" /><span>Casting...</span></> : <><Eye className="h-5 w-5" /><span>Preview Cast</span></>}
                     </button>
-                    <button onClick={() => { setSelectedTransformation(null); setTypeCastColumn(""); setTypeCastNewType(""); }} disabled={isTypeCasting} className="w-full px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium disabled:opacity-50">Cancel</button>
+                    <button onClick={() => { setSelectedTransformation(null); setTypeCastColumn(""); setTypeCastNewType(""); }} disabled={isTypeCasting} className="w-full px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium disabled:opacity-50">Cancel</button>
                   </div>
                 </div>
               )}
@@ -1932,10 +1893,10 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                     </div>
                   </div>
                   <div className="p-6 border-t border-gray-200 bg-gray-50 space-y-3">
-                    <button onClick={handleGroupAndAggregate} disabled={!groupByColumns.length || !aggregateColumn || !aggregateFunction || isGroupingAggregating} className="w-full px-6 py-3 bg-orange-600 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-orange-700 transition-colors font-medium disabled:opacity-50">
+                    <button onClick={handleGroupAndAggregate} disabled={!groupByColumns.length || !aggregateColumn || !aggregateFunction || isGroupingAggregating} className="w-full px-6 py-3 bg-orange-600 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-orange-700 font-medium disabled:opacity-50">
                       {isGroupingAggregating ? <><Loader2 className="h-5 w-5 animate-spin" /><span>Loading...</span></> : <><Eye className="h-5 w-5" /><span>Preview Grouping</span></>}
                     </button>
-                    <button onClick={() => { setSelectedTransformation(null); setGroupByColumns([]); setAggregateColumn(""); setAggregateFunction(""); }} disabled={isGroupingAggregating} className="w-full px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium disabled:opacity-50">Cancel</button>
+                    <button onClick={() => { setSelectedTransformation(null); setGroupByColumns([]); setAggregateColumn(""); setAggregateFunction(""); }} disabled={isGroupingAggregating} className="w-full px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium disabled:opacity-50">Cancel</button>
                   </div>
                 </div>
               )}
@@ -1949,25 +1910,26 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                   </div>
                   <div className="flex-1 overflow-y-auto p-6 space-y-5">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Date Column <span className="text-red-500">*</span></label>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Select Date Column <span className="text-red-500">*</span></label>
                       <select value={dateColumn} onChange={e => { setDateColumn(e.target.value); setDateSummaryLoaded(false); setSelectedYears([]); setSelectedMonths([]); setSelectedDays([]); }} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 bg-white text-gray-900">
-                        <option value="">-- Select column --</option>
+                        <option value="">-- Select date column --</option>
                         {columnHeaders.map((h, i) => <option key={i} value={h}>{h}</option>)}
                       </select>
                       {dateColumn && !dateSummaryLoaded && (
-                        <button onClick={fetchDateSummary} disabled={isLoadingDateSummary} className="mt-3 w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
-                          {isLoadingDateSummary ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Loading...</span></> : <><Calendar className="h-4 w-4" /><span>Load Dates</span></>}
+                        <button onClick={fetchDateSummary} disabled={isLoadingDateSummary} className="mt-3 w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2 disabled:opacity-50">
+                          {isLoadingDateSummary ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Loading dates...</span></> : <><Calendar className="h-4 w-4" /><span>Load Available Dates</span></>}
                         </button>
                       )}
                     </div>
                     {dateSummaryLoaded && availableYears.length > 0 && (
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Years (Optional)</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Year(s)</label>
                         <div className="max-h-40 overflow-y-auto border border-gray-300 rounded-lg p-2 space-y-1">
                           {availableYears.map(y => (
                             <label key={y} className="flex items-center gap-3 p-2 hover:bg-pink-50 rounded cursor-pointer">
-                              <input type="checkbox" checked={selectedYears.includes(y)} onChange={e => { if (e.target.checked) setSelectedYears(p => [...p, y]); else { setSelectedYears(p => p.filter(x => x !== y)); } }} className="h-4 w-4 text-pink-600 rounded" />
+                              <input type="checkbox" checked={selectedYears.includes(y)} onChange={e => { if (e.target.checked) setSelectedYears(p => [...p, y]); else setSelectedYears(p => p.filter(x => x !== y)); }} className="h-4 w-4 text-pink-600 rounded" />
                               <span className="text-sm text-gray-900">{y}</span>
+                              <span className="text-xs text-gray-500 ml-auto">{Object.keys(availableMonths[y] || {}).length} months</span>
                             </label>
                           ))}
                         </div>
@@ -1975,15 +1937,16 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                     )}
                     {dateSummaryLoaded && (
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Months (Optional)</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Month(s)</label>
                         <div className="grid grid-cols-3 gap-1">
                           {[{n:1,l:"Jan"},{n:2,l:"Feb"},{n:3,l:"Mar"},{n:4,l:"Apr"},{n:5,l:"May"},{n:6,l:"Jun"},{n:7,l:"Jul"},{n:8,l:"Aug"},{n:9,l:"Sep"},{n:10,l:"Oct"},{n:11,l:"Nov"},{n:12,l:"Dec"}].map(m => {
-                            const isSelected = selectedMonths.includes(m.n);
+                            const isSelected  = selectedMonths.includes(m.n);
+                            const isAvailable = selectedYears.length === 0
+                              ? Object.values(availableMonths).some(ym => ym.hasOwnProperty(m.n.toString()))
+                              : selectedYears.some(y => availableMonths[y]?.hasOwnProperty(m.n.toString()));
                             return (
-                              <button key={m.n} onClick={() => isSelected ? setSelectedMonths(p => p.filter(x => x !== m.n)) : setSelectedMonths(p => [...p, m.n])}
-                                className={`px-2 py-1.5 rounded text-xs font-medium transition-all ${isSelected ? "bg-pink-600 text-white" : "bg-white text-gray-700 border border-gray-300 hover:bg-pink-50"}`}>
-                                {m.l}
-                              </button>
+                              <button key={m.n} onClick={() => isAvailable && (isSelected ? setSelectedMonths(p => p.filter(x => x !== m.n)) : setSelectedMonths(p => [...p, m.n]))} disabled={!isAvailable}
+                                className={`px-2 py-1.5 rounded text-xs font-medium transition-all ${isSelected ? "bg-pink-600 text-white" : isAvailable ? "bg-white text-gray-700 border border-gray-300 hover:bg-pink-50" : "bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed"}`}>{m.l}</button>
                             );
                           })}
                         </div>
@@ -1991,10 +1954,10 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                     )}
                   </div>
                   <div className="p-6 border-t border-gray-200 bg-gray-50 space-y-3">
-                    <button onClick={handleFilterByDate} disabled={!dateColumn || !dateSummaryLoaded || isFilteringByDate || (!selectedYears.length && !selectedMonths.length && !selectedDays.length)} className="w-full px-6 py-3 bg-pink-600 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-pink-700 transition-colors font-medium disabled:opacity-50">
+                    <button onClick={handleFilterByDate} disabled={!dateColumn || !dateSummaryLoaded || isFilteringByDate || (!selectedYears.length && !selectedMonths.length && !selectedDays.length)} className="w-full px-6 py-3 bg-pink-600 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-pink-700 font-medium disabled:opacity-50">
                       {isFilteringByDate ? <><Loader2 className="h-5 w-5 animate-spin" /><span>Filtering...</span></> : <><Filter className="h-5 w-5" /><span>Apply Date Filter</span></>}
                     </button>
-                    <button onClick={() => { setSelectedTransformation(null); setDateColumn(""); setSelectedYears([]); setSelectedMonths([]); setSelectedDays([]); setDateSummaryLoaded(false); }} disabled={isFilteringByDate} className="w-full px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium disabled:opacity-50">Cancel</button>
+                    <button onClick={() => { setSelectedTransformation(null); setDateColumn(""); setSelectedYears([]); setSelectedMonths([]); setSelectedDays([]); setDateSummaryLoaded(false); }} disabled={isFilteringByDate} className="w-full px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium disabled:opacity-50">Cancel</button>
                   </div>
                 </div>
               )}
@@ -2005,7 +1968,7 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                   <div className="p-4 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2"><History className="h-6 w-6 text-gray-600" /><h3 className="text-lg font-bold text-gray-900">Transformation History</h3></div>
-                      <button onClick={fetchHistory} disabled={isLoadingHistory} className="p-2 rounded-lg hover:bg-gray-200 transition-colors"><RefreshCw className={`h-5 w-5 text-gray-600 ${isLoadingHistory ? "animate-spin" : ""}`} /></button>
+                      <button onClick={fetchHistory} disabled={isLoadingHistory} className="p-2 rounded-lg hover:bg-gray-200"><RefreshCw className={`h-5 w-5 text-gray-600 ${isLoadingHistory ? "animate-spin" : ""}`} /></button>
                     </div>
                   </div>
                   <div className="flex-1 overflow-y-auto p-4">
@@ -2033,15 +1996,15 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                   <div className="p-4 border-t border-gray-200 bg-gray-50 space-y-3">
                     {historyData.length > 0 && (
                       <>
-                        <button onClick={handleUndo} disabled={isUndoing} className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium disabled:opacity-50 flex items-center justify-center gap-2">
+                        <button onClick={handleUndo} disabled={isUndoing} className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium disabled:opacity-50 flex items-center justify-center gap-2">
                           {isUndoing ? <><Loader2 className="h-5 w-5 animate-spin" /><span>Undoing...</span></> : <><RotateCcw className="h-5 w-5" /><span>Undo Latest</span></>}
                         </button>
-                        <button onClick={() => setShowResetModal(true)} className="w-full px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium flex items-center justify-center gap-2">
+                        <button onClick={() => setShowResetModal(true)} className="w-full px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium flex items-center justify-center gap-2">
                           <RefreshCw className="h-5 w-5" /><span>Reset to Original</span>
                         </button>
                       </>
                     )}
-                    <button onClick={() => { setSelectedTransformation(null); setHistoryData([]); }} className="w-full px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium">Close</button>
+                    <button onClick={() => { setSelectedTransformation(null); setHistoryData([]); }} className="w-full px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium">Close</button>
                   </div>
                 </div>
               )}
@@ -2056,13 +2019,13 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                   <div className="flex-1 overflow-y-auto p-6 space-y-5">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Select Column <span className="text-red-500">*</span></label>
-                      <select value={filterColumn} onChange={e => { setFilterColumn(e.target.value); setUniqueValuesLoaded(false); setUniqueValuesData(null); setSelectedFilterValues(new Set()); setUniqueValuesSearch(""); }} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-gray-900">
+                      <select value={filterColumn} onChange={e => setFilterColumn(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-gray-900">
                         <option value="">-- Select a column --</option>
                         {columnHeaders.map((h, i) => <option key={i} value={h}>{h}</option>)}
                       </select>
                       {filterColumn && !uniqueValuesLoaded && (
-                        <button onClick={fetchUniqueValues} disabled={isLoadingUniqueValues} className="mt-3 w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
-                          {isLoadingUniqueValues ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Loading...</span></> : <><Filter className="h-4 w-4" /><span>Load Unique Values</span></>}
+                        <button onClick={fetchUniqueValues} disabled={isLoadingUniqueValues} className="mt-3 w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2 disabled:opacity-50">
+                          {isLoadingUniqueValues ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Loading values...</span></> : <><Filter className="h-4 w-4" /><span>Load Unique Values</span></>}
                         </button>
                       )}
                     </div>
@@ -2076,19 +2039,17 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                             </div>
                           ))}
                         </div>
-                        <div>
-                          <input type="text" value={uniqueValuesSearch} onChange={e => setUniqueValuesSearch(e.target.value)} placeholder="Search values..." className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
-                        </div>
+                        <input type="text" value={uniqueValuesSearch} onChange={e => setUniqueValuesSearch(e.target.value)} placeholder="Search values..." className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
                         <div className="flex gap-2">
-                          <button onClick={() => { const filtered = uniqueValuesData.unique_values.filter((v: any) => String(v).toLowerCase().includes(uniqueValuesSearch.toLowerCase())); const s = new Set(selectedFilterValues); filtered.forEach((v: any) => s.add(v)); setSelectedFilterValues(s); }} className="flex-1 px-3 py-2 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 text-sm font-medium">Select All</button>
+                          <button onClick={() => { const all = new Set(selectedFilterValues); (uniqueValuesData.unique_values as any[]).filter(v => !uniqueValuesSearch || String(v).toLowerCase().includes(uniqueValuesSearch.toLowerCase())).forEach((v: any) => all.add(v)); setSelectedFilterValues(all); }} className="flex-1 px-3 py-2 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 text-sm font-medium">Select All</button>
                           <button onClick={() => setSelectedFilterValues(new Set())} className="flex-1 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm font-medium">Clear</button>
                         </div>
-                        {selectedFilterValues.size > 0 && <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-200"><p className="text-sm text-indigo-800"><strong>{selectedFilterValues.size}</strong> selected</p></div>}
-                        <div className="max-h-72 overflow-y-auto border border-gray-300 rounded-lg bg-white">
+                        {selectedFilterValues.size > 0 && <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-200"><p className="text-sm text-indigo-800"><strong>{selectedFilterValues.size}</strong> value(s) selected</p></div>}
+                        <div className="max-h-64 overflow-y-auto border border-gray-300 rounded-lg bg-white">
                           <div className="p-2 space-y-1">
                             {(uniqueValuesData.unique_values as any[]).filter(v => !uniqueValuesSearch || String(v).toLowerCase().includes(uniqueValuesSearch.toLowerCase())).map((v: any, i: number) => {
                               const isSelected = selectedFilterValues.has(v);
-                              const count = uniqueValuesData.value_counts?.[String(v)] || 0;
+                              const count      = uniqueValuesData.value_counts?.[String(v)] || 0;
                               return (
                                 <label key={i} className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-all ${isSelected ? "bg-indigo-100 border-2 border-indigo-500" : "hover:bg-gray-50 border-2 border-transparent"}`}>
                                   <input type="checkbox" checked={isSelected} onChange={() => { const s = new Set(selectedFilterValues); isSelected ? s.delete(v) : s.add(v); setSelectedFilterValues(s); }} className="h-4 w-4 text-indigo-600 rounded" />
@@ -2103,10 +2064,10 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                     )}
                   </div>
                   <div className="p-6 border-t border-gray-200 bg-gray-50 space-y-3">
-                    <button onClick={handleFilterByUniqueValues} disabled={!filterColumn || !uniqueValuesLoaded || selectedFilterValues.size === 0 || isApplyingFilter} className="w-full px-6 py-3 bg-indigo-600 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-indigo-700 transition-colors font-medium disabled:opacity-50">
-                      {isApplyingFilter ? <><Loader2 className="h-5 w-5 animate-spin" /><span>Applying...</span></> : <><Save className="h-5 w-5" /><span>Apply Filter ({selectedFilterValues.size})</span></>}
+                    <button onClick={handleFilterByUniqueValues} disabled={!filterColumn || !uniqueValuesLoaded || selectedFilterValues.size === 0 || isApplyingFilter} className="w-full px-6 py-3 bg-indigo-600 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-indigo-700 font-medium disabled:opacity-50">
+                      {isApplyingFilter ? <><Loader2 className="h-5 w-5 animate-spin" /><span>Applying...</span></> : <><Save className="h-5 w-5" /><span>Apply Filter ({selectedFilterValues.size} values)</span></>}
                     </button>
-                    <button onClick={() => { setSelectedTransformation(null); setFilterColumn(""); setSelectedFilterValues(new Set()); setUniqueValuesLoaded(false); setUniqueValuesData(null); }} disabled={isApplyingFilter} className="w-full px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium disabled:opacity-50">Cancel</button>
+                    <button onClick={() => { setSelectedTransformation(null); setFilterColumn(""); setSelectedFilterValues(new Set()); setUniqueValuesLoaded(false); setUniqueValuesData(null); }} disabled={isApplyingFilter} className="w-full px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium disabled:opacity-50">Cancel</button>
                   </div>
                 </div>
               )}
@@ -2116,7 +2077,7 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                 <div className="h-full flex flex-col">
                   <div className="p-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-white">
                     <div className="flex items-center gap-2"><Type className="h-6 w-6 text-blue-600" /><h3 className="text-lg font-bold text-gray-900">Text Filter</h3></div>
-                    <p className="text-sm text-gray-600 mt-1">Filter text data with conditions</p>
+                    <p className="text-sm text-gray-600 mt-1">Filter text data with advanced conditions</p>
                   </div>
                   <div className="flex-1 overflow-y-auto p-6 space-y-5">
                     <div>
@@ -2136,26 +2097,23 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                       </select>
                     </div>
                     {["equals","contains","starts_with","ends_with","not_equals"].includes(textFilterType) && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Value <span className="text-red-500">*</span></label>
-                        <input type="text" value={textFilterValue} onChange={e => setTextFilterValue(e.target.value)} placeholder="Enter value" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                      </div>
+                      <div><label className="block text-sm font-medium text-gray-700 mb-2">Value <span className="text-red-500">*</span></label><input type="text" value={textFilterValue} onChange={e => setTextFilterValue(e.target.value)} placeholder="Enter value" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" /></div>
                     )}
                     {textFilterType === "between" && (
                       <div className="space-y-3">
-                        <div><label className="block text-sm font-medium text-gray-700 mb-2">From <span className="text-red-500">*</span></label><input type="text" value={textFilterValue} onChange={e => setTextFilterValue(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" /></div>
-                        <div><label className="block text-sm font-medium text-gray-700 mb-2">To <span className="text-red-500">*</span></label><input type="text" value={textFilterValue2} onChange={e => setTextFilterValue2(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" /></div>
+                        <div><label className="block text-sm font-medium text-gray-700 mb-2">From</label><input type="text" value={textFilterValue} onChange={e => setTextFilterValue(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" /></div>
+                        <div><label className="block text-sm font-medium text-gray-700 mb-2">To</label><input type="text" value={textFilterValue2} onChange={e => setTextFilterValue2(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" /></div>
                       </div>
                     )}
                     {textFilterType === "in" && (
-                      <div><label className="block text-sm font-medium text-gray-700 mb-2">Values (one per line) <span className="text-red-500">*</span></label><textarea value={textFilterValues.join("\n")} onChange={e => setTextFilterValues(e.target.value.split("\n").filter(v => v.trim()))} rows={5} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" /></div>
+                      <div><label className="block text-sm font-medium text-gray-700 mb-2">Values (one per line)</label><textarea value={textFilterValues.join("\n")} onChange={e => setTextFilterValues(e.target.value.split("\n").filter(v => v.trim()))} rows={5} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" /></div>
                     )}
                   </div>
                   <div className="p-6 border-t border-gray-200 bg-gray-50 space-y-3">
-                    <button onClick={handleTextFilter} disabled={!textFilterColumn || isApplyingTextFilter} className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-blue-700 transition-colors font-medium disabled:opacity-50">
+                    <button onClick={handleTextFilter} disabled={!textFilterColumn || isApplyingTextFilter} className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-blue-700 font-medium disabled:opacity-50">
                       {isApplyingTextFilter ? <><Loader2 className="h-5 w-5 animate-spin" /><span>Applying...</span></> : <><Eye className="h-5 w-5" /><span>Preview Filter</span></>}
                     </button>
-                    <button onClick={() => { setSelectedTransformation(null); setTextFilterColumn(""); setTextFilterType("equals"); setTextFilterValue(""); setTextFilterValue2(""); setTextFilterValues([]); }} disabled={isApplyingTextFilter} className="w-full px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium disabled:opacity-50">Cancel</button>
+                    <button onClick={() => { setSelectedTransformation(null); setTextFilterColumn(""); setTextFilterType("equals"); setTextFilterValue(""); setTextFilterValue2(""); setTextFilterValues([]); }} disabled={isApplyingTextFilter} className="w-full px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium disabled:opacity-50">Cancel</button>
                   </div>
                 </div>
               )}
@@ -2190,32 +2148,32 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                     )}
                     {numberFilterType === "between" && (
                       <div className="space-y-3">
-                        <div><label className="block text-sm font-medium text-gray-700 mb-2">Min <span className="text-red-500">*</span></label><input type="number" step="any" value={numberFilterValue} onChange={e => setNumberFilterValue(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" /></div>
-                        <div><label className="block text-sm font-medium text-gray-700 mb-2">Max <span className="text-red-500">*</span></label><input type="number" step="any" value={numberFilterValue2} onChange={e => setNumberFilterValue2(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" /></div>
+                        <div><label className="block text-sm font-medium text-gray-700 mb-2">Min</label><input type="number" step="any" value={numberFilterValue} onChange={e => setNumberFilterValue(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" /></div>
+                        <div><label className="block text-sm font-medium text-gray-700 mb-2">Max</label><input type="number" step="any" value={numberFilterValue2} onChange={e => setNumberFilterValue2(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" /></div>
                       </div>
                     )}
                     {numberFilterType === "in" && (
-                      <div><label className="block text-sm font-medium text-gray-700 mb-2">Values (one per line) <span className="text-red-500">*</span></label><textarea value={numberFilterValues.join("\n")} onChange={e => setNumberFilterValues(e.target.value.split("\n").filter(v => v.trim() && !isNaN(Number(v.trim()))))} rows={5} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 resize-none font-mono" /></div>
+                      <div><label className="block text-sm font-medium text-gray-700 mb-2">Values (one per line)</label><textarea value={numberFilterValues.join("\n")} onChange={e => setNumberFilterValues(e.target.value.split("\n").filter(v => v.trim() && !isNaN(Number(v.trim()))))} rows={5} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 resize-none font-mono" /></div>
                     )}
                   </div>
                   <div className="p-6 border-t border-gray-200 bg-gray-50 space-y-3">
-                    <button onClick={handleNumberFilter} disabled={!numberFilterColumn || isApplyingNumberFilter} className="w-full px-6 py-3 bg-teal-600 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-teal-700 transition-colors font-medium disabled:opacity-50">
+                    <button onClick={handleNumberFilter} disabled={!numberFilterColumn || isApplyingNumberFilter} className="w-full px-6 py-3 bg-teal-600 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-teal-700 font-medium disabled:opacity-50">
                       {isApplyingNumberFilter ? <><Loader2 className="h-5 w-5 animate-spin" /><span>Applying...</span></> : <><Eye className="h-5 w-5" /><span>Preview Filter</span></>}
                     </button>
-                    <button onClick={() => { setSelectedTransformation(null); setNumberFilterColumn(""); setNumberFilterType("equals"); setNumberFilterValue(""); setNumberFilterValue2(""); setNumberFilterValues([]); }} disabled={isApplyingNumberFilter} className="w-full px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium disabled:opacity-50">Cancel</button>
+                    <button onClick={() => { setSelectedTransformation(null); setNumberFilterColumn(""); setNumberFilterType("equals"); setNumberFilterValue(""); setNumberFilterValue2(""); setNumberFilterValues([]); }} disabled={isApplyingNumberFilter} className="w-full px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium disabled:opacity-50">Cancel</button>
                   </div>
                 </div>
               )}
-
-            </div>{/* end right panel */}
-          </div>{/* end main layout */}
+            </div>
+          </div>
 
           {/* Column filter floating dropdown */}
           {filterDropdownOpen && (
-            <div className="fixed bg-white rounded-xl shadow-2xl border-2 border-gray-300 z-[60] w-96 overflow-hidden flex flex-col" style={{ top: filterDropdownPosition.top, left: filterDropdownPosition.left, maxHeight: `min(550px, ${typeof window !== "undefined" ? window.innerHeight - filterDropdownPosition.top - 20 : 500}px)` }}>
+            <div className="fixed bg-white rounded-xl shadow-2xl border-2 border-gray-300 z-[60] w-96 overflow-hidden flex flex-col"
+              style={{ top: filterDropdownPosition.top, left: filterDropdownPosition.left, maxHeight: `min(550px, ${typeof window !== "undefined" ? window.innerHeight - filterDropdownPosition.top - 20 : 500}px)` }}>
               <div className="px-4 py-3 bg-gradient-to-r from-indigo-50 to-indigo-100 border-b border-indigo-200 flex items-center justify-between">
                 <div className="flex items-center gap-2"><Filter className="h-5 w-5 text-indigo-600" /><h3 className="text-sm font-bold text-gray-900">Filter: {filterDropdownOpen}</h3></div>
-                <button onClick={() => { setFilterDropdownOpen(null); setColumnFilterValues(null); }} className="text-gray-500 hover:text-gray-700 p-1 rounded"><X className="h-4 w-4" /></button>
+                <button onClick={() => { setFilterDropdownOpen(null); setColumnFilterValues(null); }} className="text-gray-500 hover:text-gray-700 p-1"><X className="h-4 w-4" /></button>
               </div>
               {isLoadingColumnFilter ? (
                 <div className="flex flex-col items-center justify-center py-10"><Loader2 className="h-10 w-10 animate-spin text-indigo-600 mb-3" /><p className="text-sm text-gray-600">Loading...</p></div>
@@ -2230,14 +2188,14 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                     <input type="text" value={columnFilterSearchTerm} onChange={e => setColumnFilterSearchTerm(e.target.value)} placeholder="Search values..." className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
                   </div>
                   <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-center justify-between gap-2">
-                    <button onClick={() => { const filtered = getFilteredColVals(); const s = new Set(selectedColumnFilterValues); filtered.forEach((v: any) => s.add(v)); setSelectedColumnFilterValues(s); }} className="flex-1 px-2 py-1 text-xs bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 font-medium">Select All</button>
+                    <button onClick={() => { const s = new Set(selectedColumnFilterValues); getFilteredColVals().forEach((v: any) => s.add(v)); setSelectedColumnFilterValues(s); }} className="flex-1 px-2 py-1 text-xs bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 font-medium">Select All</button>
                     <button onClick={() => setSelectedColumnFilterValues(new Set())} className="flex-1 px-2 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300 font-medium">Clear</button>
                     <span className="text-xs text-gray-600">{selectedColumnFilterValues.size} selected</span>
                   </div>
                   <div className="flex-1 overflow-y-auto">
                     <div className="p-2 space-y-1">
                       {getFilteredColVals().map((v: any, i: number) => {
-                        const count = columnFilterValues.value_counts?.[String(v)] || 0;
+                        const count      = columnFilterValues.value_counts?.[String(v)] || 0;
                         const isSelected = selectedColumnFilterValues.has(v);
                         return (
                           <label key={i} className={`flex items-center gap-2 p-2 rounded cursor-pointer transition-colors ${isSelected ? "bg-indigo-50 border border-indigo-200" : "hover:bg-gray-50"}`}>
