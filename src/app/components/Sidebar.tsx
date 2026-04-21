@@ -1216,14 +1216,25 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
                     className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">Customer Database Key <span className="text-red-500">*</span></label>
-                  <input type="text" value={customerDbKey} onChange={e => setCustomerDbKey(e.target.value)}
-                    placeholder="e.g., customer_db_tally"
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
-                  />
-                  <p className="mt-1 text-xs text-gray-500">Examples: customer_db_tally, customer_db_onegcp</p>
-                </div>
+               <div>
+  <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+    Customer Database Key <span className="text-red-500">*</span>
+  </label>
+
+  <select
+    value={customerDbKey}
+    onChange={(e) => setCustomerDbKey(e.target.value)}
+    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+  >
+    <option value="">Select database</option>
+    <option value="customer_db_tally">customer_db_tally</option>
+    <option value="customer_db_onegcp">customer_db_onegcp</option>
+  </select>
+
+  {/* <p className="mt-1 text-xs text-gray-500">
+    Examples: customer_db_tally, customer_db_onegcp
+  </p> */}
+</div>
                 {newBoardName.trim() && customerDbKey.trim() && (
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-2.5">
                     <p className="text-xs text-blue-800"><span className="font-semibold">{isEditMode ? 'Ready to update:' : 'Ready to create:'}</span> {newBoardName}</p>

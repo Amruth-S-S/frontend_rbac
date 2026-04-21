@@ -42,7 +42,19 @@ interface ToastMessage {
 
 interface HistoryItem { track_id: string; note: string; }
 
-interface VersionInfo { version: number; version_name: string; row_count_original?: number | null; row_count_filtered?: number | null; source_type?: string; }
+interface VersionInfo {
+  version: number;
+  version_name: string;
+  row_count_original?: number | null;
+  row_count_filtered?: number | null;
+  source_type?: string;
+}
+
+interface FilterSummaryItem {
+  filter_type: string;
+  note: string;
+  params?: Record<string, any>;
+}
 
 interface ExternalDataSource {
   name: string;
@@ -58,15 +70,8 @@ interface ManageParameterSettingProps {
   userId?: string | number;
   orgId?: string | number;
   dataSources?: ExternalDataSource[];
-  onFilterToggle?: () => void; // ← ADD THIS
+  onFilterToggle?: () => void;
 }
-
-// interface ManageParameterSettingProps {
-//   boardId?: string | number;
-//   userId?: string | number;
-//   orgId?: string | number;
-//   dataSources?: ExternalDataSource[];
-// }
 
 // ─────────────────────────── COMPONENT ───────────────────────────
 export default function ManageParameterSetting(props: ManageParameterSettingProps = {}) {
@@ -107,8 +112,11 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
   const [loadingCardIds, setLoadingCardIds]       = useState<Set<number>>(new Set());
   const [loadingVersionIds, setLoadingVersionIds] = useState<Set<number>>(new Set());
   const [paramVersions, setParamVersions]         = useState<Record<number, VersionInfo>>({});
-  // Track which rows have their version dropdown open
   const [openVersionDropdowns, setOpenVersionDropdowns] = useState<Set<number>>(new Set());
+
+  // ── NEW: Track loaded params & filter summaries ──
+  const [loadedParamIds, setLoadedParamIds]     = useState<Set<number>>(new Set());
+  const [filterSummaries, setFilterSummaries]   = useState<Record<number, FilterSummaryItem[]>>({});
 
   const toggleVersionDropdown = (id: number) => {
     setOpenVersionDropdowns(prev => {
@@ -116,6 +124,18 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
       s.has(id) ? s.delete(id) : s.add(id);
       return s;
     });
+  };
+
+  // ── Helper: fetch & store filter summary for one param ──
+  const fetchFilterSummary = async (paramId: number) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/parameter-settings/${paramId}`, { method: "GET", headers: getHeaders() });
+      if (res.ok) {
+        const val = await res.json();
+        const summary: FilterSummaryItem[] = val.filter_summary ?? val.parameter_setting?.filter_summary ?? [];
+      setFilterSummaries(prev => ({ ...prev, [Number(paramId)]: Array.isArray(summary) ? summary : [] }));
+      }
+    } catch {}
   };
 
   const fetchParameterSettings = async () => {
@@ -154,7 +174,14 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
           const ps: ParameterSetting = val.parameter_setting
             ? { ...val.parameter_setting, data_source: val.data_source }
             : val.id ? val : null;
-          if (ps) allSettings.push(ps);
+          if (ps) {
+            allSettings.push(ps);
+            // ── NEW: Extract and store filter_summary ──
+            const summary: FilterSummaryItem[] = val.filter_summary ?? val.parameter_setting?.filter_summary ?? [];
+            if (Array.isArray(summary)) {
+            setFilterSummaries(prev => ({ ...prev, [Number(ps.id)]: Array.isArray(summary) ? summary : [] }));
+            }
+          }
         }
       });
       setParameterSettings(allSettings);
@@ -197,7 +224,7 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
         { method: "GET", headers: getHeaders() }
       );
       if (versionRes.ok) {
-        const vData = await versionRes.json();
+        await versionRes.json();
         setIsViewerOpen(true);
         setIsPreviewMode(false); setPreviewData(null); setCurrentFilterType(null);
         setHasTransformations(false); setSortColumn(null); setSortOrder("asc");
@@ -209,7 +236,7 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
           name:          vInfo.version_name,
           description:   `Filtered version of "${ps.name}" — v${vInfo.version}`,
           type:          "csv",
-          rows:          vData.row_count_filtered ?? vInfo.row_count_filtered ?? 0,
+          rows:          vInfo.row_count_filtered ?? 0,
           columns:       0,
           fullData:      [],
           columnHeaders: [],
@@ -253,11 +280,10 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
         body: JSON.stringify({ is_filter_enabled: newValue })
       });
       if (res.ok) {
-  setParameterSettings(prev => prev.map(p => p.id === ps.id ? { ...p, is_filter_enabled: newValue } : p));
-  showToast("success", `Filter ${newValue ? "enabled" : "disabled"} for "${ps.name}"`);
-  props.onFilterToggle?.(); // ← ADD THIS — notifies Container instantly
-}
-       else { showToast("error", `Toggle failed: ${await res.text()}`); }
+        setParameterSettings(prev => prev.map(p => p.id === ps.id ? { ...p, is_filter_enabled: newValue } : p));
+        showToast("success", `Filter ${newValue ? "enabled" : "disabled"} for "${ps.name}"`);
+        props.onFilterToggle?.();
+      } else { showToast("error", `Toggle failed: ${await res.text()}`); }
     } catch { showToast("error", "Network error toggling filter"); }
     finally { setTogglingIds(prev => { const s = new Set(prev); s.delete(ps.id); return s; }); }
   };
@@ -273,6 +299,8 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
         showToast("error", `Load failed: ${await loadRes.text()}`); return;
       }
       await openViewer(ps);
+      // ── NEW: Mark this param as loaded ──
+      setLoadedParamIds(prev => new Set(prev).add(ps.id));
     } catch { showToast("error", "Network error loading parameter setting"); }
     finally { setLoadingCardIds(prev => { const s = new Set(prev); s.delete(ps.id); return s; }); }
   };
@@ -403,8 +431,8 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
   const purl = (path: string) => `${API_BASE}/api/parameter-settings/${pid}${path}`;
 
   // ─────────── EDIT PANEL ───────────
-  const [isEditPanelOpen, setIsEditPanelOpen]                   = useState(false);
-  const [selectedTransformation, setSelectedTransformation]     = useState<string | null>(null);
+  const [isEditPanelOpen, setIsEditPanelOpen]               = useState(false);
+  const [selectedTransformation, setSelectedTransformation] = useState<string | null>(null);
 
   const toggleEditPanel = () => { setIsEditPanelOpen(p => !p); setSelectedTransformation(null); };
 
@@ -414,13 +442,13 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
     setTypeCastColumn(""); setTypeCastNewType("");
     setGroupByColumns([]); setAggregateColumn(""); setAggregateFunction("");
     setDateColumn(""); setDateSummaryLoaded(false); setSelectedYears([]); setSelectedMonths([]); setSelectedDays([]);
-    setFilterColumn(""); setUniqueValuesData(null); setSelectedFilterValues(new Set()); setUniqueValuesLoaded(false); setUniqueValuesSearch("");
+    setFilterColumn(""); setUniqueValuesData(null); setSelectedFilterValues(new Set()); setUniqueValuesLoaded(false); setUniqueValuesSearch(""); setQuickSelectInput("");
     setTextFilterColumn(""); setTextFilterType("equals"); setTextFilterValue(""); setTextFilterValue2(""); setTextFilterValues([]);
     setNumberFilterColumn(""); setNumberFilterType("equals"); setNumberFilterValue(""); setNumberFilterValue2(""); setNumberFilterValues([]);
     setHistoryData([]);
     if (t === "get_history") fetchHistory();
   };
-
+const [quickSelectInput, setQuickSelectInput] = useState("");
   const transformationOptions = useMemo(() => [
     { id: "rename_column",       label: "Rename Column",     icon: <Type className="h-4 w-4" />,     color: "green"  },
     { id: "type_cast",           label: "Type Cast",         icon: <FileText className="h-4 w-4" />, color: "purple" },
@@ -505,6 +533,8 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
         setSelectedTransformation(null);
         resetFilterForms();
         await refreshSavedDataset();
+        // ── NEW: Refresh filter summary after saving ──
+        if (pid) await fetchFilterSummary(pid);
       } else { showToast("error", `Save failed: ${await res.text()}`); }
     } catch { showToast("error", "Network error saving"); }
     finally { setIsSavingFilter(false); }
@@ -664,7 +694,16 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
           const fullData = json.data || json.preview || [];
           const columnHeaders = json.columns || [];
           setSelectedDataset({ ...selectedDataset, fullData, rows: json.rows || fullData.length, columns: columnHeaders.length, columnHeaders });
-          setPreviewData({ rows: json.rows, dropped_rows: 0, columns: columnHeaders, preview: fullData, filter_type: "RENAME_COLUMN", old_column: renameOldColumn, new_column: renameNewColumn });
+          // ── Store old/new for table highlight ──
+          setPreviewData({
+            rows: json.rows,
+            dropped_rows: 0,
+            columns: columnHeaders,
+            preview: fullData,
+            filter_type: "RENAME_COLUMN",
+            old_column: renameOldColumn,
+            new_column: renameNewColumn
+          });
           setIsPreviewMode(true); setCurrentFilterType("rename_column"); setHasTransformations(true);
           setSelectedTransformation(null); setRenameOldColumn(""); setRenameNewColumn("");
           showToast("success", `Preview: '${renameOldColumn}' → '${renameNewColumn}'. Click Save to confirm.`);
@@ -749,8 +788,19 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
         const result  = await res.json();
         const summary = result.unique_dates_summary || {};
         const years   = Object.keys(summary).map(Number).sort((a, b) => b - a);
-        setAvailableYears(years); setAvailableMonths(summary);
-        setAvailableDays(Array.from({ length: result.unique_days_count || 31 }, (_, i) => i + 1));
+        setAvailableYears(years);
+        setAvailableMonths(summary);
+        // ── Extract all unique days from the summary ──
+        const daySet = new Set<number>();
+        Object.values(summary).forEach((monthMap: any) => {
+          Object.values(monthMap).forEach((days: any) => {
+            if (Array.isArray(days)) days.forEach((d: number) => daySet.add(d));
+          });
+        });
+        const sortedDays = daySet.size > 0
+          ? Array.from(daySet).sort((a, b) => a - b)
+          : Array.from({ length: 31 }, (_, i) => i + 1);
+        setAvailableDays(sortedDays);
         setDateSummaryLoaded(true);
         showToast("success", `Found data from ${years.length} year(s)`);
       } else { showToast("error", `Date summary failed: ${await res.text()}`); }
@@ -815,7 +865,6 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
     } catch { showToast("error", "Network error loading unique values"); }
     finally { setIsLoadingUniqueValues(false); }
   };
-  
 
   const handleFilterByUniqueValues = async () => {
     if (!selectedDataset || !filterColumn || !selectedFilterValues.size) { showToast("warning", "Select values to filter by"); return; }
@@ -823,7 +872,7 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
     const vals = Array.from(selectedFilterValues);
     try {
       const params = new URLSearchParams({ column_name: filterColumn });
-      vals.forEach(v => params.append("value", String(v)));
+    params.append("value", vals.join(","));
       const res = await fetch(`${purl("/select-rows/")}?${params}`, { method: "GET", headers: getHeaders() });
       if (res.ok) {
         const data          = await res.json();
@@ -932,6 +981,8 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
         showToast("success", result.message || "Undone successfully");
         await refreshCurrentDataset();
         if (selectedTransformation === "get_history") await fetchHistory();
+        // ── NEW: Refresh filter summary after undo ──
+        if (pid) await fetchFilterSummary(pid);
       } else if (res.status === 404) { showToast("info", "Nothing to undo"); }
       else { showToast("error", `Undo failed: ${await res.text()}`); }
     } catch { showToast("error", "Network error undoing"); }
@@ -949,6 +1000,8 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
         await refreshCurrentDataset();
         setShowResetModal(false);
         if (selectedTransformation === "get_history") await fetchHistory();
+        // ── NEW: Refresh filter summary after reset ──
+        if (pid) await fetchFilterSummary(pid);
       } else { showToast("error", `Reset failed: ${await res.text()}`); }
     } catch { showToast("error", "Network error resetting"); }
     finally { setIsResetting(false); }
@@ -979,11 +1032,14 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
         const versionNum  = result.version ?? 1;
         if (pid) {
           setParamVersions(prev => ({ ...prev, [pid]: { version: versionNum, version_name: versionName } }));
+          // ── NEW: Refresh filter summary after finalize ──
+          await fetchFilterSummary(pid);
         }
         showToast("success", `Finalized & saved as "${versionName}" ✅`);
         setShowSaveAsModal(false); setSaveAsVersionNote("");
         setIsPreviewMode(false); setPreviewData(null); setCurrentFilterType(null);
         setSelectedTransformation(null); resetFilterForms();
+        await fetchParameterSettings();
       } else { showToast("error", `Finalize failed: ${await res.text()}`); }
     } catch { showToast("error", "Network error finalizing"); }
     finally { setIsSavingAs(false); }
@@ -1050,6 +1106,16 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
   const toastColor = (t: string) => ({ success: "bg-green-500", error: "bg-red-500", warning: "bg-yellow-500", info: "bg-blue-500" }[t] || "bg-gray-500");
   const toastIcon  = (t: string) => t === "success" ? <Check className="h-5 w-5" /> : t === "error" ? <X className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />;
 
+  // ── Helper: get icon for filter type ──
+  const getFilterIcon = (filterType: string) => {
+    const icons: Record<string, string> = {
+      rename_column: "✏️", type_cast: "🔄", group_and_aggregate: "📊",
+      filter_by_date: "📅", select_rows: "🔍", filter_by_values: "🎯",
+      text_filter: "🔤", number_filter: "#️⃣", sort: "↕️"
+    };
+    return icons[filterType] || "⚙️";
+  };
+
   // ═══════════════════════════════════════════════════════════════
   //  RENDER
   // ═══════════════════════════════════════════════════════════════
@@ -1070,7 +1136,7 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
         {/* HEADER */}
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-gradient-to-br from-blue-600 to-blue-700 to-indigo-600 rounded-xl flex items-center justify-center shadow-md">
+            <div className="w-9 h-9 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-md">
               <Settings2 className="h-5 w-5 text-white" />
             </div>
             <div>
@@ -1084,13 +1150,11 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
               <RefreshCw className={`h-4 w-4 ${loadingSettings ? "animate-spin text-violet-600" : ""}`} />
               <span className="hidden sm:inline">Refresh</span>
             </button>
-           <button
-  onClick={openCreateModal}
-  className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg flex items-center gap-2 shadow-md hover:shadow-lg hover:from-blue-700 hover:to-blue-800 transition-all font-medium text-sm"
->
-  <Plus className="h-4 w-4" />
-  <span>Create</span>
-</button>
+            <button onClick={openCreateModal}
+              className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg flex items-center gap-2 shadow-md hover:shadow-lg hover:from-blue-700 hover:to-blue-800 transition-all font-medium text-sm">
+              <Plus className="h-4 w-4" />
+              <span>Create</span>
+            </button>
           </div>
         </div>
 
@@ -1120,45 +1184,37 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Data Source</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Filter</th>
-
                   <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredSettings.map((ps, idx) => {
-                  const isToggling    = togglingIds.has(ps.id);
-                  const isLoadingCard = loadingCardIds.has(ps.id);
-                  const isLoadingVer  = loadingVersionIds.has(ps.id);
-                  const filterEnabled = ps.is_filter_enabled ?? false;
-                  const versionInfo   = paramVersions[ps.id];
+                  const isToggling     = togglingIds.has(ps.id);
+                  const isLoadingCard  = loadingCardIds.has(ps.id);
+                  const isLoadingVer   = loadingVersionIds.has(ps.id);
+                  const filterEnabled  = ps.is_filter_enabled ?? false;
+                  const versionInfo    = paramVersions[ps.id];
                   const isDropdownOpen = openVersionDropdowns.has(ps.id);
+                  // ── NEW: Check if this param's data has been loaded ──
+                  const isLoaded       = loadedParamIds.has(ps.id);
 
                   return (
                     <React.Fragment key={ps.id}>
                       {/* MAIN ROW */}
                       <tr className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                        {/* # */}
                         <td className="px-4 py-3 text-gray-400 font-medium text-xs">{idx + 1}</td>
-
-                        {/* Name */}
                         <td className="px-4 py-3">
                           <span className="font-semibold text-gray-800">{ps.name}</span>
                         </td>
-
-                        {/* Description */}
                         <td className="px-4 py-3 text-gray-500 text-xs max-w-[200px] truncate">
                           {ps.description || <span className="italic text-gray-300">—</span>}
                         </td>
-
-                        {/* Data Source */}
                         <td className="px-4 py-3">
                           <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs font-medium">
                             <Database className="h-3 w-3" />
                             {ps.data_source?.source_name || `ID: ${ps.data_source_id}`}
                           </span>
                         </td>
-
-                        {/* Status */}
                         <td className="px-4 py-3">
                           {ps.is_active !== undefined ? (
                             <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${ps.is_active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
@@ -1171,13 +1227,11 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                             </span>
                           )}
                         </td>
-
-                        {/* Filter Toggle */}
                         <td className="px-4 py-3">
                           <button
                             onClick={e => handleToggleFilter(ps, e)}
                             disabled={isToggling}
-                           title={filterEnabled ? "Data Filter Enabled — click to disable" : "Data Filter Disabled — click to enable"}
+                            title={filterEnabled ? "Data Filter Enabled — click to disable" : "Data Filter Disabled — click to enable"}
                             className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all disabled:opacity-50 ${
                               filterEnabled
                                 ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
@@ -1192,23 +1246,26 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                             {filterEnabled ? "On" : "Off"}
                           </button>
                         </td>
-                          {/* Filter / Load button */}
-                   
-                        {/* Actions */}
                         <td className="px-4 py-3">
                           <div className="flex items-center justify-end gap-1.5">
-                              {/* Filter / Load button */}
+                            {/* ── MODIFIED: Load Data button — disabled after loaded ── */}
                             <button
-  onClick={e => handleCardInfoClick(ps, e)}
-  disabled={isLoadingCard}
-  title="Load & Apply Filter"
-  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-gray-500 hover:text-emerald-700 hover:bg-emerald-50 border border-gray-200 hover:border-emerald-300 transition-all disabled:opacity-50">
-  {isLoadingCard
-    ? <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" />
-    : <Filter className="h-3.5 w-3.5" />
-  }
-  <span>{isLoadingCard ? "Loading..." : "Load Data"}</span>
-</button>
+                              onClick={e => handleCardInfoClick(ps, e)}
+                              disabled={isLoadingCard || isLoaded}
+                              title={isLoaded ? "Data already loaded" : "Load & Apply Filter"}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+                                isLoaded
+                                  ? "text-emerald-700 bg-emerald-50 border-emerald-300"
+                                  : "text-gray-500 hover:text-emerald-700 hover:bg-emerald-50 border-gray-200 hover:border-emerald-300"
+                              }`}>
+                              {isLoadingCard
+                                ? <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" />
+                                : isLoaded
+                                  ? <Check className="h-3.5 w-3.5 text-emerald-600" />
+                                  : <Filter className="h-3.5 w-3.5" />
+                              }
+                              <span>{isLoadingCard ? "Loading..." : isLoaded ? "Loaded" : "Load Data"}</span>
+                            </button>
                             {/* View Dataset */}
                             <button
                               onClick={() => openViewer(ps)}
@@ -1216,8 +1273,7 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                               className="p-1.5 rounded-lg text-gray-400 hover:text-violet-600 hover:bg-violet-50 transition-all">
                               <Eye className="h-4 w-4" />
                             </button>
-
-                            {/* Filtered version dropdown trigger — only show if version exists */}
+                            {/* Filtered version dropdown trigger */}
                             {versionInfo && (
                               <button
                                 onClick={() => toggleVersionDropdown(ps.id)}
@@ -1227,13 +1283,9 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                                     ? "text-emerald-600 bg-emerald-50"
                                     : "text-gray-400 hover:text-emerald-600 hover:bg-emerald-50"
                                 }`}>
-                                {isDropdownOpen
-                                  ? <ChevronUp className="h-4 w-4" />
-                                  : <ChevronDown className="h-4 w-4" />
-                                }
+                                {isDropdownOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                               </button>
                             )}
-
                             {/* Delete */}
                             <button
                               onClick={e => { e.stopPropagation(); setDeleteTarget(ps); }}
@@ -1249,95 +1301,204 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                       {versionInfo && isDropdownOpen && (
                         <tr className="border-b border-emerald-100 bg-emerald-50/60">
                           <td colSpan={7} className="px-6 py-0">
-                            {/* Animated expand */}
-                       <div className="py-3">
-  <div className="flex items-stretch gap-4">
-    {/* Left accent bar */}
-    <div className="w-1 rounded-full bg-gradient-to-b from-emerald-400 to-teal-500 flex-shrink-0" />
+                            <div className="py-3">
+                              <div className="flex items-stretch gap-4">
+                                {/* Left accent bar */}
+                                <div className="w-1 rounded-full bg-gradient-to-b from-emerald-400 to-teal-500 flex-shrink-0" />
 
-    {/* Content — all in one row now */}
-    <div className="flex-1 flex flex-wrap items-center gap-4">
+                                {/* Content */}
+                                <div className="flex-1">
+                                  {/* Top row: version stats */}
+                                  <div className="flex flex-wrap items-center gap-4 mb-3">
+                                    {/* Label */}
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-7 h-7 bg-emerald-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                                        <SaveAll className="h-3.5 w-3.5 text-white" />
+                                      </div>
+                                      <div>
+                                        <p className="text-xs text-emerald-600 font-semibold">Filtered Version</p>
+                                        <p className="text-sm font-bold text-emerald-800 leading-tight">{versionInfo.version_name}</p>
+                                      </div>
+                                    </div>
 
-      {/* Label */}
-      <div className="flex items-center gap-2">
-        <div className="w-7 h-7 bg-emerald-500 rounded-lg flex items-center justify-center flex-shrink-0">
-          <SaveAll className="h-3.5 w-3.5 text-white" />
-        </div>
-        <div>
-          <p className="text-xs text-emerald-600 font-semibold">Filtered Version</p>
-          <p className="text-sm font-bold text-emerald-800 leading-tight">{versionInfo.version_name}</p>
-        </div>
-      </div>
+                                    {/* Version badge */}
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-200 text-emerald-800 rounded-full text-xs font-bold">
+                                      <Check className="h-3 w-3" /> v{versionInfo.version}
+                                    </span>
 
-      {/* Version badge */}
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-200 text-emerald-800 rounded-full text-xs font-bold">
-        <Check className="h-3 w-3" /> v{versionInfo.version}
-      </span>
+                                    <div className="w-px h-8 bg-emerald-200 hidden sm:block" />
 
-      {/* Divider */}
-      <div className="w-px h-8 bg-emerald-200 hidden sm:block" />
+                                    {/* Row counts */}
+                                    <div className="text-center">
+                                      <p className="text-xs text-emerald-500 font-medium">Original Rows</p>
+                                      <p className="text-sm font-bold text-emerald-900">
+                                        {versionInfo.row_count_original != null ? versionInfo.row_count_original.toLocaleString() : "—"}
+                                      </p>
+                                    </div>
+                                    <svg className="h-4 w-4 text-emerald-400 hidden sm:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                                    </svg>
+                                    <div className="text-center">
+                                      <p className="text-xs text-emerald-500 font-medium">Filtered Rows</p>
+                                      <p className="text-sm font-bold text-emerald-900">
+                                        {versionInfo.row_count_filtered != null ? versionInfo.row_count_filtered.toLocaleString() : "—"}
+                                      </p>
+                                    </div>
 
-      {/* Original rows */}
-      <div className="text-center">
-        <p className="text-xs text-emerald-500 font-medium">Original Rows</p>
-        <p className="text-sm font-bold text-emerald-900">
-          {versionInfo.row_count_original != null ? versionInfo.row_count_original.toLocaleString() : "—"}
+                                    {/* Progress bar */}
+                                    {versionInfo.row_count_original != null && versionInfo.row_count_filtered != null && versionInfo.row_count_original > 0 && (
+                                      <div className="flex items-center gap-2 min-w-[120px]">
+                                        <div className="flex-1 bg-emerald-200 rounded-full h-1.5 overflow-hidden">
+                                          <div
+                                            className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full"
+                                            style={{ width: `${Math.min(100, (versionInfo.row_count_filtered! / versionInfo.row_count_original!) * 100).toFixed(1)}%` }}
+                                          />
+                                        </div>
+                                        <span className="text-xs text-emerald-600 font-semibold whitespace-nowrap">
+                                          {((versionInfo.row_count_filtered! / versionInfo.row_count_original!) * 100).toFixed(1)}% kept
+                                        </span>
+                                      </div>
+                                    )}
+
+                                    <div className="flex-1" />
+
+                                    {/* View button */}
+                                    <button
+                                      onClick={() => openFilteredVersionViewer(ps, versionInfo)}
+                                      disabled={isLoadingVer}
+                                      className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg transition-all shadow-sm disabled:opacity-60 whitespace-nowrap">
+                                      {isLoadingVer
+                                        ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /><span>Loading...</span></>
+                                        : <><Eye className="h-3.5 w-3.5" /><span>View Filtered Dataset</span></>
+                                      }
+                                    </button>
+                                  </div>
+
+                                  {/* ── NEW: Filter Summary Section ── */}
+                                  
+{(() => {
+  const steps = filterSummaries[Number(ps.id)] || [];
+  return (
+    <div className="pt-3 border-t border-emerald-200">
+      <div className="flex items-center gap-2 mb-2">
+        <Filter className="h-3.5 w-3.5 text-emerald-600" />
+        <p className="text-xs font-bold text-emerald-700 uppercase tracking-wide">
+          {steps.length > 0
+            ? `Applied Filters — ${steps.length} step${steps.length > 1 ? "s" : ""}`
+            : "Filter Steps"}
+            
         </p>
+   {(() => {
+  const summaries =
+    filterSummaries?.[selectedDataset?.param_id || 0] || [];
+
+  return summaries.length > 0 ? (
+    <div className="mt-4 p-4 bg-white border border-gray-200 rounded-xl shadow-sm">
+      
+      <div className="flex items-center gap-2 mb-2">
+        <Filter className="h-4 w-4 text-indigo-600" />
+        <h3 className="text-sm font-semibold text-gray-800">
+          Filter Summary
+        </h3>
       </div>
 
-      {/* Arrow */}
-      <svg className="h-4 w-4 text-emerald-400 hidden sm:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-      </svg>
-
-      {/* Filtered rows */}
-      <div className="text-center">
-        <p className="text-xs text-emerald-500 font-medium">Filtered Rows</p>
-        <p className="text-sm font-bold text-emerald-900">
-          {versionInfo.row_count_filtered != null ? versionInfo.row_count_filtered.toLocaleString() : "—"}
-        </p>
-      </div>
-
-      {/* Progress bar */}
-      {versionInfo.row_count_original != null && versionInfo.row_count_filtered != null && versionInfo.row_count_original > 0 && (
-        <div className="flex items-center gap-2 min-w-[120px]">
-          <div className="flex-1 bg-emerald-200 rounded-full h-1.5 overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full"
-              style={{ width: `${Math.min(100, (versionInfo.row_count_filtered! / versionInfo.row_count_original!) * 100).toFixed(1)}%` }}
-            />
+      <div className="space-y-2">
+        {summaries.map((item: any, idx: number) => (
+          <div
+            key={idx}
+            className="px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg text-sm text-indigo-800"
+          >
+            {item.note}
           </div>
-          <span className="text-xs text-emerald-600 font-semibold whitespace-nowrap">
-            {((versionInfo.row_count_filtered! / versionInfo.row_count_original!) * 100).toFixed(1)}% kept
-          </span>
-        </div>
-      )}
-
-      {/* Saved As tag */}
-      <div className="flex items-center gap-1.5 px-2.5 py-1 bg-white border border-emerald-200 rounded-lg">
-        <Tag className="h-3 w-3 text-emerald-500" />
-        <span className="text-xs text-emerald-700 font-medium truncate max-w-[160px]">{versionInfo.version_name}</span>
+        ))}
       </div>
-
-      {/* Spacer */}
-      <div className="flex-1" />
-
-      {/* ✅ View button — now inline on the same row */}
-      <button
-        onClick={() => openFilteredVersionViewer(ps, versionInfo)}
-        disabled={isLoadingVer}
-        className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg transition-all shadow-sm disabled:opacity-60 whitespace-nowrap">
-        {isLoadingVer
-          ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /><span>Loading...</span></>
-          : <><Eye className="h-3.5 w-3.5" /><span>View Filtered Dataset</span></>
-        }
-      </button>
 
     </div>
-  </div>
-</div>
+  ) : (
+    <p className="text-sm text-gray-500 mt-2">
+      No filter steps recorded yet
+    </p>
+  );
+})()}
+      </div>
 
+      {steps.length > 0 ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+          {steps.map((f, i) => (
+            <div key={i}
+              className="bg-white rounded-xl border border-emerald-200 p-3 shadow-sm hover:shadow-md transition-shadow flex items-start gap-2.5">
+              {/* Step number circle */}
+              <span className="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center text-[10px] font-bold flex-shrink-0 mt-0.5">
+                {i + 1}
+              </span>
+              <div className="flex-1 min-w-0">
+                {/* Filter type badge */}
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[9px] font-semibold uppercase tracking-wide mb-1">
+                  {getFilterIcon(f.filter_type)} {f.filter_type.replace(/_/g, " ")}
+                </span>
+                {/* Note */}
+                <p className="text-xs text-gray-700 font-medium leading-snug truncate" title={f.note}>
+                  {f.note || "—"}
+                </p>
+                {/* Params preview */}
+                {f.params && Object.keys(f.params).length > 0 && (
+                  <p className="text-[10px] text-gray-400 mt-0.5 truncate">
+                    {Object.entries(f.params)
+                      .filter(([, v]) => v !== null && v !== undefined)
+                      .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.slice(0, 3).join(", ") + (v.length > 3 ? "…" : "") : String(v)}`)
+                      .join(" · ")}
+                  </p>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-emerald-400 italic">No filter steps recorded yet</p>
+      )}
+    </div>
+  );
+})()}
+                                  {/* {filterSummaries[ps.id] && filterSummaries[ps.id].length > 0 && (
+                                    <div className="pt-3 border-t border-emerald-200">
+                                      <div className="flex items-center gap-2 mb-2">
+                                        <Filter className="h-3.5 w-3.5 text-emerald-600" />
+                                        <p className="text-xs font-bold text-emerald-700 uppercase tracking-wide">
+                                          Applied Filters ({filterSummaries[ps.id].length} step{filterSummaries[ps.id].length > 1 ? "s" : ""})
+                                        </p>
+                                      </div>
+                                      <div className="flex flex-wrap gap-2">
+                                        {filterSummaries[ps.id].map((f, i) => (
+                                          <div
+                                            key={i}
+                                            className="flex items-center gap-2 px-3 py-1.5 bg-white border border-emerald-200 rounded-lg text-xs shadow-sm hover:shadow-md transition-shadow"
+                                            title={f.note}
+                                          >
+                                           
+                                            <span className="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center text-[10px] font-bold flex-shrink-0">
+                                              {i + 1}
+                                            </span>
+                                          
+                                            <span className="text-sm leading-none">{getFilterIcon(f.filter_type)}</span>
+                                          
+                                            <span className="text-gray-700 font-medium max-w-[200px] truncate">
+                                              {f.note || f.filter_type.replace(/_/g, " ")}
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
 
+                                 
+                                  {(!filterSummaries[ps.id] || filterSummaries[ps.id].length === 0) && (
+                                    <div className="pt-3 border-t border-emerald-200">
+                                      <p className="text-xs text-emerald-500 italic">No filter steps recorded yet</p>
+                                    </div>
+                                  )} */}
+                                </div>
+                              </div>
+                            </div>
                           </td>
                         </tr>
                       )}
@@ -1352,144 +1513,70 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
 
       {/* CREATE MODAL */}
       {showCreateModal && (
-  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-    <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden">
-
-      {/* Header */}
-      <div className="px-6 py-5 bg-gradient-to-r from-blue-600 to-blue-700 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-white/20 rounded-lg">
-            <Settings2 className="h-6 w-6 text-white" />
-          </div>
-          <div>
-            <h3 className="text-lg font-bold text-white">Create Parameter Setting</h3>
-            <p className="text-blue-200 text-sm">
-              Configure a new data source parameter
-            </p>
-          </div>
-        </div>
-        <button
-          onClick={() => setShowCreateModal(false)}
-          className="text-white/70 hover:text-white p-1"
-        >
-          <X className="h-6 w-6" />
-        </button>
-      </div>
-
-      {/* Body */}
-      <div className="px-6 py-5 space-y-5">
-        <div>
-          <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-            Data Source <span className="text-red-500">*</span>
-          </label>
-
-          {(loadingDS && (!props.dataSources || props.dataSources.length === 0)) ? (
-            <div className="flex items-center gap-2 px-4 py-3 border-2 border-gray-300 rounded-lg text-gray-500">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="text-sm">Loading...</span>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden">
+            <div className="px-6 py-5 bg-gradient-to-r from-blue-600 to-blue-700 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-white/20 rounded-lg"><Settings2 className="h-6 w-6 text-white" /></div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Create Parameter Setting</h3>
+                  <p className="text-blue-200 text-sm">Configure a new data source parameter</p>
+                </div>
+              </div>
+              <button onClick={() => setShowCreateModal(false)} className="text-white/70 hover:text-white p-1"><X className="h-6 w-6" /></button>
             </div>
-          ) : (
-            <div className="relative">
-              <select
-                value={createForm.data_source_id}
-                onChange={e => {
-  const selectedId = e.target.value;
-
-  const selectedDS = dataSources.find(
-    ds => String(ds.id) === selectedId
-  );
-
-  setCreateForm(prev => ({
-    ...prev,
-    data_source_id: selectedId,
-    name: selectedDS?.source_name || selectedDS?.name || ""
-  }));
-}}
-                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 appearance-none pr-10"
-              >
-                <option value="">-- Select a data source --</option>
-                {dataSources.map(ds => (
-                  <option key={ds.id} value={ds.id}>
-                    {ds.slot_number ? `[Slot ${ds.slot_number}] ` : ""}
-                    {ds.source_name || (ds).name} (ID: {ds.id})
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400 pointer-events-none" />
+            <div className="px-6 py-5 space-y-5">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Data Source <span className="text-red-500">*</span></label>
+                {(loadingDS && (!props.dataSources || props.dataSources.length === 0)) ? (
+                  <div className="flex items-center gap-2 px-4 py-3 border-2 border-gray-300 rounded-lg text-gray-500">
+                    <Loader2 className="h-4 w-4 animate-spin" /><span className="text-sm">Loading...</span>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <select
+                      value={createForm.data_source_id}
+                      onChange={e => {
+                        const selectedId = e.target.value;
+                        const selectedDS = dataSources.find(ds => String(ds.id) === selectedId);
+                        setCreateForm(prev => ({ ...prev, data_source_id: selectedId, name: selectedDS?.source_name || (selectedDS as any)?.name || "" }));
+                      }}
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 appearance-none pr-10">
+                      <option value="">-- Select a data source --</option>
+                      {dataSources.map(ds => (
+                        <option key={ds.id} value={ds.id}>
+                          {ds.slot_number ? `[Slot ${ds.slot_number}] ` : ""}{ds.source_name || (ds as any).name} (ID: {ds.id})
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400 pointer-events-none" />
+                  </div>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Name <span className="text-red-500">*</span></label>
+                <input type="text" value={createForm.name} onChange={e => setCreateForm(p => ({ ...p, name: e.target.value }))}
+                  placeholder="e.g. Sales Data Filters"
+                  className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900" autoFocus />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Description</label>
+                <textarea value={createForm.description} onChange={e => setCreateForm(p => ({ ...p, description: e.target.value }))}
+                  placeholder="Optional..." rows={2}
+                  className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 resize-none" />
+              </div>
             </div>
-          )}
-
-          {dataSources.length === 0 && !loadingDS && boardId && (
-            <p className="mt-1.5 text-xs text-amber-600 flex items-center gap-1">
-              <AlertTriangle className="h-3 w-3" /> No active data sources found.
-            </p>
-          )}
+            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
+              <button onClick={() => setShowCreateModal(false)} disabled={isCreating}
+                className="px-5 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 disabled:opacity-50">Cancel</button>
+              <button onClick={handleCreate} disabled={isCreating || !createForm.name.trim() || !createForm.data_source_id}
+                className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 font-medium flex items-center gap-2 disabled:opacity-50 shadow-sm">
+                {isCreating ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Creating...</span></> : <><Plus className="h-4 w-4" /><span>Create</span></>}
+              </button>
+            </div>
+          </div>
         </div>
-
-        <div>
-          <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-            Name <span className="text-red-500">*</span>
-          </label>
-          <input
-            type="text"
-            value={createForm.name}
-            onChange={e =>
-              setCreateForm(p => ({ ...p, name: e.target.value }))
-            }
-            placeholder="e.g. Sales Data Filters"
-            className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900"
-            autoFocus
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-            Description
-          </label>
-          <textarea
-            value={createForm.description}
-            onChange={e =>
-              setCreateForm(p => ({ ...p, description: e.target.value }))
-            }
-            placeholder="Optional..."
-            rows={2}
-            className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 resize-none"
-          />
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
-        <button
-          onClick={() => setShowCreateModal(false)}
-          disabled={isCreating}
-          className="px-5 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 disabled:opacity-50"
-        >
-          Cancel
-        </button>
-
-        <button
-          onClick={handleCreate}
-          disabled={isCreating || !createForm.name.trim() || !createForm.data_source_id}
-          className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 font-medium flex items-center gap-2 disabled:opacity-50 shadow-sm"
-        >
-          {isCreating ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>Creating...</span>
-            </>
-          ) : (
-            <>
-              <Plus className="h-4 w-4" />
-              <span>Create</span>
-            </>
-          )}
-        </button>
-      </div>
-
-    </div>
-  </div>
-)}
+      )}
 
       {/* DELETE MODAL */}
       {deleteTarget && (
@@ -1677,9 +1764,11 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                         <div>
                           <p className="text-sm font-bold text-yellow-900">🔍 Preview Mode — Changes Not Saved</p>
                           <p className="text-xs text-yellow-700">
-                            {currentFilterType === "rename_column" ? 'Column renamed. Click "Save" to confirm or "Cancel" to undo.' :
-                             currentFilterType === "type_cast"     ? 'Type cast applied. Click "Save" to confirm or "Cancel" to undo.' :
-                             'Use "Save" to overwrite the current state, or "Finalize" to create a permanent version.'}
+                            {currentFilterType === "rename_column"
+                              ? `Column renamed: "${previewData.old_column}" → "${previewData.new_column}". Highlighted in table. Click "Save" to confirm or "Cancel" to undo.`
+                              : currentFilterType === "type_cast"
+                                ? 'Type cast applied. Click "Save" to confirm or "Cancel" to undo.'
+                                : 'Use "Save" to overwrite the current state, or "Finalize" to create a permanent version.'}
                           </p>
                         </div>
                       </div>
@@ -1727,19 +1816,44 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                       <thead className="sticky top-0 z-10 shadow-md">
                         <tr className="bg-gradient-to-r from-gray-800 to-gray-700">
                           <th className="px-3 py-2 text-left text-xs font-bold text-white border-r border-gray-600 bg-gray-900 sticky left-0 z-20 min-w-[50px]">#</th>
-                          {columnHeaders.map((header, idx) => (
-                            <th key={idx} className="px-4 py-2 text-left text-xs font-semibold text-white border-r border-gray-600 whitespace-nowrap min-w-[130px] group relative">
-                              <div className="flex items-center justify-between gap-2">
-                                <span className={`flex-1 cursor-pointer ${sortColumn === header ? "text-blue-300 font-bold" : ""}`} onClick={() => handleColumnSort(header)}>{header}</span>
-                                <div className="flex items-center gap-1">
-                                  <div className="opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer" onClick={() => handleColumnSort(header)}><SortIndicator col={header} /></div>
-                                  <button onClick={e => { e.stopPropagation(); fetchColumnFilterValues(header, e); }} className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-gray-600 rounded">
-                                    <Filter className="h-4 w-4 text-gray-300 hover:text-white" />
-                                  </button>
+                          {columnHeaders.map((header, idx) => {
+                            // ── NEW: Highlight renamed column ──
+                          // REPLACE WITH:
+const isRenamedCol = currentFilterType === "rename_column" &&
+  (previewData?.old_column === header || previewData?.new_column === header);
+const displayHeader = (currentFilterType === "rename_column" && previewData?.old_column === header)
+  ? previewData.new_column   // ← show "Amount" instead of "Revenue"
+  : header;
+                            return (
+                              <th key={idx}
+                                className={`px-4 py-2 text-left text-xs font-semibold border-r border-gray-600 whitespace-nowrap min-w-[130px] group relative transition-colors ${
+                                  isRenamedCol
+                                    ? "bg-yellow-400 text-gray-900"
+                                    : "text-white"
+                                }`}>
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex flex-col">
+                                  {/* // REPLACE WITH: */}
+<span className={`flex-1 cursor-pointer ${sortColumn === header ? "text-blue-300 font-bold" : ""} ${isRenamedCol ? "text-gray-900 font-bold" : ""}`}
+  onClick={() => handleColumnSort(displayHeader)}>
+  {displayHeader}
+</span>
+{isRenamedCol && previewData?.old_column === header && (
+  <span className="text-[9px] text-yellow-800 font-normal leading-tight">
+    ← was: {header}
+  </span>
+)}
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    <div className="opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer" onClick={() => handleColumnSort(header)}><SortIndicator col={header} /></div>
+                                    <button onClick={e => { e.stopPropagation(); fetchColumnFilterValues(header, e); }} className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-gray-600 rounded">
+                                      <Filter className="h-4 w-4 text-gray-300 hover:text-white" />
+                                    </button>
+                                  </div>
                                 </div>
-                              </div>
-                            </th>
-                          ))}
+                              </th>
+                            );
+                          })}
                         </tr>
                       </thead>
                       <tbody>
@@ -1749,11 +1863,14 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                           return (
                             <tr key={rowIndex} className={`${rowIndex % 2 === 0 ? "bg-white" : "bg-gray-50"} hover:bg-violet-50 transition-colors border-b border-gray-200`} style={{ height: ROW_HEIGHT }}>
                               <td className="px-3 py-1 text-xs text-gray-600 font-semibold border-r border-gray-200 bg-gray-100 sticky left-0 z-10 text-center">{rowIndex + 1}</td>
-                              {columnHeaders.map((h, ci) => (
-                                <td key={ci} className="px-4 py-1 text-xs text-gray-800 border-r border-gray-200 whitespace-nowrap">
-                                  {String(row[h] !== undefined && row[h] !== null ? row[h] : "")}
-                                </td>
-                              ))}
+                              {columnHeaders.map((h, ci) => {
+                                const isRenamedCol = currentFilterType === "rename_column" && previewData?.new_column === h;
+                                return (
+                                  <td key={ci} className={`px-4 py-1 text-xs border-r border-gray-200 whitespace-nowrap ${isRenamedCol ? "bg-yellow-50 text-gray-800 font-medium" : "text-gray-800"}`}>
+                                    {String(row[h] !== undefined && row[h] !== null ? row[h] : "")}
+                                  </td>
+                                );
+                              })}
                             </tr>
                           );
                         })}
@@ -1809,7 +1926,9 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                       <label className="block text-sm font-medium text-gray-700 mb-2">New Name <span className="text-red-500">*</span></label>
                       <input type="text" value={renameNewColumn} onChange={e => setRenameNewColumn(e.target.value)} placeholder="Enter new column name" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500" />
                     </div>
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800">Preview the rename in the table, then click <strong>Save</strong> in the banner to persist.</div>
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-xs text-yellow-800">
+                      <strong>💡 Preview:</strong> After clicking "Preview Rename", the renamed column will be highlighted in <span className="text-yellow-700 font-semibold">yellow</span> in the table. Click <strong>Save</strong> in the banner to confirm.
+                    </div>
                   </div>
                   <div className="p-6 border-t border-gray-200 bg-gray-50 space-y-3">
                     <button onClick={handleRenameColumn} disabled={!renameOldColumn || !renameNewColumn || isRenamingColumn} className="w-full px-6 py-3 bg-green-600 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-green-700 font-medium disabled:opacity-50">
@@ -1901,14 +2020,15 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                 </div>
               )}
 
-              {/* FILTER BY DATE */}
+              {/* ── FILTER BY DATE (UPDATED with Day checkboxes) ── */}
               {selectedTransformation === "filter_by_date" && (
                 <div className="h-full flex flex-col">
                   <div className="p-4 border-b border-gray-200 bg-gradient-to-r from-pink-50 to-white">
                     <div className="flex items-center gap-2"><Calendar className="h-6 w-6 text-pink-600" /><h3 className="text-lg font-bold text-gray-900">Filter by Date</h3></div>
-                    <p className="text-sm text-gray-600 mt-1">Filter records by date ranges</p>
+                    <p className="text-sm text-gray-600 mt-1">Filter records by Year, Month &amp; Day</p>
                   </div>
-                  <div className="flex-1 overflow-y-auto p-6 space-y-5">
+                  <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                    {/* Date Column Select */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Select Date Column <span className="text-red-500">*</span></label>
                       <select value={dateColumn} onChange={e => { setDateColumn(e.target.value); setDateSummaryLoaded(false); setSelectedYears([]); setSelectedMonths([]); setSelectedDays([]); }} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 bg-white text-gray-900">
@@ -1916,28 +2036,47 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                         {columnHeaders.map((h, i) => <option key={i} value={h}>{h}</option>)}
                       </select>
                       {dateColumn && !dateSummaryLoaded && (
-                        <button onClick={fetchDateSummary} disabled={isLoadingDateSummary} className="mt-3 w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2 disabled:opacity-50">
+                        <button onClick={fetchDateSummary} disabled={isLoadingDateSummary} className="mt-3 w-full px-4 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700 flex items-center justify-center gap-2 disabled:opacity-50">
                           {isLoadingDateSummary ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Loading dates...</span></> : <><Calendar className="h-4 w-4" /><span>Load Available Dates</span></>}
                         </button>
                       )}
                     </div>
+
+                    {/* ── Year checkboxes ── */}
                     {dateSummaryLoaded && availableYears.length > 0 && (
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Year(s)</label>
-                        <div className="max-h-40 overflow-y-auto border border-gray-300 rounded-lg p-2 space-y-1">
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="block text-sm font-medium text-gray-700">Year(s)</label>
+                          {selectedYears.length > 0 && (
+                            <button onClick={() => setSelectedYears([])} className="text-xs text-gray-400 hover:text-red-500">Clear</button>
+                          )}
+                        </div>
+                        <div className="max-h-32 overflow-y-auto border border-gray-300 rounded-lg p-2 space-y-1">
                           {availableYears.map(y => (
                             <label key={y} className="flex items-center gap-3 p-2 hover:bg-pink-50 rounded cursor-pointer">
-                              <input type="checkbox" checked={selectedYears.includes(y)} onChange={e => { if (e.target.checked) setSelectedYears(p => [...p, y]); else setSelectedYears(p => p.filter(x => x !== y)); }} className="h-4 w-4 text-pink-600 rounded" />
-                              <span className="text-sm text-gray-900">{y}</span>
+                              <input type="checkbox" checked={selectedYears.includes(y)}
+                                onChange={e => { if (e.target.checked) setSelectedYears(p => [...p, y]); else setSelectedYears(p => p.filter(x => x !== y)); }}
+                                className="h-4 w-4 text-pink-600 rounded" />
+                              <span className="text-sm text-gray-900 font-medium">{y}</span>
                               <span className="text-xs text-gray-500 ml-auto">{Object.keys(availableMonths[y] || {}).length} months</span>
                             </label>
                           ))}
                         </div>
+                        {selectedYears.length > 0 && (
+                          <p className="text-xs text-pink-600 mt-1">{selectedYears.length} year(s) selected: {selectedYears.sort().join(", ")}</p>
+                        )}
                       </div>
                     )}
+
+                    {/* ── Month checkboxes ── */}
                     {dateSummaryLoaded && (
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Month(s)</label>
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="block text-sm font-medium text-gray-700">Month(s)</label>
+                          {selectedMonths.length > 0 && (
+                            <button onClick={() => setSelectedMonths([])} className="text-xs text-gray-400 hover:text-red-500">Clear</button>
+                          )}
+                        </div>
                         <div className="grid grid-cols-3 gap-1">
                           {[{n:1,l:"Jan"},{n:2,l:"Feb"},{n:3,l:"Mar"},{n:4,l:"Apr"},{n:5,l:"May"},{n:6,l:"Jun"},{n:7,l:"Jul"},{n:8,l:"Aug"},{n:9,l:"Sep"},{n:10,l:"Oct"},{n:11,l:"Nov"},{n:12,l:"Dec"}].map(m => {
                             const isSelected  = selectedMonths.includes(m.n);
@@ -1945,16 +2084,81 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                               ? Object.values(availableMonths).some(ym => ym.hasOwnProperty(m.n.toString()))
                               : selectedYears.some(y => availableMonths[y]?.hasOwnProperty(m.n.toString()));
                             return (
-                              <button key={m.n} onClick={() => isAvailable && (isSelected ? setSelectedMonths(p => p.filter(x => x !== m.n)) : setSelectedMonths(p => [...p, m.n]))} disabled={!isAvailable}
-                                className={`px-2 py-1.5 rounded text-xs font-medium transition-all ${isSelected ? "bg-pink-600 text-white" : isAvailable ? "bg-white text-gray-700 border border-gray-300 hover:bg-pink-50" : "bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed"}`}>{m.l}</button>
+                              <button key={m.n}
+                                onClick={() => isAvailable && (isSelected ? setSelectedMonths(p => p.filter(x => x !== m.n)) : setSelectedMonths(p => [...p, m.n]))}
+                                disabled={!isAvailable}
+                                className={`px-2 py-1.5 rounded text-xs font-medium transition-all ${isSelected ? "bg-pink-600 text-white" : isAvailable ? "bg-white text-gray-700 border border-gray-300 hover:bg-pink-50" : "bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed"}`}>
+                                {m.l}
+                              </button>
                             );
                           })}
+                        </div>
+                        {selectedMonths.length > 0 && (
+                          <p className="text-xs text-pink-600 mt-1">{selectedMonths.length} month(s) selected</p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* ── NEW: Day checkboxes ── */}
+                    {dateSummaryLoaded && availableDays.length > 0 && (
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="block text-sm font-medium text-gray-700">Day(s)</label>
+                          <div className="flex items-center gap-2">
+                            {selectedDays.length > 0 && (
+                              <button onClick={() => setSelectedDays([])} className="text-xs text-gray-400 hover:text-red-500">Clear</button>
+                            )}
+                            <button
+                              onClick={() => setSelectedDays(availableDays)}
+                              className="text-xs text-pink-600 hover:text-pink-800 font-medium">
+                              All
+                            </button>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-7 gap-1">
+                          {availableDays.map(d => {
+                            const isSelected = selectedDays.includes(d);
+                            return (
+                              <button key={d}
+                                onClick={() => isSelected
+                                  ? setSelectedDays(p => p.filter(x => x !== d))
+                                  : setSelectedDays(p => [...p, d])
+                                }
+                                className={`py-1.5 rounded text-xs font-semibold transition-all ${
+                                  isSelected
+                                    ? "bg-pink-600 text-white shadow-sm"
+                                    : "bg-white text-gray-700 border border-gray-300 hover:bg-pink-50 hover:border-pink-300"
+                                }`}>
+                                {d}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {selectedDays.length > 0 && (
+                          <p className="text-xs text-pink-600 mt-1">
+                            {selectedDays.length} day(s) selected: {selectedDays.sort((a,b) => a-b).join(", ")}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Summary of selections */}
+                    {dateSummaryLoaded && (selectedYears.length > 0 || selectedMonths.length > 0 || selectedDays.length > 0) && (
+                      <div className="bg-pink-50 border border-pink-200 rounded-lg p-3">
+                        <p className="text-xs font-semibold text-pink-700 mb-1">Filter Summary:</p>
+                        <div className="space-y-1 text-xs text-pink-600">
+                          {selectedYears.length > 0 && <p>📅 Years: {selectedYears.sort().join(", ")}</p>}
+                          {selectedMonths.length > 0 && <p>📆 Months: {selectedMonths.sort((a,b) => a-b).map(m => ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][m-1]).join(", ")}</p>}
+                          {selectedDays.length > 0 && <p>🗓 Days: {selectedDays.sort((a,b) => a-b).join(", ")}</p>}
                         </div>
                       </div>
                     )}
                   </div>
-                  <div className="p-6 border-t border-gray-200 bg-gray-50 space-y-3">
-                    <button onClick={handleFilterByDate} disabled={!dateColumn || !dateSummaryLoaded || isFilteringByDate || (!selectedYears.length && !selectedMonths.length && !selectedDays.length)} className="w-full px-6 py-3 bg-pink-600 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-pink-700 font-medium disabled:opacity-50">
+                  <div className="p-4 border-t border-gray-200 bg-gray-50 space-y-3">
+                    <button
+                      onClick={handleFilterByDate}
+                      disabled={!dateColumn || !dateSummaryLoaded || isFilteringByDate || (!selectedYears.length && !selectedMonths.length && !selectedDays.length)}
+                      className="w-full px-6 py-3 bg-pink-600 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-pink-700 font-medium disabled:opacity-50">
                       {isFilteringByDate ? <><Loader2 className="h-5 w-5 animate-spin" /><span>Filtering...</span></> : <><Filter className="h-5 w-5" /><span>Apply Date Filter</span></>}
                     </button>
                     <button onClick={() => { setSelectedTransformation(null); setDateColumn(""); setSelectedYears([]); setSelectedMonths([]); setSelectedDays([]); setDateSummaryLoaded(false); }} disabled={isFilteringByDate} className="w-full px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium disabled:opacity-50">Cancel</button>
@@ -2039,12 +2243,32 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
                             </div>
                           ))}
                         </div>
+                    
+
                         <input type="text" value={uniqueValuesSearch} onChange={e => setUniqueValuesSearch(e.target.value)} placeholder="Search values..." className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
                         <div className="flex gap-2">
                           <button onClick={() => { const all = new Set(selectedFilterValues); (uniqueValuesData.unique_values as any[]).filter(v => !uniqueValuesSearch || String(v).toLowerCase().includes(uniqueValuesSearch.toLowerCase())).forEach((v: any) => all.add(v)); setSelectedFilterValues(all); }} className="flex-1 px-3 py-2 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 text-sm font-medium">Select All</button>
                           <button onClick={() => setSelectedFilterValues(new Set())} className="flex-1 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm font-medium">Clear</button>
                         </div>
-                        {selectedFilterValues.size > 0 && <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-200"><p className="text-sm text-indigo-800"><strong>{selectedFilterValues.size}</strong> value(s) selected</p></div>}
+                        
+                        {selectedFilterValues.size > 0 && <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-200"><p className="text-sm text-indigo-800">{selectedFilterValues.size > 0 && (() => {
+  const totalSelectedRows = uniqueValuesData
+    ? Array.from(selectedFilterValues).reduce(
+        (sum, v) =>
+          sum + (uniqueValuesData.value_counts?.[String(v)] || 0),
+        0
+      )
+    : 0;
+
+  return (
+    <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-200">
+      <p className="text-sm text-indigo-800">
+        <strong>{selectedFilterValues.size}</strong> value(s) selected •{" "}
+        <strong>{totalSelectedRows}</strong> rows
+      </p>
+    </div>
+  );
+})()}</p></div>}
                         <div className="max-h-64 overflow-y-auto border border-gray-300 rounded-lg bg-white">
                           <div className="p-2 space-y-1">
                             {(uniqueValuesData.unique_values as any[]).filter(v => !uniqueValuesSearch || String(v).toLowerCase().includes(uniqueValuesSearch.toLowerCase())).map((v: any, i: number) => {

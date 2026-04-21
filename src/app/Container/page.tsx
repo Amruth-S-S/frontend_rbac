@@ -178,6 +178,10 @@ export default function Page() {
   //   prompt_text: string;
   //   user_name: string;
   // };
+  const [promptRunInfo, setPromptRunInfo] = useState<Record<string, {
+  sourceName: string | null;
+  filteredVersion: string | null;
+}>>({});
   const [promptOutputTypes, setPromptOutputTypes] = useState<Record<string, 'C' | 'T' | 'CT'>>({});
   const [isDropdownOpenn, setIsDropdownOpenn] = useState<string | null>(null);
   const [prompts, setPrompts] = useState<Prompt[]>([]);
@@ -3037,14 +3041,21 @@ useEffect(() => {
       if (response?.data) {
         setRunResult(response.data);
 
-        if (promptId) {
-          const hasCharts = (response.data.charts ?? []).length > 0;
-          const hasTable = response.data.table?.columns?.length > 0;
-          const outputType = hasCharts && hasTable ? 'CT' : hasCharts ? 'C' : hasTable ? 'T' : null;
-          if (outputType) {
-            setPromptOutputTypes(prev => ({ ...prev, [promptId]: outputType }));
-          }
-        }
+      if (promptId) {
+  const hasCharts = (response.data.charts ?? []).length > 0;
+  const hasTable = response.data.table?.columns?.length > 0;
+  const outputType = hasCharts && hasTable ? 'CT' : hasCharts ? 'C' : hasTable ? 'T' : null;
+  if (outputType) {
+    setPromptOutputTypes(prev => ({ ...prev, [promptId]: outputType }));
+  }
+  setPromptRunInfo(prev => ({
+    ...prev,
+    [promptId]: {
+      sourceName: response.data.source_name ?? null,
+      filteredVersion: response.data.filtered_version ?? null,
+    }
+  }));
+}
 
         return response.data; // ✅ return the actual data
       }
@@ -4011,42 +4022,69 @@ useEffect(() => {
 
                           <div className="mt-auto">
                             {/* Meta row */}
-                           <div className="mb-1 text-[10px] flex items-center justify-between gap-1">
-  <div>
-    <p className="text-gray-600 truncate">
-      Created By: {prompt.user_name && prompt.user_name !== "undefined" ? prompt.user_name : ""}
-    </p>
-    <p className="text-gray-600">
-      Updated: {new Date(prompt.updated_at || prompt.created_at).toLocaleDateString()}
-    </p>
-  </div>
+              
+<div className="mb-1 text-[10px] space-y-1">
 
-  <div className="flex flex-col items-end gap-1">
-    {/* Existing C/T badge */}
-    {outputType && (
-      <div className="flex gap-0.5 shrink-0">
-        {(outputType === 'C' || outputType === 'CT') && (
-          <span className="w-4 h-4 rounded-full bg-purple-100 text-purple-700 text-[9px] font-bold flex items-center justify-center border border-purple-300" title="Chart">C</span>
-        )}
-        {(outputType === 'T' || outputType === 'CT') && (
-          <span className="w-4 h-4 rounded-full bg-green-100 text-green-700 text-[9px] font-bold flex items-center justify-center border border-green-300" title="Table">T</span>
-        )}
-      </div>
-    )}
+  {/* Source name badge — full width row */}
+{(() => {
+  const runInfo = promptRunInfo[prompt.id];
+  const displayName = runInfo?.sourceName || datasetName;
+  const filteredVersion = runInfo?.filteredVersion;
+  return (
+    <>
+      {displayName && (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 border border-blue-200 rounded text-[9px] font-medium max-w-full truncate">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-2.5 w-2.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+          </svg>
+          {displayName}
+        </span>
+      )}
+      {runInfo && (
+        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold border ${
+          filteredVersion
+            ? 'bg-violet-50 text-violet-700 border-violet-300'
+            : 'bg-amber-50 text-amber-700 border-amber-300'
+        }`}>
+          {filteredVersion ? `🔀 ${filteredVersion.toUpperCase()}` : '📊 Actual Data'}
+        </span>
+      )}
+    </>
+  );
+})()}
 
-    {/* ✅ NEW: Filter status badge */}
-    {prompt.data_source_id && filterStatusMap[prompt.data_source_id] !== undefined && (
-      <span
-        className={`inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full font-bold border ${
+  {/* Meta + badges row */}
+  <div className="flex items-center justify-between gap-1">
+    <div>
+      <p className="text-gray-600 truncate">
+        Created By: {prompt.user_name && prompt.user_name !== "undefined" ? prompt.user_name : ""}
+      </p>
+      <p className="text-gray-600">
+        Updated: {new Date(prompt.updated_at || prompt.created_at).toLocaleDateString()}
+      </p>
+    </div>
+    <div className="flex flex-col items-end gap-1">
+      {outputType && (
+        <div className="flex gap-0.5 shrink-0">
+          {(outputType === 'C' || outputType === 'CT') && (
+            <span className="w-4 h-4 rounded-full bg-purple-100 text-purple-700 text-[9px] font-bold flex items-center justify-center border border-purple-300" title="Chart">C</span>
+          )}
+          {(outputType === 'T' || outputType === 'CT') && (
+            <span className="w-4 h-4 rounded-full bg-green-100 text-green-700 text-[9px] font-bold flex items-center justify-center border border-green-300" title="Table">T</span>
+          )}
+        </div>
+      )}
+      {prompt.data_source_id && filterStatusMap[prompt.data_source_id] !== undefined && (
+        <span className={`inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full font-bold border ${
           filterStatusMap[prompt.data_source_id]
             ? "bg-emerald-50 text-emerald-700 border-emerald-300"
             : "bg-gray-100 text-gray-500 border-gray-300"
-        }`}
-      >
-        <span className={`w-1.5 h-1.5 rounded-full ${filterStatusMap[prompt.data_source_id] ? "bg-emerald-500" : "bg-gray-400"}`} />
-        Filter: {filterStatusMap[prompt.data_source_id] ? "ON" : "OFF"}
-      </span>
-    )}
+        }`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${filterStatusMap[prompt.data_source_id] ? "bg-emerald-500" : "bg-gray-400"}`} />
+          Filter: {filterStatusMap[prompt.data_source_id] ? "ON" : "OFF"}
+        </span>
+      )}
+    </div>
   </div>
 </div>
 
