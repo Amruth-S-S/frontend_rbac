@@ -3836,7 +3836,7 @@ useEffect(() => {
                   { key: "prompts", label: "Manage Prompts" },
                   { key: "repository", label: "Prompts Repository" },
 
-                  { key: "tally",        label: "Manage ETL" },
+                  // { key: "tally",        label: "Manage ETL" },
 
                   { key: "master",       label: "Master Settings" },
                   { key: "parameter",   label: "Parameter Settings" },
