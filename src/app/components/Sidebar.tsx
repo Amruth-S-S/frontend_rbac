@@ -1227,8 +1227,8 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
     className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
   >
     <option value="">Select database</option>
+     <option value="customer_db_ISC">customer_db_ISC</option>
     <option value="customer_db_tally">customer_db_tally</option>
-    <option value="customer_db_onegcp">customer_db_onegcp</option>
   </select>
 
   {/* <p className="mt-1 text-xs text-gray-500">

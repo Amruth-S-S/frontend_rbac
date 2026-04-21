@@ -128,15 +128,45 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
 
   // ── Helper: fetch & store filter summary for one param ──
   const fetchFilterSummary = async (paramId: number) => {
-    try {
-      const res = await fetch(`${API_BASE}/api/parameter-settings/${paramId}`, { method: "GET", headers: getHeaders() });
-      if (res.ok) {
-        const val = await res.json();
-        const summary: FilterSummaryItem[] = val.filter_summary ?? val.parameter_setting?.filter_summary ?? [];
-      setFilterSummaries(prev => ({ ...prev, [Number(paramId)]: Array.isArray(summary) ? summary : [] }));
-      }
-    } catch {}
-  };
+  try {
+    const res = await fetch(
+      `${API_BASE}/api/parameter-settings/${paramId}`,
+      { method: "GET", headers: getHeaders() }
+    );
+
+    if (res.ok) {
+      const val = await res.json();
+
+      console.log("API FULL RESPONSE:", val);
+
+      const summary: FilterSummaryItem[] =
+        val.filter_summary ??
+        val.parameter_setting?.filter_summary ??
+        [];
+
+      console.log("EXTRACTED SUMMARY:", summary);
+
+      setFilterSummaries(prev => ({
+        ...prev,
+        [Number(paramId)]: Array.isArray(summary) ? summary : []
+      }));
+    }
+  } catch (err) {
+    console.error(err);
+  }
+};
+
+
+  // const fetchFilterSummary = async (paramId: number) => {
+  //   try {
+  //     const res = await fetch(`${API_BASE}/api/parameter-settings/${paramId}`, { method: "GET", headers: getHeaders() });
+  //     if (res.ok) {
+  //       const val = await res.json();
+  //       const summary: FilterSummaryItem[] = val.filter_summary ?? val.parameter_setting?.filter_summary ?? [];
+  //     setFilterSummaries(prev => ({ ...prev, [Number(paramId)]: Array.isArray(summary) ? summary : [] }));
+  //     }
+  //   } catch {}
+  // };
 
   const fetchParameterSettings = async () => {
     setLoadingSettings(true);
@@ -503,6 +533,8 @@ const [quickSelectInput, setQuickSelectInput] = useState("");
       }
     } catch { }
   };
+
+  
 
   const fetchFilterPreview = async () => {
     if (!selectedDataset) return;
@@ -1388,9 +1420,13 @@ const [quickSelectInput, setQuickSelectInput] = useState("");
             : "Filter Steps"}
             
         </p>
-   {(() => {
+  {(() => {
+  const paramId = selectedDataset?.param_id;
+
   const summaries =
-    filterSummaries?.[selectedDataset?.param_id || 0] || [];
+    paramId !== undefined
+      ? filterSummaries?.[paramId] || []
+      : [];
 
   return summaries.length > 0 ? (
     <div className="mt-4 p-4 bg-white border border-gray-200 rounded-xl shadow-sm">
