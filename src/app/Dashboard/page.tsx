@@ -11,7 +11,12 @@ import {
 
 // ─── Constants ───────────────────────────────────────────────
 const API_BASE = "https://obeyable-celina-provisorily.ngrok-free.dev";
-const MONTHS   = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const FINANCIAL_YEAR = "2018-2019";
+
+const MONTHS = [
+  "January","February","March","April","May","June",
+  "July","August","September","October","November","December"
+];
 const H        = { "accept":"application/json", "ngrok-skip-browser-warning":"true" };
 
 // ─── Helpers ─────────────────────────────────────────────────
@@ -457,9 +462,17 @@ export default function KPIDashboard() {
           </div>
           <div className="kd-tb__ctrl">
             {lastRefreshed && <span className="kd-ts">Updated {lastRefreshed.toLocaleTimeString()}</span>}
-            <select className="kd-sel" value={selectedMonth} onChange={e=>setSelectedMonth(e.target.value)}>
-              {MONTHS.map(m=><option key={m} value={m}>{m}</option>)}
-            </select>
+            <select
+  className="kd-sel"
+  value={selectedMonth}
+  onChange={e => setSelectedMonth(e.target.value)}
+>
+  {MONTHS.map(m => (
+    <option key={m} value={m}>
+      {m} - {FINANCIAL_YEAR}
+    </option>
+  ))}
+</select>
             <button className="kd-btn" onClick={fetchAll} disabled={anyLoading}>
               <span className="kd-spin">↻</span>
               {anyLoading ? "Loading…" : "Refresh"}
@@ -468,13 +481,13 @@ export default function KPIDashboard() {
         </div>
 
         {/* ── Financial Year Header ── */}
-        <div className="kd-fy-header">
+        {/* <div className="kd-fy-header">
           <span className="kd-fy-header__icon">📅</span>
           <span className="kd-fy-header__label">Financial Year</span>
           <span className="kd-fy-header__value">2018 – 2019</span>
           <span className="kd-fy-header__sub">April 2018 · March 2019</span>
           <span className="kd-fy-header__badge">FY 2018–2019</span>
-        </div>
+        </div> */}
 
         {/* ── Section ── */}
         <div className="kd-sh">
