@@ -185,7 +185,7 @@ function CashflowCard({ data, loading, error, month }: { data:any; loading:boole
     : [];
 
   const RADIAN = Math.PI / 180;
-  const renderLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent, name }: any) => {
+  const renderLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: any) => {
     const r = innerRadius + (outerRadius - innerRadius) * 0.5;
     const x = cx + r * Math.cos(-midAngle * RADIAN);
     const y = cy + r * Math.sin(-midAngle * RADIAN);
@@ -379,13 +379,6 @@ export default function KPIDashboard() {
 
   const anyLoading = lS||lC||lF||lP;
 
-  const heroTiles = [
-    { label:"Total Sales",    value:lS?"…":fmtNum(salesData?.sales??salesData?.total_sales??0),               color:"blue",   icon:"💰" },
-    { label:"Net Cashflow",   value:lC?"…":fmtNum(cashflowData?.net_cash_flow??cashflowData?.net_cashflow??0), color:"green",  icon:"🔄" },
-    { label:"Net Funds Flow", value:lF?"…":fmtNum(fundsflowData?.net_flow??fundsflowData?.net_funds_flow??0),  color:"purple", icon:"📈" },
-    { label:"Net Profit",     value:lP?"…":fmtNum(plData?.net_profit??plData?.profit??0),                      color:"amber",  icon:"🏆" },
-  ];
-
   return (
     <>
       <style>{`
@@ -412,31 +405,23 @@ export default function KPIDashboard() {
         .kd-spin { display:inline-block; }
         .kd-btn:disabled .kd-spin { animation:kpispin .8s linear infinite; }
 
-        /* ── hero ── */
-        .kd-hero { padding:24px 28px 8px; display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
-        @media(max-width:900px){ .kd-hero{ grid-template-columns:repeat(2,1fr); } }
-        @media(max-width:500px){ .kd-hero{ grid-template-columns:1fr; } }
-
-        .kd-ht { background:#fff; border:1.5px solid #e2e8f5; border-radius:14px; padding:18px; display:flex; align-items:center; gap:14px; position:relative; overflow:hidden; box-shadow:0 2px 8px rgba(79,142,247,.05); transition:transform .2s,box-shadow .2s; }
-        .kd-ht:hover { transform:translateY(-3px); box-shadow:0 8px 24px rgba(79,142,247,.12); }
-        .kd-ht::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; border-radius:14px 14px 0 0; }
-        .kd-ht--blue::before   { background:linear-gradient(90deg,#4f8ef7,#60a5fa); }
-        .kd-ht--green::before  { background:linear-gradient(90deg,#16a34a,#22c55e); }
-        .kd-ht--purple::before { background:linear-gradient(90deg,#7c3aed,#a855f7); }
-        .kd-ht--amber::before  { background:linear-gradient(90deg,#d97706,#f59e0b); }
-
-        .kd-ht__ico { width:44px; height:44px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0; }
-        .kd-ht--blue   .kd-ht__ico { background:#eff6ff; }
-        .kd-ht--green  .kd-ht__ico { background:#f0fdf4; }
-        .kd-ht--purple .kd-ht__ico { background:#faf5ff; }
-        .kd-ht--amber  .kd-ht__ico { background:#fffbeb; }
-
-        .kd-ht__lbl { font-size:10px; color:#8898c0; text-transform:uppercase; letter-spacing:.8px; font-weight:600; }
-        .kd-ht__val { font-size:20px; font-weight:800; margin-top:3px; letter-spacing:-.4px; }
-        .kd-ht--blue   .kd-ht__val { color:#2563eb; }
-        .kd-ht--green  .kd-ht__val { color:#16a34a; }
-        .kd-ht--purple .kd-ht__val { color:#7c3aed; }
-        .kd-ht--amber  .kd-ht__val { color:#d97706; }
+        /* ── FY Header ── */
+        .kd-fy-header {
+          display:flex; align-items:center; gap:12px;
+          padding:12px 28px;
+          background:linear-gradient(90deg,#eff6ff 0%,#f8faff 100%);
+          border-bottom:1px solid #dbeafe;
+        }
+        .kd-fy-header__icon { font-size:15px; }
+        .kd-fy-header__label { font-size:11px; font-weight:700; color:#6b7a9e; text-transform:uppercase; letter-spacing:0.8px; }
+        .kd-fy-header__value { font-size:14px; font-weight:800; color:#1a2340; margin-left:4px; }
+        .kd-fy-header__sub { font-size:11px; color:#8898c0; margin-left:8px; }
+        .kd-fy-header__badge {
+          margin-left:auto;
+          background:#2563eb; color:#fff;
+          border-radius:6px; padding:4px 12px;
+          font-size:11px; font-weight:700; letter-spacing:0.4px;
+        }
 
         /* ── section ── */
         .kd-sh { padding:28px 28px 12px; display:flex; align-items:center; gap:12px; }
@@ -451,10 +436,11 @@ export default function KPIDashboard() {
         .kd-foot { text-align:center; padding:32px 28px 8px; font-size:11px; color:#c0cae0; }
 
         @media(max-width:600px){
-          .kd-tb   { padding:12px 16px; }
-          .kd-hero { padding:16px 16px 4px; }
-          .kd-grid { padding:0 16px; }
-          .kd-sh   { padding:20px 16px 10px; }
+          .kd-tb        { padding:12px 16px; }
+          .kd-fy-header { padding:10px 16px; }
+          .kd-grid      { padding:0 16px; }
+          .kd-sh        { padding:20px 16px 10px; }
+          .kd-fy-header__sub { display:none; }
         }
       `}</style>
 
@@ -481,18 +467,14 @@ export default function KPIDashboard() {
           </div>
         </div>
 
-        {/* ── Hero ── */}
-        {/* <div className="kd-hero">
-          {heroTiles.map(t=>(
-            <div key={t.label} className={`kd-ht kd-ht--${t.color}`}>
-              <div className="kd-ht__ico">{t.icon}</div>
-              <div>
-                <div className="kd-ht__lbl">{t.label}</div>
-                <div className="kd-ht__val">{t.value}</div>
-              </div>
-            </div>
-          ))}
-        </div> */}
+        {/* ── Financial Year Header ── */}
+        <div className="kd-fy-header">
+          <span className="kd-fy-header__icon">📅</span>
+          <span className="kd-fy-header__label">Financial Year</span>
+          <span className="kd-fy-header__value">2018 – 2019</span>
+          <span className="kd-fy-header__sub">April 2018 · March 2019</span>
+          <span className="kd-fy-header__badge">FY 2018–2019</span>
+        </div>
 
         {/* ── Section ── */}
         <div className="kd-sh">
@@ -509,7 +491,7 @@ export default function KPIDashboard() {
           <PLCard       data={plData}        loading={lP} error={eP} />
         </div>
 
-        <div className="kd-foot">Data sourced from GBusiness Platform API · {new Date().getFullYear()}</div>
+        <div className="kd-foot">Financial Year 2018–2019 · Data sourced from GBusiness Platform API · {new Date().getFullYear()}</div>
       </div>
     </>
   );
