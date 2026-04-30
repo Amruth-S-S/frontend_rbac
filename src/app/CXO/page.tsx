@@ -316,7 +316,7 @@ export default function CXO() {
       sessionStorage.removeItem('currentUserData');
       ['loggedInUserEmail','loggedInUserId','loggedInUserRole','loggedInUserName','client_user_id'].forEach(k => localStorage.removeItem(k));
     }
-    router.push('/');
+    router.push('/Login');
   };
 
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
@@ -350,19 +350,51 @@ export default function CXO() {
     </div>
   );
 
+  const CHART_COLORS = [
+    'rgba(54, 162, 235, 0.8)',
+    'rgba(255, 99, 132, 0.8)',
+    'rgba(75, 192, 192, 0.8)',
+    'rgba(255, 206, 86, 0.8)',
+    'rgba(153, 102, 255, 0.8)',
+    'rgba(255, 159, 64, 0.8)',
+    'rgba(199, 199, 199, 0.8)',
+    'rgba(83, 102, 255, 0.8)',
+    'rgba(40, 159, 64, 0.8)',
+    'rgba(210, 99, 132, 0.8)',
+  ];
+
   const getPieData = (chartData: ChartData) => {
     if (!chartData?.data_format) return { labels: [], datasets: [{ data: [], backgroundColor: [] }] };
     const { labels, values } = chartData.data_format;
-    return { labels, datasets: [{ data: values as number[], backgroundColor: labels.map(() => getRandomColor()) }] };
+    return {
+      labels,
+      datasets: [{
+        data: values as number[],
+        backgroundColor: labels.map((_, idx) => CHART_COLORS[idx % CHART_COLORS.length]),
+        borderColor: '#fff',
+        borderWidth: 2,
+      }],
+    };
   };
 
   const getChartData = (chartData: ChartData, type: "bar" | "line") => {
     if (!chartData?.data_format) return { labels: [], datasets: [] };
     const { labels, categories, values } = chartData.data_format;
-    return { labels, datasets: (categories || []).map((cat, i) => ({ label: cat, data: (values as number[][]).map(v => v[i]), backgroundColor: getRandomColor() })) };
+    return {
+      labels,
+      datasets: (categories || []).map((cat, i) => ({
+        label: cat,
+        data: (values as number[][])[i],
+        backgroundColor: type === 'bar'
+          ? labels.map((_, idx) => CHART_COLORS[idx % CHART_COLORS.length])
+          : CHART_COLORS[i % CHART_COLORS.length],
+        borderColor: CHART_COLORS[i % CHART_COLORS.length],
+        borderWidth: 2,
+        fill: false,
+        tension: 0.3,
+      })),
+    };
   };
-
-  const getRandomColor = () => `hsl(${Math.floor(Math.random() * 360)}, 70%, 60%)`;
 
   const cardIconStyles = [
     { Icon: BarChart2,      iconColor: 'text-orange-400',  bg: 'bg-orange-50',  textColor: 'text-orange-500'  },
@@ -628,7 +660,7 @@ export default function CXO() {
                     <Settings className="w-4 h-4 text-white" />
                   </button>
                   {showDropdown && (
-                    <div className="absolute right-0 top-full mt-1.5 bg-white shadow-lg rounded-md border border-gray-100 min-w-[120px] z-50">
+                    <div onMouseDown={e => e.stopPropagation()} className="absolute right-0 top-full mt-1.5 bg-white shadow-lg rounded-md border border-gray-100 min-w-[120px] z-50">
                       <button onClick={handleLogout} className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 rounded-md">Logout</button>
                     </div>
                   )}
