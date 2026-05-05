@@ -32,7 +32,7 @@ import {
   // ChartData,
 } from "chart.js";
 import Spinner from "../components/Spinner";
-import { FiSave } from "react-icons/fi";
+import { FiMic, FiSave } from "react-icons/fi";
 import { toast } from "react-toastify";
 import styles from "../CXO/CXO.module.css";
 import ExcelTableComponent from "../components/ExcelTableComponent";
@@ -173,6 +173,7 @@ export default function Page() {
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const boardId = searchParams.get("board_id");
+  const mainBoardId = searchParams.get("main_board_id");
   // type Prompt = {
   //   id: string;
   //   prompt_text: string;
@@ -963,6 +964,33 @@ useEffect(() => {
 
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
   const EXCEL_API_KEY = process.env.NEXT_PUBLIC_API_KEY || '';
+
+  const [mainBoardDisplayName, setMainBoardDisplayName] = useState<string>("");
+  const [boardDisplayName, setBoardDisplayName] = useState<string>("");
+
+  useEffect(() => {
+    if (!mainBoardId || !boardId) return;
+    let userId = "";
+    const stored = typeof window !== "undefined" ? sessionStorage.getItem("currentUserData") : null;
+    if (stored) {
+      try { userId = JSON.parse(stored).userId || ""; } catch { /* */ }
+    }
+    if (!userId) return;
+    fetch(`${API_BASE_URL}/main-boards/get_all_info_tree?user_id=${userId}`, {
+      headers: { Accept: "application/json", "X-API-Key": EXCEL_API_KEY },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then((data: Array<{ id?: string | number; main_board_id: string; name: string; boards: Record<string, { name: string; is_active: boolean }> }> | null) => {
+        if (!Array.isArray(data)) return;
+        const mb = data.find(m => String(m.main_board_id) === String(mainBoardId) || String(m.id) === String(mainBoardId));
+        if (mb) {
+          setMainBoardDisplayName(mb.name || "");
+          const board = mb.boards?.[boardId];
+          if (board) setBoardDisplayName(board.name || "");
+        }
+      })
+      .catch(() => { /* silently fail */ });
+  }, [mainBoardId, boardId]);
 
   // Add this useEffect to filter prompts based on search term
   useEffect(() => {
@@ -2746,6 +2774,39 @@ useEffect(() => {
       toast.error("A network error occurred. Check the console for details.");
     }
   };
+  const [isListening, setIsListening] = useState(false);
+
+const handleVoiceInput = () => {
+const SpeechRecognition =
+  (window as any).SpeechRecognition ||
+  (window as any).webkitSpeechRecognition;
+
+  if (!SpeechRecognition) {
+    alert("Speech Recognition not supported in this browser");
+    return;
+  }
+
+  const recognition = new SpeechRecognition();
+  recognition.lang = "en-IN"; // change if needed
+  recognition.interimResults = false;
+
+  recognition.start();
+  setIsListening(true);
+
+  recognition.onresult = (event: { results: { transcript: any; }[][]; }) => {
+    const transcript = event.results[0][0].transcript;
+    setNewPromptName((prev) => prev + " " + transcript);
+  };
+
+  recognition.onerror = () => {
+    setIsListening(false);
+  };
+
+  recognition.onend = () => {
+    setIsListening(false);
+  };
+};
+
 
   const handleSaveClicks = async (id: string, boardId: string | null) => {
     if (!id || !boardId) {
@@ -3865,6 +3926,15 @@ useEffect(() => {
             {/* Tab Navigation */}
             <div className="bg-white rounded-xl shadow-md px-2 py-1.5 mb-3 border border-gray-200">
 
+              {/* Board breadcrumb */}
+              {(mainBoardDisplayName || boardDisplayName) && (
+                <div className="flex items-center gap-1.5 px-2 pt-1.5 pb-1 mb-1 border-b border-gray-100 text-xs">
+                  <span className="font-semibold text-gray-700 truncate max-w-[160px]" title={mainBoardDisplayName}>{mainBoardDisplayName}</span>
+                  {mainBoardDisplayName && boardDisplayName && <span className="text-gray-400 flex-shrink-0">›</span>}
+                  <span className="font-semibold text-blue-600 truncate max-w-[160px]" title={boardDisplayName}>{boardDisplayName}</span>
+                </div>
+              )}
+
               {/* Desktop: horizontal tabs */}
               <div className="hidden md:flex gap-1 p-1 bg-gray-100 rounded-lg overflow-x-auto">
                 {[
@@ -4484,15 +4554,26 @@ useEffect(() => {
                   {/* Header row */}
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-base font-semibold">Prompt</h3>
-                    <span
-                      className="close-btn cursor-pointer text-xl text-gray-500 hover:text-gray-800 leading-none"
-                      onClick={() => {
-                        setIsResultModalOpen(false);
-                        setActiveTab("prompts");
-                      }}
-                    >
-                      &times;
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => { setIsResultModalOpen(false); setActiveTab("prompts"); }}
+                        className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-300 rounded-md hover:bg-gray-100 transition-colors"
+                      >
+                        ← Back
+                      </button>
+                      {/* <button
+                        onClick={() => { setRunResult(null); setSelectedPrompt(""); setActiveTab("message"); }}
+                        className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-md transition-colors border border-red-200"
+                      >
+                        Clear
+                      </button> */}
+                      <span
+                        className="close-btn cursor-pointer text-xl text-gray-500 hover:text-gray-800 leading-none"
+                        onClick={() => { setIsResultModalOpen(false); setActiveTab("prompts"); }}
+                      >
+                        &times;
+                      </span>
+                    </div>
                   </div>
 
                   <textarea
@@ -6025,27 +6106,41 @@ useEffect(() => {
 
             {/* ── Header ── */}
             <div className="flex items-center justify-between px-4 py-2 border-b bg-white flex-shrink-0">
-          <div className="flex items-center gap-2 flex-wrap">
-  <h2 className="text-sm font-bold text-gray-800">Run Your Prompt</h2>
-  {anyFilterEnabled !== null && (
-    <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold border ${
-      anyFilterEnabled
-        ? "bg-emerald-100 text-emerald-700 border-emerald-300"
-        : "bg-gray-100 text-gray-500 border-gray-200"
-    }`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${
-        anyFilterEnabled ? "bg-emerald-500 animate-pulse" : "bg-gray-400"
-      }`} />
-      Parameter Filter: {anyFilterEnabled ? "ON" : "OFF"}
-    </span>
-  )}
-</div>
-              <button
-                onClick={handleCloseModal}
-                className="text-gray-400 hover:text-gray-600 text-lg leading-none"
-              >
-                ✖
-              </button>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-sm font-bold text-gray-800">Run Your Prompt</h2>
+                {anyFilterEnabled !== null && (
+                  <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold border ${
+                    anyFilterEnabled
+                      ? "bg-emerald-100 text-emerald-700 border-emerald-300"
+                      : "bg-gray-100 text-gray-500 border-gray-200"
+                  }`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${
+                      anyFilterEnabled ? "bg-emerald-500 animate-pulse" : "bg-gray-400"
+                    }`} />
+                    Parameter Filter: {anyFilterEnabled ? "ON" : "OFF"}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleCloseModal}
+                  className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-300 rounded-md hover:bg-gray-100 transition-colors"
+                >
+                  ← Back
+                </button>
+                <button
+                  onClick={() => { setNewPromptName(""); setRunResult(null); setIsRunClicked(false); }}
+                  className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-md transition-colors border border-red-200"
+                >
+                  Clear
+                </button>
+                <button
+                  onClick={handleCloseModal}
+                  className="text-gray-400 hover:text-gray-600 text-lg leading-none"
+                >
+                  ✖
+                </button>
+              </div>
             </div>
 
             {/* ── Scrollable Body ── */}
@@ -6063,6 +6158,12 @@ useEffect(() => {
 
               {/* Action Buttons */}
               <div className="mt-2 flex flex-wrap justify-end gap-1.5">
+                 <button
+  onClick={handleVoiceInput}
+  className="px-3 py-1.5  bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium whitespace-nowrap"
+>
+  <FiMic className="text-white text-lg" />
+</button>
                 <button
                   className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium whitespace-nowrap"
                   onClick={handleViewPromptsClick}

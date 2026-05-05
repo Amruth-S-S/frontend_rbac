@@ -21,6 +21,7 @@ import { useRouter } from 'next/navigation';
 import { Menu, X, Settings, BarChart2, FileText, PieChart, TrendingUp, Database, Users, LayoutDashboard, BookOpen, Mic, Play, ChevronRight } from 'lucide-react';
 import Image from 'next/image';
 import loginImage from '../assets/logo.jpg';
+import { FiMic } from "react-icons/fi";
 
 
 ChartJS.register(
@@ -134,6 +135,39 @@ export default function CXO() {
   const EXCEL_API_KEY = process.env.NEXT_PUBLIC_API_KEY || '';
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [isListening, setIsListening] = useState(false);
+  
+  const handleVoiceInput = () => {
+  const SpeechRecognition =
+    (window as any).SpeechRecognition ||
+    (window as any).webkitSpeechRecognition;
+  
+    if (!SpeechRecognition) {
+      alert("Speech Recognition not supported in this browser");
+      return;
+    }
+  
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-IN"; // change if needed
+    recognition.interimResults = false;
+  
+    recognition.start();
+    setIsListening(true);
+  
+    recognition.onresult = (event: { results: { transcript: any; }[][]; }) => {
+      const transcript = event.results[0][0].transcript;
+      setNewPromptName((prev) => prev + " " + transcript);
+    };
+  
+    recognition.onerror = () => {
+      setIsListening(false);
+    };
+  
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+  };
+  
 
   const handleResultsScroll = () => {
     const el = scrollRef.current;
@@ -685,6 +719,22 @@ export default function CXO() {
               )}
             </div>
 
+            {/* Back + Clear action bar */}
+            <div className="mx-5 mb-2 flex items-center justify-end gap-2">
+              <button
+                onClick={handleCloseBoardModal}
+                className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-300 rounded-md hover:bg-gray-100 transition-colors bg-white"
+              >
+                ← Back
+              </button>
+              <button
+                onClick={() => { setNewPromptName(""); setRunResult(null); setIsRunClicked(false); }}
+                className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-md transition-colors border border-red-200"
+              >
+                Clear
+              </button>
+            </div>
+
             {/* Prompt toolbar */}
             <div className="mx-5 mb-4 bg-[#1a237e] rounded-xl flex items-center px-3 py-2 gap-3 shadow-lg">
               <input
@@ -695,9 +745,15 @@ export default function CXO() {
                 onChange={e => setNewPromptName(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleRunPrompt(); } }}
               />
-              <button className="text-blue-200 hover:text-white p-1 flex-shrink-0">
-                <Mic className="w-4 h-4" />
+                  <button
+                onClick={handleVoiceInput}
+                className="px-3 py-1.5  bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium whitespace-nowrap"
+              >
+                <FiMic className="text-white text-lg" />
               </button>
+              {/* <button className="text-blue-200 hover:text-white p-1 flex-shrink-0">
+                <Mic className="w-4 h-4" />
+              </button> */}
               <button
                 onClick={handleRePrompt}
                 disabled={isLoading}
