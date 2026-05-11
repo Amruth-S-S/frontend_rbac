@@ -484,7 +484,7 @@ export default function KPIDashboard() {
               <Database className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h2 className="text-lg font-extrabold text-white tracking-tight">KPI Jobs</h2>
+              <h2 className="text-lg font-extrabold text-white tracking-tight">KPI Dashboard</h2>
               <p className="text-xs text-blue-200 mt-0.5 font-medium">
                 {totalRecords > 0
                   ? `${totalRecords} record${totalRecords !== 1 ? "s" : ""} available · click Run to view results`
