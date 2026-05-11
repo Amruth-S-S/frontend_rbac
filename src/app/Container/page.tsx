@@ -41,6 +41,7 @@ import ParameterSettings from "../components/ParameterSettings";
 import { usePathname } from 'next/navigation';
 import TallySetting from "../components/TallySetting";
 import ManageParameterSetting from "../components/Manageparametersetting";
+import KpiUpdates from "../components/KpiUpdates";
 
 ChartJS.register(
   ArcElement,
@@ -372,6 +373,8 @@ export default function Page() {
 
   const [selectedPgTable, setSelectedPgTable] = useState<any | null>(null);
   const [showAddDataSourceModal, setShowAddDataSourceModal] = useState(false);
+  const [showTopBtn, setShowTopBtn] = useState(false);
+  const [resultTab, setResultTab] = useState('message');
   const [addDataSourceForm, setAddDataSourceForm] = useState({
     source_name: "",
     description: "",
@@ -3187,13 +3190,13 @@ const SpeechRecognition =
         const hasMessage = data.message?.length > 0;
 
         if (hasCharts && hasTable) {
-          setActiveTab('charts');
+          setResultTab('charts');
         } else if (hasCharts) {
-          setActiveTab('charts');
+          setResultTab('charts');
         } else if (hasTable) {
-          setActiveTab('table');
+          setResultTab('table');
         } else if (hasMessage) {
-          setActiveTab('message');
+          setResultTab('message');
         }
       }
     } catch (error) {
@@ -3291,13 +3294,13 @@ const SpeechRecognition =
         const outputType = hasCharts && hasTable ? 'CT' : hasCharts ? 'C' : hasTable ? 'T' : null;
         // Determine the default active tab
         if (hasCharts && hasTable) {
-          setActiveTab("charts"); // If both charts and table exist, default to charts
+          setResultTab("charts");
         } else if (hasTable) {
-          setActiveTab("table");
+          setResultTab("table");
         } else if (hasCharts) {
-          setActiveTab("charts");
+          setResultTab("charts");
         } else if (hasMessage) {
-          setActiveTab("message"); // If neither charts nor table exist, show message tab
+          setResultTab("message");
         }
 
         // console.log("Active Tab:", activeTab);
@@ -3948,6 +3951,7 @@ const SpeechRecognition =
                   { key: "master",       label: "Master Settings" },
                   { key: "parameter",   label: "Parameter Settings" },
                   { key: "timeline",     label: "Timeline Settings" },
+                  { key: "kpi",          label: "KPI Updates" },
                 ].map((tab) => (
                   <button
                     key={tab.key}
@@ -3980,6 +3984,7 @@ const SpeechRecognition =
                       { key: "master",        label: "Master Settings" },
                       { key: "parameter",    label: "Parameter Settings" },
                       { key: "timeline",      label: "Timeline Settings" },
+                      { key: "kpi",           label: "KPI Updates" },
                     ].find((t) => t.key === activeTab)?.label ?? "Select Tab"}
                   </span>
                   <span className="ml-2 text-gray-400 text-xs">{isMobileMenuOpen ? "▲" : "▼"}</span>
@@ -4068,7 +4073,7 @@ const SpeechRecognition =
                       setIsRunClicked(false);
                       setRunResult(null);
                       setNewPromptName('');
-                      setActiveTab('message');
+                      setResultTab('message');
                       setIsModalOpen(true);
                     }}
                   >
@@ -4546,7 +4551,8 @@ const SpeechRecognition =
           <div
             id="result-modal-scroll"
             className="fixed inset-0 z-50 bg-white overflow-y-auto"
-            style={{scrollbarWidth:'thin', scrollbarColor:'#313b96 #f1f1f1'}}
+            style={{scrollbarWidth:'auto', scrollbarColor:'#313b96 #f1f1f1'}}
+            onScroll={(e) => setShowTopBtn((e.currentTarget.scrollTop > 200))}
           >
             <div className="w-full p-4 relative max-w-screen-xl mx-auto">
               <div className="result-modal">
@@ -4557,7 +4563,7 @@ const SpeechRecognition =
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => { setIsResultModalOpen(false); setActiveTab("prompts"); }}
-                        className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-300 rounded-md hover:bg-gray-100 transition-colors"
+                        className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-600 border border-blue-400 rounded-md hover:bg-blue-50 transition-colors"
                       >
                         ← Back
                       </button>
@@ -4580,7 +4586,7 @@ const SpeechRecognition =
                     value={selectedPrompt || ""}
                     readOnly
                     rows={3}
-                    className="w-full p-2 border border-gray-300 rounded text-sm resize-none"
+                    className="w-full p-2 border-2 border-blue-400 rounded text-sm resize-none bg-blue-50 text-gray-800 focus:outline-none"
                   />
 <br></br>
 <br></br>
@@ -4592,15 +4598,15 @@ const SpeechRecognition =
                         {['message', 'table', 'charts'].map((tab) => (
                           <button
                             key={tab}
-                            onClick={() => { setActiveTab(tab); setIsResultModalOpen(true); }}
-                            className={`tab-button px-3 py-1.5 text-sm rounded ${activeTab === tab ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'}`}
+                            onClick={() => setResultTab(tab)}
+                            className={`px-3 py-1.5 text-sm rounded font-medium transition-colors ${resultTab === tab ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
                           >
                             {tab.charAt(0).toUpperCase() + tab.slice(1)}
                           </button>
                         ))}
                       </div>
                       <div className="flex gap-2">
-                        {activeTab === 'table' && runResult?.table && runResult.table.columns?.length > 0 && (
+                        {resultTab === 'table' && runResult?.table && runResult.table.columns?.length > 0 && (
                           <button
                             onClick={downloadExcel}
                             className="px-3 py-1.5 text-sm bg-blue-500 text-white rounded hover:bg-blue-600"
@@ -4608,7 +4614,7 @@ const SpeechRecognition =
                             Download as Excel
                           </button>
                         )}
-                        {activeTab === 'charts' && (runResult?.charts ?? []).length > 0 && (
+                        {resultTab === 'charts' && (runResult?.charts ?? []).length > 0 && (
                           <button
                             onClick={() => setShowDownloadModal(true)}
                             className="px-3 py-1.5 text-sm bg-blue-500 text-white rounded hover:bg-blue-600"
@@ -4621,7 +4627,7 @@ const SpeechRecognition =
 
                     {/* Tab Content */}
                     <div className="tab-content">
-                      {activeTab === 'message' && (
+                      {resultTab === 'message' && (
                         <div>
                           {runResult?.message?.length > 0 ? (
                             <p className="text-sm text-black-700 whitespace-pre-wrap p-4">{runResult.message}</p>
@@ -4637,10 +4643,10 @@ const SpeechRecognition =
                         </div>
                       )}
 
-                     {activeTab === 'table' && (
+                     {resultTab === 'table' && (
                         <div className="table-tab">
                           {runResult?.table && runResult.table.columns?.length > 0 ? (
-                            <div className="max-h-96 overflow-auto border border-gray-300 rounded" style={{scrollbarWidth:'thin', scrollbarColor:'#313b96 #f1f1f1'}}>
+                            <div className="max-h-96 overflow-auto border border-gray-300 rounded" style={{scrollbarWidth:'auto', scrollbarColor:'#313b96 #f1f1f1'}}>
                               <table style={{ tableLayout: 'fixed', borderCollapse: 'collapse', width: 'max-content', minWidth: '100%' }}>
                                 <thead className="bg-gray-100 sticky top-0 z-10">
                                   <tr>
@@ -4699,7 +4705,7 @@ const SpeechRecognition =
                         </div>
                       )}
 
-                     {activeTab === 'charts' && (
+                     {resultTab === 'charts' && (
                         <div className="charts-tab">
                           {(runResult?.charts ?? []).length > 0 ? (
                             <>
@@ -5031,16 +5037,18 @@ const SpeechRecognition =
                 </div>
               </div>
 
-              {/* Scroll to Top button */}
-              <button
-                onClick={() => {
-                  const el = document.getElementById('result-modal-scroll');
-                  if (el) el.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-                className="fixed bottom-6 right-6 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-4 py-2 rounded-full shadow-lg z-[60] transition-all"
-              >
-                ↑ Top
-              </button>
+              {/* Scroll to Top button — only after scrolling 200px */}
+              {showTopBtn && (
+                <button
+                  onClick={() => {
+                    const el = document.getElementById('result-modal-scroll');
+                    if (el) el.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  className="fixed bottom-6 right-6 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-4 py-2 rounded-full shadow-lg z-[60] transition-all"
+                >
+                  ↑ Top
+                </button>
+              )}
             </div>
           </div>
 
@@ -6124,7 +6132,7 @@ const SpeechRecognition =
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleCloseModal}
-                  className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-300 rounded-md hover:bg-gray-100 transition-colors"
+                  className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-600 border border-blue-400 rounded-md hover:bg-blue-50 transition-colors"
                 >
                   ← Back
                 </button>
@@ -6148,7 +6156,7 @@ const SpeechRecognition =
 
               {/* Textarea */}
               <textarea
-                className="w-full p-2 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"
+                className="w-full p-2 border-2 border-blue-400 rounded text-xs bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                 placeholder="Type your prompt here..."
                 value={newPromptName}
                 rows={4}
@@ -6209,8 +6217,8 @@ const SpeechRecognition =
                     {['message', 'table', 'charts'].map((tab) => (
                       <button
                         key={tab}
-                        onClick={() => setActiveTab(tab)}
-                        className={`px-3 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap ${activeTab === tab
+                        onClick={() => setResultTab(tab)}
+                        className={`px-3 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap ${resultTab === tab
                           ? 'bg-blue-500 text-white'
                           : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                           }`}
@@ -6219,7 +6227,7 @@ const SpeechRecognition =
                       </button>
                     ))}
                     <div className="ml-auto flex gap-2">
-                      {activeTab === 'table' && runResult?.table && runResult.table.columns?.length > 0 && (
+                      {resultTab === 'table' && runResult?.table && runResult.table.columns?.length > 0 && (
                         <button
                           onClick={downloadExcel}
                           className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-xs font-medium whitespace-nowrap"
@@ -6227,7 +6235,7 @@ const SpeechRecognition =
                           Download as Excel
                         </button>
                       )}
-                      {activeTab === 'charts' && (runResult?.charts ?? []).length > 0 && (
+                      {resultTab === 'charts' && (runResult?.charts ?? []).length > 0 && (
                         <button
                           onClick={() => setShowDownloadModal(true)}
                           className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-xs font-medium whitespace-nowrap"
@@ -6242,7 +6250,7 @@ const SpeechRecognition =
                   <div className="tab-content">
 
                     {/* Message Tab */}
-                  {activeTab === 'message' && (
+                  {resultTab === 'message' && (
                         <div>
                           {runResult?.message?.length > 0 ? (
                             <p className="text-sm text-black-700 whitespace-pre-wrap p-4">{runResult.message}</p>
@@ -6259,10 +6267,10 @@ const SpeechRecognition =
                       )}
 
                     {/* Table Tab */}
-                 {activeTab === 'table' && (
+                 {resultTab === 'table' && (
                         <div className="table-tab">
                           {runResult?.table && runResult.table.columns?.length > 0 ? (
-                            <div className="overflow-auto max-h-96 border border-gray-300 rounded" style={{scrollbarWidth:'thin', scrollbarColor:'#313b96 #f1f1f1'}}>
+                            <div className="overflow-auto max-h-96 border border-gray-300 rounded" style={{scrollbarWidth:'auto', scrollbarColor:'#313b96 #f1f1f1'}}>
                               <table style={{ tableLayout: 'fixed', borderCollapse: 'collapse', width: 'max-content', minWidth: '100%' }}>
                                 <thead className="bg-gray-100 sticky top-0 z-10">
                                   <tr>
@@ -6322,7 +6330,7 @@ const SpeechRecognition =
                       )}
 
                     {/* Charts Tab */}
-                 {activeTab === 'charts' && (
+                 {resultTab === 'charts' && (
                         <div className="charts-tab">
                           {(runResult?.charts ?? []).length > 0 ? (
                             <>
@@ -6807,6 +6815,10 @@ const SpeechRecognition =
 
         {activeTab === "tally" && (
           <TallySetting />
+        )}
+
+        {activeTab === "kpi" && (
+          <KpiUpdates />
         )}
 
       </div>

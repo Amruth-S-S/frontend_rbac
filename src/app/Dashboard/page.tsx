@@ -1,511 +1,626 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
+import { Bar, Line, Pie } from "react-chartjs-2";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend,
-  AreaChart, Area,
-  RadialBarChart, RadialBar,
-  LineChart, Line,
-} from "recharts";
+  Chart as ChartJS, CategoryScale, LinearScale, BarElement,
+  LineElement, PointElement, ArcElement, Tooltip, Legend,
+} from "chart.js";
+import {
+  Play, RefreshCw, X, AlertCircle, Database,
+  Clock, ChevronLeft, ChevronRight, CheckCircle, Layers,
+} from "lucide-react";
 
-// ─── Constants ───────────────────────────────────────────────
-const API_BASE = "https://obeyable-celina-provisorily.ngrok-free.dev";
-const FINANCIAL_YEAR = "2018-2019";
+ChartJS.register(
+  CategoryScale, LinearScale, BarElement,
+  LineElement, PointElement, ArcElement,
+  Tooltip, Legend
+);
 
-const MONTHS = [
-  "January","February","March","April","May","June",
-  "July","August","September","October","November","December"
+// ─── Config ────────────────────────────────────────────────────────────────
+const KPI_API_BASE = "https://kpi-fastapi-git-main-vijaytanz12-2825s-projects.vercel.app";
+const H = { "ngrok-skip-browser-warning": "true", "accept": "application/json" };
+
+// ─── Chart colours ─────────────────────────────────────────────────────────
+const CHART_COLORS = [
+  "rgba(59,130,246,0.75)", "rgba(16,185,129,0.75)", "rgba(245,158,11,0.75)",
+  "rgba(239,68,68,0.75)",  "rgba(139,92,246,0.75)", "rgba(236,72,153,0.75)",
 ];
-const H        = { "accept":"application/json", "ngrok-skip-browser-warning":"true" };
+const CHART_BORDERS = [
+  "rgb(59,130,246)", "rgb(16,185,129)", "rgb(245,158,11)",
+  "rgb(239,68,68)",  "rgb(139,92,246)", "rgb(236,72,153)",
+];
 
-// ─── Helpers ─────────────────────────────────────────────────
-const fmtNum = (v: number) => {
-  if (Math.abs(v) >= 1_000_000) return `₹${(v/1_000_000).toFixed(1)}M`;
-  if (Math.abs(v) >= 1_000)     return `₹${(v/1_000).toFixed(0)}K`;
-  return `₹${v.toLocaleString("en-IN")}`;
+// ─── Types ─────────────────────────────────────────────────────────────────
+interface KpiJob {
+  id: string;
+  job_id?: string;
+  file_name?: string;   // actual API field
+  name?: string;
+  filename?: string;
+  table_name?: string;
+  status?: string;
+  created_at?: string;
+  [key: string]: unknown;
+}
+
+interface KpiItem {
+  name: string;
+  logic?: string;
+  inputs?: string[];
+  columns?: string[];   // may be absent; derived from first row if needed
+  rows: string[][];
+}
+
+interface KpiResponse {
+  kpis?: KpiItem[];
+  [key: string]: unknown;
+}
+
+interface RowState {
+  loading: boolean;
+  error: string | null;
+  data: KpiResponse | null;
+  open: boolean;
+  slide: number;
+}
+
+// ─── Helpers ───────────────────────────────────────────────────────────────
+const getJobId   = (j: KpiJob) => String(j.id ?? j.job_id ?? "");
+const getJobName = (j: KpiJob) =>
+  j.file_name ?? j.name ?? j.filename ?? j.table_name ?? `Job ${String(j.id ?? "").slice(0, 8)}`;
+const getJobDate = (j: KpiJob) => {
+  const raw = j.created_at ?? j.uploaded_at ?? j.timestamp ?? "";
+  if (!raw) return null;
+  try { return new Date(String(raw)).toLocaleString("en-IN", { dateStyle:"medium", timeStyle:"short" }); }
+  catch { return null; }
 };
-const fmtFull = (v: any) => {
-  if (v == null) return "—";
-  if (typeof v === "number") return `₹${v.toLocaleString("en-IN", { minimumFractionDigits:2 })}`;
-  return String(v);
-};
-const fmtVal = (k: string, v: any) => {
-  if (v == null) return "—";
-  if (k.includes("margin")||k.includes("ratio")||k.includes("percent")) return `${Number(v).toFixed(2)} %`;
-  if (typeof v === "number") return fmtFull(v);
-  return String(v);
-};
-const humanize = (k: string) => k.replace(/_/g," ").replace(/\b\w/g, c=>c.toUpperCase());
+const getJobStatus = (j: KpiJob) => String(j.status ?? "ready");
 
-// ─── Custom Tooltip ──────────────────────────────────────────
-const CustomTooltip = ({ active, payload, label }: any) => {
-  if (!active || !payload?.length) return null;
-  return (
-    <div style={{ background:"#fff", border:"1.5px solid #e2e8f5", borderRadius:10, padding:"10px 14px", boxShadow:"0 4px 20px rgba(79,142,247,0.15)", fontSize:12 }}>
-      {label && <div style={{ fontWeight:700, color:"#1a2340", marginBottom:6 }}>{label}</div>}
-      {payload.map((p: any, i: number) => (
-        <div key={i} style={{ display:"flex", alignItems:"center", gap:8, marginBottom:2 }}>
-          <div style={{ width:8, height:8, borderRadius:2, background:p.color||p.fill }} />
-          <span style={{ color:"#7a8cb0" }}>{p.name}:</span>
-          <span style={{ fontWeight:700, color:"#1a2340" }}>
-            {typeof p.value === "number" ? fmtNum(p.value) : p.value}
-          </span>
-        </div>
-      ))}
-    </div>
+const getKpiItems = (resp: KpiResponse | null): KpiItem[] => {
+  if (!resp) return [];
+
+  // API returns { id, job_id, file_name, data: { kpis: [...] } }
+  // Unwrap the nested "data" wrapper first
+  const root: KpiResponse =
+    (resp.data && typeof resp.data === "object" && !Array.isArray(resp.data))
+      ? (resp.data as KpiResponse)
+      : resp;
+
+  if (Array.isArray(root.kpis)) return root.kpis as KpiItem[];
+
+  // Fallback: find any array of objects inside root
+  const arr = Object.values(root).find(
+    v => Array.isArray(v) && (v as unknown[]).length > 0 && typeof (v as unknown[])[0] === "object"
   );
+  if (arr) return arr as KpiItem[];
+
+  // Fallback: treat root itself as a single KpiItem
+  const maybeItem = root as unknown as KpiItem;
+  if (maybeItem.columns && maybeItem.rows) return [maybeItem];
+  return [];
 };
 
-// ─── Loader ──────────────────────────────────────────────────
-function Loader() {
-  return (
-    <div style={{ display:"flex", justifyContent:"center", alignItems:"center", height:220 }}>
-      <div style={{ width:32, height:32, border:"3px solid #e2e8f5", borderTopColor:"#4f8ef7", borderRadius:"50%", animation:"kpispin 0.7s linear infinite" }} />
-    </div>
-  );
-}
+const getChartBase = (kpi: KpiItem) => {
+  if (!kpi.rows?.length) return null;
+  const cols = kpi.columns ?? [];           // may be empty
+  const numCols = kpi.rows[0]?.length ?? 0;
+  if (numCols === 0) return null;
 
-// ─── Stat Row ────────────────────────────────────────────────
-function StatRow({ label, value, accent, highlight }: { label:string; value:string; accent:string; highlight?:boolean }) {
-  return (
-    <div style={{
-      display:"flex", justifyContent:"space-between", alignItems:"center",
-      padding: highlight ? "8px 10px 8px 9px" : "7px 10px",
-      borderRadius:8,
-      background: highlight ? `${accent}0f` : "transparent",
-      borderLeft: highlight ? `3px solid ${accent}` : "3px solid transparent",
-    }}>
-      <span style={{ fontSize:12, color:"#7a8cb0", fontWeight: highlight?600:400 }}>{label}</span>
-      <span style={{ fontSize: highlight?14:13, fontWeight:700, color: highlight?accent:"#1a2340" }}>{value}</span>
-    </div>
-  );
-}
-
-// ─── Section Label ───────────────────────────────────────────
-function SecLabel({ title }: { title:string }) {
-  return (
-    <div style={{ display:"flex", alignItems:"center", gap:8, margin:"16px 0 10px" }}>
-      <span style={{ fontSize:10, fontWeight:700, color:"#a0aac8", textTransform:"uppercase", letterSpacing:"0.8px" }}>{title}</span>
-      <div style={{ flex:1, height:1, background:"#f0f4fd" }} />
-    </div>
-  );
-}
-
-// ─── Card Wrapper ────────────────────────────────────────────
-const ACC = { blue:"#2563eb", green:"#16a34a", purple:"#7c3aed", amber:"#d97706" };
-const LT  = { blue:"#eff6ff", green:"#f0fdf4", purple:"#faf5ff", amber:"#fffbeb" };
-
-function Card({ title, icon, color, badge, loading, error, children }: {
-  title:string; icon:string; color:keyof typeof ACC; badge?:string;
-  loading:boolean; error:string|null; children?:React.ReactNode;
-}) {
-  const acc = ACC[color]; const lt = LT[color];
-  return (
-    <div style={{ background:"#fff", border:"1.5px solid #e2e8f5", borderRadius:18, overflow:"hidden",
-      boxShadow:"0 2px 12px rgba(79,142,247,0.07)", borderTop:`3px solid ${acc}`,
-      transition:"transform 0.2s,box-shadow 0.2s" }}
-      onMouseEnter={e=>{const el=e.currentTarget as HTMLDivElement;el.style.transform="translateY(-3px)";el.style.boxShadow="0 14px 36px rgba(79,142,247,0.13)";}}
-      onMouseLeave={e=>{const el=e.currentTarget as HTMLDivElement;el.style.transform="";el.style.boxShadow="0 2px 12px rgba(79,142,247,0.07)";}}
-    >
-      <div style={{ display:"flex", alignItems:"center", gap:12, padding:"16px 20px 14px", borderBottom:"1px solid #f0f4fd" }}>
-        <div style={{ width:40,height:40,borderRadius:11,background:lt,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0 }}>{icon}</div>
-        <div>
-          <div style={{ fontSize:14, fontWeight:700, color:"#1a2340" }}>{title}</div>
-          {badge && <div style={{ fontSize:10, color:acc, background:lt, border:`1px solid ${acc}33`, borderRadius:4, padding:"1px 8px", display:"inline-block", marginTop:3, fontWeight:600 }}>{badge}</div>}
-        </div>
-      </div>
-      <div style={{ padding:"16px 20px 20px" }}>
-        {loading ? <Loader /> : error
-          ? <div style={{ fontSize:12,color:"#dc2626",background:"#fef2f2",borderRadius:8,padding:"12px",textAlign:"center" }}>⚠ {error}</div>
-          : children}
-      </div>
-    </div>
-  );
-}
-
-// ─── SALES CARD ──────────────────────────────────────────────
-function SalesCard({ data, loading, error, month }: { data:any; loading:boolean; error:string|null; month:string }) {
-  const acc = ACC.blue;
-  const chartData = data ? [
-    { name:"Sales",        value: Math.abs(Number(data.sales       ?? data.total_sales    ?? 0)) },
-    { name:"Purchases",    value: Math.abs(Number(data.purchases   ?? 0)) },
-    { name:"Gross Profit", value: Math.abs(Number(data.gross_profit?? 0)) },
-  ].filter(d=>d.value>0) : [];
-
-  const rows = data
-    ? Object.entries(data).filter(([k])=>k!=="month").map(([k,v])=>({
-        label:humanize(k), value:fmtVal(k,v),
-        highlight:["sales","total_sales","gross_profit"].includes(k)
-      }))
-    : [];
-
-  return (
-    <Card title="Sales KPI" icon="💰" color="blue" badge={month} loading={loading} error={error}>
-      {chartData.length > 0 && (
-        <>
-          <SecLabel title="Performance Overview" />
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={chartData} barCategoryGap="30%" margin={{ top:5, right:10, left:10, bottom:5 }}>
-              <defs>
-                <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#4f8ef7" />
-                  <stop offset="100%" stopColor="#2563eb" />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f4fd" vertical={false} />
-              <XAxis dataKey="name" tick={{ fontSize:11, fill:"#8898c0", fontWeight:500 }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={fmtNum} tick={{ fontSize:10, fill:"#a0aac8" }} axisLine={false} tickLine={false} width={60} />
-              <Tooltip content={<CustomTooltip />} cursor={{ fill:"rgba(79,142,247,0.05)" }} />
-              <Bar dataKey="value" fill="url(#salesGrad)" radius={[6,6,0,0]} name="Amount" />
-            </BarChart>
-          </ResponsiveContainer>
-        </>
-      )}
-      {rows.length > 0 && (
-        <>
-          <SecLabel title="Metrics" />
-          {rows.map((r,i)=><StatRow key={i} label={r.label} value={r.value} accent={acc} highlight={r.highlight} />)}
-        </>
-      )}
-    </Card>
-  );
-}
-
-// ─── CASHFLOW CARD ───────────────────────────────────────────
-function CashflowCard({ data, loading, error, month }: { data:any; loading:boolean; error:string|null; month:string }) {
-  const acc = ACC.green;
-  const debit  = Math.abs(Number(data?.debit_amount  ?? data?.debit  ?? 0));
-  const credit = Math.abs(Number(data?.credit_amount ?? data?.credit ?? 0));
-  const pieData = [
-    { name:"Credit", value:credit, color:"#16a34a" },
-    { name:"Debit",  value:debit,  color:"#4f8ef7" },
-  ].filter(d=>d.value>0);
-
-  const rows = data
-    ? Object.entries(data).filter(([k])=>k!=="month").map(([k,v])=>({
-        label:humanize(k), value:fmtVal(k,v),
-        highlight:["net_cash_flow","net_cashflow"].includes(k)
-      }))
-    : [];
-
-  const RADIAN = Math.PI / 180;
-  const renderLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: any) => {
-    const r = innerRadius + (outerRadius - innerRadius) * 0.5;
-    const x = cx + r * Math.cos(-midAngle * RADIAN);
-    const y = cy + r * Math.sin(-midAngle * RADIAN);
-    return percent > 0.05 ? (
-      <text x={x} y={y} fill="#fff" textAnchor="middle" dominantBaseline="central" fontSize={11} fontWeight={700}>
-        {`${(percent*100).toFixed(0)}%`}
-      </text>
-    ) : null;
+  if (numCols === 1) return {
+    labels: kpi.rows.map((_, i) => String(i + 1)),
+    valueArrays: [kpi.rows.map(r => parseFloat(String(r[0])) || 0)],
+    colNames: [cols[0] ?? "Value"],
   };
+  return {
+    labels: kpi.rows.map(r => String(r[0] ?? "")),
+    valueArrays: Array.from({ length: numCols - 1 }, (_, i) =>
+      kpi.rows.map(r => parseFloat(String(r[i + 1])) || 0)
+    ),
+    colNames: Array.from({ length: numCols - 1 }, (_, i) => cols[i + 1] ?? `Col ${i + 2}`),
+  };
+};
 
+const buildBar = (kpi: KpiItem) => {
+  const b = getChartBase(kpi); if (!b) return null;
+  return { labels: b.labels, datasets: b.colNames.map((col, i) => ({ label: col, data: b.valueArrays[i], backgroundColor: CHART_COLORS[i % 6], borderColor: CHART_BORDERS[i % 6], borderWidth: 1, borderRadius: 4 })) };
+};
+const buildLine = (kpi: KpiItem) => {
+  const b = getChartBase(kpi); if (!b) return null;
+  return { labels: b.labels, datasets: b.colNames.map((col, i) => ({ label: col, data: b.valueArrays[i], borderColor: CHART_BORDERS[i % 6], backgroundColor: CHART_COLORS[i % 6], borderWidth: 2, pointRadius: 3, tension: 0.3, fill: false })) };
+};
+const buildPie = (kpi: KpiItem) => {
+  const b = getChartBase(kpi); if (!b) return null;
+  return { labels: b.labels, datasets: [{ label: b.colNames[0], data: b.valueArrays[0], backgroundColor: b.labels.map((_, i) => CHART_COLORS[i % 6]), borderColor: b.labels.map((_, i) => CHART_BORDERS[i % 6]), borderWidth: 1 }] };
+};
+
+const chartOpts = {
+  responsive: true, maintainAspectRatio: false,
+  plugins: { legend: { position: "bottom" as const, labels: { boxWidth: 10, font: { size: 10 } } }, tooltip: { bodyFont: { size: 11 }, titleFont: { size: 11 } } },
+  scales: { x: { ticks: { font: { size: 10 }, maxRotation: 45 } }, y: { ticks: { font: { size: 10 } } } },
+};
+
+// ─── Status badge ──────────────────────────────────────────────────────────
+function StatusBadge({ status }: { status: string }) {
+  const s = status.toLowerCase();
+  const map: Record<string, string> = {
+    done:       "bg-green-100 text-green-700 border-green-200",
+    completed:  "bg-green-100 text-green-700 border-green-200",
+    success:    "bg-green-100 text-green-700 border-green-200",
+    failed:     "bg-red-100 text-red-600 border-red-200",
+    error:      "bg-red-100 text-red-600 border-red-200",
+    running:    "bg-blue-100 text-blue-700 border-blue-200",
+    pending:    "bg-amber-100 text-amber-700 border-amber-200",
+    ready:      "bg-gray-100 text-gray-600 border-gray-200",
+  };
+  const cls = map[s] ?? "bg-gray-100 text-gray-600 border-gray-200";
   return (
-    <Card title="Cashflow KPI" icon="🔄" color="green" badge={month} loading={loading} error={error}>
-      {pieData.length > 0 && (
-        <>
-          <SecLabel title="Debit vs Credit Split" />
-          <ResponsiveContainer width="100%" height={220}>
-            <PieChart>
-              <Pie data={pieData} cx="50%" cy="45%" innerRadius={60} outerRadius={90}
-                dataKey="value" labelLine={false} label={renderLabel}>
-                {pieData.map((d,i)=><Cell key={i} fill={d.color} />)}
-              </Pie>
-              <Tooltip content={<CustomTooltip />} />
-              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize:11, color:"#7a8cb0" }} />
-            </PieChart>
-          </ResponsiveContainer>
-        </>
-      )}
-      {rows.length > 0 && (
-        <>
-          <SecLabel title="Metrics" />
-          {rows.map((r,i)=><StatRow key={i} label={r.label} value={r.value} accent={acc} highlight={r.highlight} />)}
-        </>
-      )}
-    </Card>
+    <span className={`inline-flex items-center px-2 py-0.5 text-[10px] font-semibold rounded border capitalize ${cls}`}>
+      {status}
+    </span>
   );
 }
 
-// ─── FUNDSFLOW CARD ──────────────────────────────────────────
-function FundsflowCard({ data, loading, error, month }: { data:any; loading:boolean; error:string|null; month:string }) {
-  const acc = ACC.purple;
-  const entries = data ? Object.entries(data).filter(([k])=>k!=="month") : [];
-  const chartData = entries
-    .filter(([,v])=>typeof v==="number" && v!==0)
-    .map(([k,v])=>({ name:humanize(k), value:Number(v) }));
-
-  const rows = entries.map(([k,v])=>({
-    label:humanize(k), value:fmtVal(k,v),
-    highlight:["net_flow","net_funds_flow"].includes(k)
-  }));
-
-  return (
-    <Card title="Funds Flow KPI" icon="📈" color="purple" badge={month} loading={loading} error={error}>
-      {chartData.length > 0 && (
-        <>
-          <SecLabel title="Funds Flow Breakdown" />
-          <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={chartData} margin={{ top:5, right:10, left:10, bottom:20 }}>
-              <defs>
-                <linearGradient id="ffGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#7c3aed" stopOpacity={0.2} />
-                  <stop offset="100%" stopColor="#7c3aed" stopOpacity={0.01} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f4fd" vertical={false} />
-              <XAxis dataKey="name" tick={{ fontSize:10, fill:"#8898c0" }} angle={-30} textAnchor="end" axisLine={false} tickLine={false} interval={0} />
-              <YAxis tickFormatter={fmtNum} tick={{ fontSize:10, fill:"#a0aac8" }} axisLine={false} tickLine={false} width={60} />
-              <Tooltip content={<CustomTooltip />} />
-              <Area type="monotone" dataKey="value" stroke="#7c3aed" strokeWidth={2.5}
-                fill="url(#ffGrad)" dot={{ fill:"#7c3aed", r:4, strokeWidth:2, stroke:"#fff" }}
-                activeDot={{ r:6, fill:"#7c3aed" }} name="Amount" />
-            </AreaChart>
-          </ResponsiveContainer>
-        </>
-      )}
-      {rows.length > 0 && (
-        <>
-          <SecLabel title="Metrics" />
-          {rows.map((r,i)=><StatRow key={i} label={r.label} value={r.value} accent={acc} highlight={r.highlight} />)}
-        </>
-      )}
-    </Card>
+// ─── Inline KPI results panel ──────────────────────────────────────────────
+function KpiResultPanel({
+  data, slide, onSlide, onClose,
+}: {
+  data: KpiResponse; slide: number;
+  onSlide: (n: number) => void;
+  onClose: () => void;
+}) {
+  const items = getKpiItems(data);
+  const total = items.length;
+  if (total === 0) return (
+    <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-t border-gray-200">
+      <span className="text-xs text-gray-400">No KPI data in response.</span>
+      <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+    </div>
   );
-}
 
-// ─── P&L CARD ────────────────────────────────────────────────
-function PLCard({ data, loading, error }: { data:any; loading:boolean; error:string|null }) {
-  const acc = ACC.amber;
-  const revenue  = Math.abs(Number(data?.total_revenue  ?? data?.revenue  ?? 0));
-  const expenses = Math.abs(Number(data?.total_expenses ?? data?.expenses ?? 0));
-  const gross    = Math.abs(Number(data?.gross_profit   ?? 0));
-  const net      = Number(data?.net_profit ?? data?.profit ?? 0);
-  const margin   = Number(data?.gross_margin ?? data?.profit_margin ?? (revenue>0?(gross/revenue)*100:0));
-
-  const barData = [
-    { name:"Revenue",  value:revenue,  fill:"#4f8ef7" },
-    { name:"Expenses", value:expenses, fill:"#f59e0b" },
-    { name:"Gross P.", value:gross,    fill:"#16a34a" },
-    { name:"Net P.",   value:Math.abs(net), fill: net<0?"#ef4444":"#7c3aed" },
-  ].filter(d=>d.value>0);
-
-  const radialData = [{ name:"Margin", value: Math.min(Math.max(margin,0),100), fill:"#d97706" }];
-
-  const rows = data
-    ? Object.entries(data).map(([k,v])=>({
-        label:humanize(k), value:fmtVal(k,v),
-        highlight:["net_profit","gross_profit","profit"].includes(k)
-      }))
-    : [];
+  const kpi  = items[Math.min(slide, total - 1)];
+  const cur  = Math.min(slide, total - 1);
+  const barD = buildBar(kpi);
+  const linD = buildLine(kpi);
+  const pieD = buildPie(kpi);
 
   return (
-    <Card title="Profit KPI" icon="🏆" color="amber" loading={loading} error={error}>
-      {barData.length > 0 && (
-        <>
-          <SecLabel title="Revenue vs Expenses" />
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={barData} barCategoryGap="30%" margin={{ top:5,right:10,left:10,bottom:5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f4fd" vertical={false} />
-              <XAxis dataKey="name" tick={{ fontSize:11,fill:"#8898c0",fontWeight:500 }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={fmtNum} tick={{ fontSize:10,fill:"#a0aac8" }} axisLine={false} tickLine={false} width={60} />
-              <Tooltip content={<CustomTooltip />} cursor={{ fill:"rgba(245,158,11,0.05)" }} />
-              <Bar dataKey="value" radius={[6,6,0,0]} name="Amount">
-                {barData.map((d,i)=><Cell key={i} fill={d.fill} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+    <div className="border-t-2 border-blue-200 bg-gradient-to-b from-blue-50/60 to-white">
 
-          {margin > 0 && (
-            <>
-              <SecLabel title="Profit Margin" />
-              <div style={{ display:"flex", alignItems:"center", gap:20 }}>
-                <ResponsiveContainer width={140} height={100}>
-                  <RadialBarChart innerRadius={28} outerRadius={48} startAngle={180} endAngle={0}
-                    data={[{ value:100, fill:"#f0f4fd" }, ...radialData]} cx="50%" cy="95%">
-                    <RadialBar dataKey="value" cornerRadius={4} background={false} />
-                  </RadialBarChart>
-                </ResponsiveContainer>
-                <div>
-                  <div style={{ fontSize:28, fontWeight:800, color:"#d97706", lineHeight:1 }}>{margin.toFixed(1)}%</div>
-                  <div style={{ fontSize:11, color:"#8898c0", marginTop:4 }}>Gross Margin</div>
-                </div>
-              </div>
-            </>
+      {/* Result header */}
+      <div className="flex items-center justify-between px-4 py-2.5 bg-blue-50 border-b border-blue-100">
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <CheckCircle className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
+          <span className="text-xs font-bold text-blue-800 truncate">
+            {kpi.name?.replace(/_/g, " ")}
+          </span>
+          {kpi.logic && (
+            <span className="hidden sm:block text-[10px] text-blue-500 truncate max-w-xs">{kpi.logic}</span>
           )}
-        </>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+          {kpi.inputs?.map(inp => (
+            <span key={inp} className="hidden sm:block text-[10px] bg-white text-blue-600 border border-blue-200 px-2 py-0.5 rounded-full whitespace-nowrap">{inp}</span>
+          ))}
+          <span className="text-[10px] text-blue-400 whitespace-nowrap">{cur + 1}/{total}</span>
+          <button onClick={() => onSlide(Math.max(0, cur - 1))} disabled={cur === 0}
+            className="p-1 rounded border border-blue-200 text-blue-500 hover:bg-blue-100 disabled:opacity-30 transition-colors">
+            <ChevronLeft className="w-3.5 h-3.5" />
+          </button>
+          <button onClick={() => onSlide(Math.min(total - 1, cur + 1))} disabled={cur === total - 1}
+            className="p-1 rounded border border-blue-200 text-blue-500 hover:bg-blue-100 disabled:opacity-30 transition-colors">
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+          <button onClick={onClose}
+            className="p-1 rounded border border-red-200 text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors ml-1">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Data table */}
+      {kpi.rows?.length > 0 && (
+        <div className="overflow-auto border-b border-blue-100" style={{ maxHeight: 180, scrollbarWidth: "thin", scrollbarColor: "#3b82f6 #eff6ff" }}>
+          <table className="min-w-full text-xs border-collapse">
+            <thead className="bg-blue-50 sticky top-0 z-10">
+              <tr>
+                <th className="px-3 py-1.5 text-left text-[10px] font-bold text-blue-400 border-b border-blue-100 w-7">#</th>
+                {(kpi.columns?.length
+                  ? kpi.columns
+                  : Array.from({ length: kpi.rows[0]?.length ?? 0 }, (_, i) => `Col ${i + 1}`)
+                ).map(c => (
+                  <th key={c} className="px-3 py-1.5 text-left font-semibold text-blue-700 border-b border-blue-100 whitespace-nowrap">{c}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {kpi.rows?.map((row, i) => (
+                <tr key={i} className={i % 2 === 0 ? "bg-white hover:bg-blue-50" : "bg-blue-50/40 hover:bg-blue-50"}>
+                  <td className="px-3 py-1.5 border-b border-blue-50 text-blue-300 text-[10px]">{i + 1}</td>
+                  {row.map((cell, j) => (
+                    <td key={j} className="px-3 py-1.5 border-b border-blue-50 text-gray-700 whitespace-nowrap">{cell}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
-      {rows.length > 0 && (
-        <>
-          <SecLabel title="Metrics" />
-          {rows.map((r,i)=><StatRow key={i} label={r.label} value={r.value} accent={acc} highlight={r.highlight} />)}
-        </>
-      )}
-    </Card>
-  );
-}
 
-// ─── Main Dashboard ───────────────────────────────────────────
-export default function KPIDashboard() {
-  const currentMonth = MONTHS[new Date().getMonth()];
-  const [selectedMonth, setSelectedMonth] = useState(currentMonth);
-
-  const [salesData,     setSalesData]     = useState<any>(null);
-  const [cashflowData,  setCashflowData]  = useState<any>(null);
-  const [fundsflowData, setFundsflowData] = useState<any>(null);
-  const [plData,        setPlData]        = useState<any>(null);
-
-  const [lS,setLS]=useState(false),[lC,setLC]=useState(false),[lF,setLF]=useState(false),[lP,setLP]=useState(false);
-  const [eS,setES]=useState<string|null>(null),[eC,setEC]=useState<string|null>(null),[eF,setEF]=useState<string|null>(null),[eP,setEP]=useState<string|null>(null);
-  const [lastRefreshed, setLastRefreshed] = useState<Date|null>(null);
-
-  const fetchAll = useCallback(async () => {
-    setLS(true); setES(null);
-    try   { const r=await fetch(`${API_BASE}/kpi/sales/${selectedMonth}`,{headers:H});     if(!r.ok) throw new Error(`HTTP ${r.status}`); setSalesData(await r.json()); }
-    catch(e:any){ setES(e.message); } finally { setLS(false); }
-
-    setLC(true); setEC(null);
-    try   { const r=await fetch(`${API_BASE}/kpi/cashflow/${selectedMonth}`,{headers:H});  if(!r.ok) throw new Error(`HTTP ${r.status}`); setCashflowData(await r.json()); }
-    catch(e:any){ setEC(e.message); } finally { setLC(false); }
-
-    setLF(true); setEF(null);
-    try   { const r=await fetch(`${API_BASE}/kpi/fundsflow/${selectedMonth}`,{headers:H}); if(!r.ok) throw new Error(`HTTP ${r.status}`); setFundsflowData(await r.json()); }
-    catch(e:any){ setEF(e.message); } finally { setLF(false); }
-
-    setLP(true); setEP(null);
-    try   { const r=await fetch(`${API_BASE}/kpi/profitloss`,{headers:H});                if(!r.ok) throw new Error(`HTTP ${r.status}`); setPlData(await r.json()); }
-    catch(e:any){ setEP(e.message); } finally { setLP(false); }
-
-    setLastRefreshed(new Date());
-  }, [selectedMonth]);
-
-  useEffect(() => { fetchAll(); }, [fetchAll]);
-
-  const anyLoading = lS||lC||lF||lP;
-
-  return (
-    <>
-      <style>{`
-        @keyframes kpispin { to { transform:rotate(360deg); } }
-        .kd-wrap *, .kd-wrap *::before, .kd-wrap *::after { box-sizing:border-box; margin:0; padding:0; }
-        .kd-wrap { min-height:100vh; background:#f4f7fe; font-family:'Segoe UI',sans-serif; padding-bottom:56px; color:#1a2340; }
-
-        /* ── topbar ── */
-        .kd-tb { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; padding:14px 28px; background:#fff; border-bottom:1px solid #e2e8f5; box-shadow:0 1px 6px rgba(79,142,247,0.07); position:sticky; top:0; z-index:20; }
-        .kd-tb__brand { display:flex; align-items:center; gap:10px; }
-        .kd-tb__logo  { width:38px; height:38px; background:linear-gradient(135deg,#4f8ef7,#2563eb); border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:18px; box-shadow:0 4px 12px rgba(79,142,247,0.3); }
-        .kd-tb__title    { font-size:15px; font-weight:700; color:#1a2340; }
-        .kd-tb__subtitle { font-size:11px; color:#8898c0; margin-top:1px; }
-        .kd-tb__ctrl { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-        .kd-ts { font-size:10px; color:#a0aac8; white-space:nowrap; }
-
-        .kd-sel { background:#fff; border:1.5px solid #d0d9f0; color:#3a4a70; border-radius:8px; padding:7px 32px 7px 12px; font-size:13px; font-family:inherit; cursor:pointer; appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='%236b7a9e'%3E%3Cpath d='M5 6 0 0h10z'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 10px center; outline:none; transition:border-color .2s,box-shadow .2s; }
-        .kd-sel:focus { border-color:#4f8ef7; box-shadow:0 0 0 3px rgba(79,142,247,.12); }
-
-        .kd-btn { display:flex; align-items:center; gap:6px; background:linear-gradient(135deg,#4f8ef7,#2563eb); color:#fff; border:none; border-radius:8px; padding:7px 16px; font-size:12px; font-weight:600; cursor:pointer; font-family:inherit; box-shadow:0 3px 10px rgba(79,142,247,.3); transition:opacity .2s,transform .15s; }
-        .kd-btn:hover   { opacity:.92; transform:translateY(-1px); }
-        .kd-btn:active  { transform:translateY(0); }
-        .kd-btn:disabled{ opacity:.5; cursor:not-allowed; transform:none; }
-        .kd-spin { display:inline-block; }
-        .kd-btn:disabled .kd-spin { animation:kpispin .8s linear infinite; }
-
-        /* ── FY Header ── */
-        .kd-fy-header {
-          display:flex; align-items:center; gap:12px;
-          padding:12px 28px;
-          background:linear-gradient(90deg,#eff6ff 0%,#f8faff 100%);
-          border-bottom:1px solid #dbeafe;
-        }
-        .kd-fy-header__icon { font-size:15px; }
-        .kd-fy-header__label { font-size:11px; font-weight:700; color:#6b7a9e; text-transform:uppercase; letter-spacing:0.8px; }
-        .kd-fy-header__value { font-size:14px; font-weight:800; color:#1a2340; margin-left:4px; }
-        .kd-fy-header__sub { font-size:11px; color:#8898c0; margin-left:8px; }
-        .kd-fy-header__badge {
-          margin-left:auto;
-          background:#2563eb; color:#fff;
-          border-radius:6px; padding:4px 12px;
-          font-size:11px; font-weight:700; letter-spacing:0.4px;
-        }
-
-        /* ── section ── */
-        .kd-sh { padding:28px 28px 12px; display:flex; align-items:center; gap:12px; }
-        .kd-sh h2 { font-size:11px; font-weight:700; color:#a0aac8; text-transform:uppercase; letter-spacing:1.2px; white-space:nowrap; }
-        .kd-sh__line { flex:1; height:1px; background:#e2e8f5; }
-        .kd-sh__chip { background:#eff6ff; color:#2563eb; border:1.5px solid #bfdbfe; border-radius:20px; padding:3px 12px; font-size:11px; font-weight:600; white-space:nowrap; }
-
-        /* ── grid ── */
-        .kd-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:18px; padding:0 28px; }
-        @media(max-width:750px){ .kd-grid{ grid-template-columns:1fr; } }
-
-        .kd-foot { text-align:center; padding:32px 28px 8px; font-size:11px; color:#c0cae0; }
-
-        @media(max-width:600px){
-          .kd-tb        { padding:12px 16px; }
-          .kd-fy-header { padding:10px 16px; }
-          .kd-grid      { padding:0 16px; }
-          .kd-sh        { padding:20px 16px 10px; }
-          .kd-fy-header__sub { display:none; }
-        }
-      `}</style>
-
-      <div className="kd-wrap">
-
-        {/* ── Topbar ── */}
-        <div className="kd-tb">
-          <div className="kd-tb__brand">
-            <div className="kd-tb__logo">📊</div>
-            <div>
-              <div className="kd-tb__title">KPI Dashboard</div>
-              <div className="kd-tb__subtitle">Financial Performance Overview</div>
+      {/* 3 charts */}
+      <div className="grid grid-cols-3 divide-x divide-blue-100">
+        {[
+          { label: "Bar Chart",  chart: barD ? <Bar  data={barD} options={chartOpts} /> : null },
+          { label: "Line Chart", chart: linD ? <Line data={linD} options={chartOpts} /> : null },
+          { label: "Pie Chart",  chart: pieD ? <Pie  data={pieD} options={{ ...chartOpts, scales: undefined }} /> : null },
+        ].map(({ label, chart }) => (
+          <div key={label} className="p-3">
+            <p className="text-[10px] font-bold text-blue-400 uppercase tracking-wide text-center mb-2">{label}</p>
+            <div style={{ height: 180 }}>
+              {chart ?? <p className="text-[10px] text-gray-300 text-center pt-8">No data</p>}
             </div>
           </div>
-          <div className="kd-tb__ctrl">
-            {lastRefreshed && <span className="kd-ts">Updated {lastRefreshed.toLocaleTimeString()}</span>}
-            <select
-  className="kd-sel"
-  value={selectedMonth}
-  onChange={e => setSelectedMonth(e.target.value)}
->
-  {MONTHS.map(m => (
-    <option key={m} value={m}>
-      {m} - {FINANCIAL_YEAR}
-    </option>
-  ))}
-</select>
-            <button className="kd-btn" onClick={fetchAll} disabled={anyLoading}>
-              <span className="kd-spin">↻</span>
-              {anyLoading ? "Loading…" : "Refresh"}
-            </button>
+        ))}
+      </div>
+
+      {/* Dot nav */}
+      {total > 1 && (
+        <div className="flex items-center justify-center gap-1.5 py-2.5 border-t border-blue-100 overflow-x-auto px-4">
+          {items.map((_, i) => (
+            <button key={i} onClick={() => onSlide(i)}
+              className={`rounded-full transition-all flex-shrink-0 ${i === cur ? "w-5 h-2 bg-blue-500" : "w-2 h-2 bg-blue-200 hover:bg-blue-300"}`}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Job Row ───────────────────────────────────────────────────────────────
+function JobRow({ job, rowState, onRun, onClose, onSlide, idx }: {
+  job: KpiJob;
+  rowState: RowState;
+  onRun: () => void;
+  onClose: () => void;
+  onSlide: (n: number) => void;
+  idx: number;
+}) {
+  const id     = getJobId(job);
+  const name   = getJobName(job);
+  const date   = getJobDate(job);
+  const status = getJobStatus(job);
+
+  const skipKeys = new Set(["id","job_id","file_name","name","filename","table_name","status","created_at","uploaded_at","timestamp"]);
+  const extras = Object.entries(job).filter(([k]) => !skipKeys.has(k)).slice(0, 2);
+
+  return (
+    <div className={`rounded-xl overflow-hidden transition-all duration-200 ${
+      rowState.open
+        ? "border-2 border-blue-400 shadow-lg shadow-blue-100"
+        : "border-2 border-blue-200 hover:border-blue-400 hover:shadow-md hover:shadow-blue-50"
+    }`}>
+
+      {/* Main row */}
+      <div className={`flex items-center gap-3 px-4 py-3.5 transition-colors ${
+        rowState.open
+          ? "bg-gradient-to-r from-blue-50 to-indigo-50"
+          : "bg-gradient-to-r from-white to-blue-50/40 hover:from-blue-50/60 hover:to-blue-50/20"
+      }`}>
+
+        {/* Index bubble */}
+        <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0 transition-colors ${
+          rowState.open
+            ? "bg-blue-600 text-white shadow-sm"
+            : "bg-blue-100 text-blue-600"
+        }`}>
+          {idx + 1}
+        </div>
+
+        {/* File icon */}
+        <div className="w-8 h-8 rounded-lg bg-white border border-blue-200 flex items-center justify-center flex-shrink-0 shadow-sm">
+          <span className="text-sm">📄</span>
+        </div>
+
+        {/* Job info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-bold text-gray-800 truncate max-w-xs">{name}</span>
+            <StatusBadge status={status} />
+            {rowState.open && (
+              <span className="inline-flex items-center gap-1 text-[10px] text-blue-600 font-semibold bg-blue-100 px-2 py-0.5 rounded-full">
+                ▼ results expanded
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-3 mt-1 flex-wrap">
+            {/* <span className="text-[10px] font-mono text-blue-400 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">
+              {String(id).slice(0, 18)}…
+            </span> */}
+            {/* {job.job_id && (
+              <span className="text-[10px] font-mono text-gray-400">
+                job: {String(job.job_id).slice(0, 14)}…
+              </span>
+            )} */}
+            {/* {date && (
+              <span className="flex items-center gap-1 text-[10px] text-gray-400">
+                <Clock className="w-2.5 h-2.5 text-blue-300" />{date}
+              </span>
+            )} */}
+            {extras.map(([k, v]) => (
+              <span key={k} className="text-[10px] text-gray-400">
+                <span className="text-gray-500 font-medium">{k}:</span> {String(v).slice(0, 20)}
+              </span>
+            ))}
           </div>
         </div>
 
-        {/* ── Financial Year Header ── */}
-        {/* <div className="kd-fy-header">
-          <span className="kd-fy-header__icon">📅</span>
-          <span className="kd-fy-header__label">Financial Year</span>
-          <span className="kd-fy-header__value">2018 – 2019</span>
-          <span className="kd-fy-header__sub">April 2018 · March 2019</span>
-          <span className="kd-fy-header__badge">FY 2018–2019</span>
-        </div> */}
-
-        {/* ── Section ── */}
-        <div className="kd-sh">
-          <h2>Detailed KPIs</h2>
-          <span className="kd-sh__chip">{selectedMonth}</span>
-          <div className="kd-sh__line" />
+        {/* Actions */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {rowState.open && (
+            <button onClick={onClose}
+              className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-red-500 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors">
+              <X className="w-3 h-3" /> Close
+            </button>
+          )}
+          <button
+            onClick={onRun}
+            disabled={rowState.loading}
+            className={`flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded-lg transition-all shadow-sm ${
+              rowState.loading
+                ? "bg-blue-400 text-white cursor-not-allowed"
+                : "bg-blue-600 hover:bg-blue-700 text-white shadow-blue-200 hover:shadow-blue-300 hover:shadow-md"
+            }`}
+          >
+            {rowState.loading
+              ? <><RefreshCw className="w-3 h-3 animate-spin" /> Running...</>
+              : <><Play className="w-3.5 h-3.5" /> Run</>}
+          </button>
         </div>
-
-        {/* ── Cards ── */}
-        <div className="kd-grid">
-          <SalesCard    data={salesData}     loading={lS} error={eS} month={selectedMonth} />
-          <CashflowCard data={cashflowData}  loading={lC} error={eC} month={selectedMonth} />
-          <FundsflowCard data={fundsflowData} loading={lF} error={eF} month={selectedMonth} />
-          <PLCard       data={plData}        loading={lP} error={eP} />
-        </div>
-
-        <div className="kd-foot">Financial Year 2018–2019 · Data sourced from GBusiness Platform API · {new Date().getFullYear()}</div>
       </div>
-    </>
+
+      {/* Error strip */}
+      {rowState.error && (
+        <div className="flex items-center gap-2 px-4 py-2.5 bg-red-50 border-t-2 border-red-200 text-xs text-red-600">
+          <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+          {rowState.error}
+        </div>
+      )}
+
+      {/* Inline KPI result panel */}
+      {rowState.open && rowState.data && (
+        <KpiResultPanel
+          data={rowState.data}
+          slide={rowState.slide}
+          onSlide={onSlide}
+          onClose={onClose}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Main Dashboard ────────────────────────────────────────────────────────
+export default function KPIDashboard() {
+  const [jobs, setJobs]               = useState<KpiJob[]>([]);
+  const [totalRecords, setTotalRecords] = useState<number>(0);
+  const [jobsLoading, setJobsLoading] = useState(false);
+  const [jobsError, setJobsError]     = useState<string | null>(null);
+  const [rows, setRows]               = useState<Record<string, RowState>>({});
+  const [globalError, setGlobalError] = useState<string | null>(null);
+  const [showTopBtn, setShowTopBtn]   = useState(false);
+
+  // ── Scroll-to-top visibility ───────────────────────────────────────────
+  useEffect(() => {
+    const onScroll = () => setShowTopBtn(window.scrollY > 300);
+    window.addEventListener("scroll", onScroll);
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // ── Fetch job list ─────────────────────────────────────────────────────
+  const fetchJobs = useCallback(async () => {
+    setJobsLoading(true); setJobsError(null);
+    try {
+      const res = await fetch(`${KPI_API_BASE}/api/kpi-jobs/`, { headers: H });
+      if (!res.ok) throw new Error(`Failed to load jobs (${res.status})`);
+      const data = await res.json();
+      // API returns { total_records: N, records: [...] }
+      const list: KpiJob[] = Array.isArray(data)
+        ? data
+        : data.records ?? data.jobs ?? data.results ?? data.items ?? [];
+      setTotalRecords(data.total_records ?? list.length);
+      setJobs(list);
+      // Init row state
+      const init: Record<string, RowState> = {};
+      list.forEach(j => {
+        const id = getJobId(j);
+        init[id] = { loading: false, error: null, data: null, open: false, slide: 0 };
+      });
+      setRows(init);
+    } catch (err: unknown) {
+      setJobsError(err instanceof Error ? err.message : "Failed to load jobs");
+    } finally {
+      setJobsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchJobs(); }, [fetchJobs]);
+
+  // ── Run a job ─────────────────────────────────────────────────────────
+  const handleRun = async (job: KpiJob) => {
+    const id = getJobId(job);
+    setRows(prev => ({ ...prev, [id]: { ...prev[id], loading: true, error: null } }));
+    try {
+      const res = await fetch(`${KPI_API_BASE}/api/saved-kpi/?db_id=${encodeURIComponent(id)}`, { headers: H });
+      if (!res.ok) throw new Error(`API error (${res.status}): ${res.statusText}`);
+      const data: KpiResponse = await res.json();
+      setRows(prev => ({ ...prev, [id]: { loading: false, error: null, data, open: true, slide: 0 } }));
+    } catch (err: unknown) {
+      setRows(prev => ({ ...prev, [id]: { ...prev[id], loading: false, error: err instanceof Error ? err.message : "Run failed" } }));
+    }
+  };
+
+  const handleClose = (id: string) =>
+    setRows(prev => ({ ...prev, [id]: { ...prev[id], open: false } }));
+
+  const handleSlide = (id: string, n: number) =>
+    setRows(prev => ({ ...prev, [id]: { ...prev[id], slide: n } }));
+
+  const anyOpen = Object.values(rows).some(r => r.open);
+
+  return (
+    <div className="min-h-full" style={{ background: "linear-gradient(160deg, #eff6ff 0%, #f8faff 40%, #f0f9ff 100%)" }}>
+
+      {/* ── Gradient Header Banner ── */}
+      <div style={{ background: "linear-gradient(135deg, #1d4ed8 0%, #2563eb 50%, #3b82f6 100%)" }}
+        className="px-6 py-5 shadow-lg">
+        <div className="max-w-5xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-11 h-11 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center shadow-inner border border-white/30">
+              <Database className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h2 className="text-lg font-extrabold text-white tracking-tight">KPI Dashboard</h2>
+              <p className="text-xs text-blue-200 mt-0.5 font-medium">
+                {totalRecords > 0
+                  ? `${totalRecords} record${totalRecords !== 1 ? "s" : ""} available · click Run to view results`
+                  : "Loading available jobs…"}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={fetchJobs}
+            disabled={jobsLoading}
+            className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-blue-700 bg-white hover:bg-blue-50 disabled:opacity-60 rounded-xl transition-all shadow-md"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${jobsLoading ? "animate-spin" : ""}`} />
+            {jobsLoading ? "Loading..." : "Refresh"}
+          </button>
+        </div>
+      </div>
+
+      {/* ── Stats bar ── */}
+      {jobs.length > 0 && (
+        <div className="max-w-5xl mx-auto px-6 py-3 flex items-center gap-4">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg border border-blue-200 shadow-sm">
+            <div className="w-2 h-2 rounded-full bg-blue-500" />
+            <span className="text-xs font-semibold text-blue-700">{totalRecords} Total Jobs</span>
+          </div>
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg border border-green-200 shadow-sm">
+            <div className="w-2 h-2 rounded-full bg-green-500" />
+            <span className="text-xs font-semibold text-green-700">
+              {Object.values(rows).filter(r => r.open).length} Results Open
+            </span>
+          </div>
+          {anyOpen && (
+            <button
+              onClick={() => setRows(prev => {
+                const next = { ...prev };
+                Object.keys(next).forEach(k => { next[k] = { ...next[k], open: false }; });
+                return next;
+              })}
+              className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-red-500 bg-white border border-red-200 rounded-lg hover:bg-red-50 transition-colors shadow-sm"
+            >
+              <X className="w-3 h-3" /> Close All
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className="max-w-5xl mx-auto px-6 pb-8">
+
+        {/* Global error */}
+        {globalError && (
+          <div className="flex items-center gap-2 p-3 mb-4 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <span className="flex-1">{globalError}</span>
+            <button onClick={() => setGlobalError(null)}><X className="w-3 h-3" /></button>
+          </div>
+        )}
+
+        {/* ── Jobs error ── */}
+        {jobsError && (
+          <div className="flex items-center gap-2 p-4 bg-red-50 border-2 border-red-200 rounded-xl text-sm text-red-600">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <span className="flex-1">{jobsError}</span>
+            <button onClick={fetchJobs} className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold bg-white border border-red-200 rounded-lg hover:bg-red-50 transition-colors text-red-600">
+              <RefreshCw className="w-3 h-3" /> Retry
+            </button>
+          </div>
+        )}
+
+        {/* ── Loading skeleton ── */}
+        {jobsLoading && jobs.length === 0 && (
+          <div className="space-y-3 mt-2">
+            {[1, 2, 3, 4].map(i => (
+              <div key={i} className="h-16 rounded-xl border-2 border-blue-100 animate-pulse"
+                style={{ background: "linear-gradient(90deg, #eff6ff, #dbeafe, #eff6ff)", backgroundSize: "200% 100%", opacity: 1 - i * 0.15 }} />
+            ))}
+          </div>
+        )}
+
+        {/* ── Empty state ── */}
+        {!jobsLoading && !jobsError && jobs.length === 0 && (
+          <div className="border-2 border-dashed border-blue-200 rounded-2xl p-14 text-center bg-white/60 mt-2">
+            <div className="w-14 h-14 rounded-2xl bg-blue-100 flex items-center justify-center mx-auto mb-4">
+              <Layers className="w-7 h-7 text-blue-400" />
+            </div>
+            <p className="text-sm font-bold text-gray-600 mb-1">No KPI jobs found</p>
+            <p className="text-xs text-gray-400 mb-5">Upload a file in the KPI Updates tab to generate jobs</p>
+            <button onClick={fetchJobs} className="inline-flex items-center gap-2 px-5 py-2 text-xs font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors shadow-md">
+              <RefreshCw className="w-3 h-3" /> Check Again
+            </button>
+          </div>
+        )}
+
+        {/* ── Column headers ── */}
+        {jobs.length > 0 && (
+          <div className="hidden sm:flex items-center gap-3 px-4 pb-2 mt-1">
+            <div className="w-8 flex-shrink-0" />
+            <div className="w-8 flex-shrink-0" />
+            <div className="flex-1 text-[10px] font-bold text-blue-400 uppercase tracking-widest">Table Name</div>
+            <div className="text-[10px] font-bold text-blue-400 uppercase tracking-widest pr-2">Action</div>
+          </div>
+        )}
+
+        {/* ── Job list ── */}
+        {jobs.length > 0 && (
+          <div className="space-y-3">
+            {jobs.map((job, idx) => {
+              const id = getJobId(job);
+              const rs = rows[id] ?? { loading: false, error: null, data: null, open: false, slide: 0 };
+              return (
+                <JobRow
+                  key={id || idx}
+                  job={job}
+                  rowState={rs}
+                  onRun={() => handleRun(job)}
+                  onClose={() => handleClose(id)}
+                  onSlide={(n) => handleSlide(id, n)}
+                  idx={idx}
+                />
+              );
+            })}
+          </div>
+        )}
+
+        {/* ── Footer ── */}
+        {jobs.length > 0 && (
+          <div className="mt-5 text-center text-[10px] text-blue-300 font-medium">
+            {totalRecords} record{totalRecords !== 1 ? "s" : ""} · KPI Pipeline Dashboard
+          </div>
+        )}
+      </div>
+
+      {/* ── Scroll to Top ── */}
+      {showTopBtn && (
+        <button
+          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          className="fixed bottom-6 right-6 z-50 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-4 py-2 rounded-full shadow-lg transition-all"
+        >
+          ↑ Top
+        </button>
+      )}
+    </div>
   );
 }
