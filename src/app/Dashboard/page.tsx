@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Bar, Line, Pie } from "react-chartjs-2";
 import {
   Chart as ChartJS, CategoryScale, LinearScale, BarElement,
@@ -8,7 +8,8 @@ import {
 } from "chart.js";
 import {
   Play, RefreshCw, X, AlertCircle, Database,
-  Clock, ChevronLeft, ChevronRight, CheckCircle, Layers,
+  ChevronLeft, ChevronRight, CheckCircle, Layers,
+  Search, ArrowUpDown, ArrowUp, ArrowDown,
 } from "lucide-react";
 
 ChartJS.register(
@@ -288,11 +289,7 @@ function JobRow({ job, rowState, onRun, onClose, onSlide, idx }: {
 }) {
   const id     = getJobId(job);
   const name   = getJobName(job);
-  const date   = getJobDate(job);
   const status = getJobStatus(job);
-
-  const skipKeys = new Set(["id","job_id","file_name","name","filename","table_name","status","created_at","uploaded_at","timestamp"]);
-  const extras = Object.entries(job).filter(([k]) => !skipKeys.has(k)).slice(0, 2);
 
   return (
     <div className={`rounded-xl overflow-hidden transition-all duration-200 ${
@@ -332,26 +329,6 @@ function JobRow({ job, rowState, onRun, onClose, onSlide, idx }: {
                 ▼ results expanded
               </span>
             )}
-          </div>
-          <div className="flex items-center gap-3 mt-1 flex-wrap">
-            {/* <span className="text-[10px] font-mono text-blue-400 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">
-              {String(id).slice(0, 18)}…
-            </span> */}
-            {/* {job.job_id && (
-              <span className="text-[10px] font-mono text-gray-400">
-                job: {String(job.job_id).slice(0, 14)}…
-              </span>
-            )} */}
-            {/* {date && (
-              <span className="flex items-center gap-1 text-[10px] text-gray-400">
-                <Clock className="w-2.5 h-2.5 text-blue-300" />{date}
-              </span>
-            )} */}
-            {extras.map(([k, v]) => (
-              <span key={k} className="text-[10px] text-gray-400">
-                <span className="text-gray-500 font-medium">{k}:</span> {String(v).slice(0, 20)}
-              </span>
-            ))}
           </div>
         </div>
 
@@ -408,16 +385,26 @@ export default function KPIDashboard() {
   const [jobsError, setJobsError]     = useState<string | null>(null);
   const [rows, setRows]               = useState<Record<string, RowState>>({});
   const [globalError, setGlobalError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortDir, setSortDir]         = useState<"asc" | "desc">("asc");
   const [showTopBtn, setShowTopBtn]   = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  // ── Scroll-to-top visibility ───────────────────────────────────────────
+  // ── Scroll-to-top: listen on both window AND nearest scrollable container ──
   useEffect(() => {
-    const onScroll = () => setShowTopBtn(window.scrollY > 300);
-    window.addEventListener("scroll", onScroll);
-    return () => window.removeEventListener("scroll", onScroll);
+    const check = () => {
+      const winScroll = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop;
+      const divScroll = containerRef.current?.parentElement?.scrollTop ?? 0;
+      setShowTopBtn(winScroll > 200 || divScroll > 200);
+    };
+    window.addEventListener("scroll", check, true); // capture phase catches all
+    const parent = containerRef.current?.parentElement;
+    if (parent) parent.addEventListener("scroll", check);
+    return () => {
+      window.removeEventListener("scroll", check, true);
+      if (parent) parent.removeEventListener("scroll", check);
+    };
   }, []);
-
-  // ── Fetch job list ─────────────────────────────────────────────────────
   const fetchJobs = useCallback(async () => {
     setJobsLoading(true); setJobsError(null);
     try {
@@ -468,8 +455,25 @@ export default function KPIDashboard() {
 
   const anyOpen = Object.values(rows).some(r => r.open);
 
+  // ── Filter + sort ──────────────────────────────────────────────────────
+  const displayedJobs = jobs
+    .filter(j => getJobName(j).toLowerCase().includes(searchQuery.toLowerCase()))
+    .sort((a, b) => {
+      const na = getJobName(a).toLowerCase();
+      const nb = getJobName(b).toLowerCase();
+      return sortDir === "asc" ? na.localeCompare(nb) : nb.localeCompare(na);
+    });
+
   return (
-    <div className="min-h-full" style={{ background: "linear-gradient(160deg, #eff6ff 0%, #f8faff 40%, #f0f9ff 100%)" }}>
+    <div ref={containerRef} className="min-h-full" style={{ background: "linear-gradient(160deg, #eff6ff 0%, #f8faff 40%, #f0f9ff 100%)" }}>
+      <style>{`
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #eff6ff; border-radius: 999px; }
+        ::-webkit-scrollbar-thumb { background: #3b82f6; border-radius: 999px; border: 2px solid #eff6ff; }
+        ::-webkit-scrollbar-thumb:hover { background: #2563eb; }
+        * { scrollbar-width: thin; scrollbar-color: #3b82f6 #eff6ff; }
+        @keyframes fadeInUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+      `}</style>
 
       {/* ── Gradient Header Banner ── */}
       <div style={{ background: "linear-gradient(135deg, #1d4ed8 0%, #2563eb 50%, #3b82f6 100%)" }}
@@ -480,7 +484,7 @@ export default function KPIDashboard() {
               <Database className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h2 className="text-lg font-extrabold text-white tracking-tight">KPI Dashboard</h2>
+              <h2 className="text-lg font-extrabold text-white tracking-tight">KPI Jobs</h2>
               <p className="text-xs text-blue-200 mt-0.5 font-medium">
                 {totalRecords > 0
                   ? `${totalRecords} record${totalRecords !== 1 ? "s" : ""} available · click Run to view results`
@@ -501,7 +505,7 @@ export default function KPIDashboard() {
 
       {/* ── Stats bar ── */}
       {jobs.length > 0 && (
-        <div className="max-w-5xl mx-auto px-6 py-3 flex items-center gap-4">
+        <div className="max-w-5xl mx-auto px-6 py-3 flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg border border-blue-200 shadow-sm">
             <div className="w-2 h-2 rounded-full bg-blue-500" />
             <span className="text-xs font-semibold text-blue-700">{totalRecords} Total Jobs</span>
@@ -512,6 +516,31 @@ export default function KPIDashboard() {
               {Object.values(rows).filter(r => r.open).length} Results Open
             </span>
           </div>
+
+          {/* Search bar */}
+          <div className="flex items-center gap-2 flex-1 min-w-[180px] max-w-xs bg-white border border-blue-200 rounded-lg px-3 py-1.5 shadow-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100 transition-all">
+            <Search className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search file name..."
+              className="flex-1 text-xs text-gray-700 placeholder-gray-400 bg-transparent outline-none"
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery("")} className="text-gray-300 hover:text-gray-500 transition-colors">
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+
+          {/* Search result count */}
+          {searchQuery && (
+            <span className="text-[10px] text-blue-400 font-medium whitespace-nowrap">
+              {displayedJobs.length} result{displayedJobs.length !== 1 ? "s" : ""}
+            </span>
+          )}
+
           {anyOpen && (
             <button
               onClick={() => setRows(prev => {
@@ -573,12 +602,21 @@ export default function KPIDashboard() {
           </div>
         )}
 
-        {/* ── Column headers ── */}
+        {/* ── Column headers with sort ── */}
         {jobs.length > 0 && (
           <div className="hidden sm:flex items-center gap-3 px-4 pb-2 mt-1">
             <div className="w-8 flex-shrink-0" />
             <div className="w-8 flex-shrink-0" />
-            <div className="flex-1 text-[10px] font-bold text-blue-400 uppercase tracking-widest">Table Name</div>
+            <button
+              onClick={() => setSortDir(d => d === "asc" ? "desc" : "asc")}
+              className="flex items-center gap-1.5 text-[10px] font-bold text-blue-500 uppercase tracking-widest hover:text-blue-700 transition-colors group"
+            >
+              File Name
+              {sortDir === "asc"
+                ? <ArrowUp className="w-3 h-3 text-blue-500 group-hover:text-blue-700" />
+                : <ArrowDown className="w-3 h-3 text-blue-500 group-hover:text-blue-700" />}
+            </button>
+            <div className="flex-1" />
             <div className="text-[10px] font-bold text-blue-400 uppercase tracking-widest pr-2">Action</div>
           </div>
         )}
@@ -586,7 +624,11 @@ export default function KPIDashboard() {
         {/* ── Job list ── */}
         {jobs.length > 0 && (
           <div className="space-y-3">
-            {jobs.map((job, idx) => {
+            {displayedJobs.length === 0 ? (
+              <div className="text-center py-10 text-sm text-gray-400">
+                No jobs match "<span className="font-semibold text-blue-400">{searchQuery}</span>"
+              </div>
+            ) : displayedJobs.map((job, idx) => {
               const id = getJobId(job);
               const rs = rows[id] ?? { loading: false, error: null, data: null, open: false, slide: 0 };
               return (
@@ -615,10 +657,20 @@ export default function KPIDashboard() {
       {/* ── Scroll to Top ── */}
       {showTopBtn && (
         <button
-          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-          className="fixed bottom-6 right-6 z-50 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-4 py-2 rounded-full shadow-lg transition-all"
+          onClick={() => {
+            // scroll both window and any parent container
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            const parent = containerRef.current?.parentElement;
+            if (parent) parent.scrollTo({ top: 0, behavior: "smooth" });
+            document.documentElement.scrollTo({ top: 0, behavior: "smooth" });
+          }}
+          className="fixed bottom-6 right-6 z-50 flex items-center gap-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold px-4 py-2.5 rounded-full shadow-xl shadow-blue-300 transition-all"
+          style={{ animation: "fadeInUp 0.2s ease" }}
         >
-          ↑ Top
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path d="M6 10V2M2 6l4-4 4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          Top
         </button>
       )}
     </div>
