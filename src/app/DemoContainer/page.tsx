@@ -12,7 +12,7 @@ import { useSearchParams } from "next/navigation";
 import { FaPlay, FaPen, FaTrash, FaEdit, FaCheck, FaBan } from "react-icons/fa";
 import { FaFileUpload, FaCaretUp, FaCaretDown, FaUpload, FaTimes, FaComment, FaBars } from 'react-icons/fa';
 import axios from "axios";
-import React from "react";
+import React, { Suspense } from "react";
 import { saveAs } from 'file-saver';
 import * as XLSX from 'xlsx';
 // import { useDropzone } from "react-dropzone";
@@ -76,7 +76,6 @@ type RunResult = {
     columns: string[];
     data: string[][];
   };
-  charts?: unknown[];
   detail?: string;
 };
 
@@ -168,10 +167,8 @@ interface PromptComment {
 }
 
 
-
-
-export default function Page() {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+function DemoContainerContent() {
+   const apiUrl = process.env.NEXT_PUBLIC_API_URL;
   const router = useRouter();
   const searchParams = useSearchParams();
   const pathname = usePathname();
@@ -251,6 +248,9 @@ export default function Page() {
   const [loadingPromptsRepository,] = useState(false);
   const [activeTab, setActiveTab] = useState("prompts"); // State to manage active tab
   const [returnTab, setReturnTab] = useState("prompts"); // Tab to return to when closing result modal
+  const [resultTab, setResultTab] = useState("message"); // Separate state for result modal tabs
+  const [showTopBtn, setShowTopBtn] = useState(false);
+  const [showRunTopBtn, setShowRunTopBtn] = useState(false);
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [editRow, setEditRow] = useState<TableRow | null>(null);
   const [, setDocId] = useState<string | null>(null);
@@ -345,7 +345,7 @@ export default function Page() {
 
   // Filter repository prompts based on search term
   const filteredRepositoryPrompts = prompts.filter(prompt =>
-    prompt.prompt_text.toLowerCase().includes(searchTermRepository.toLowerCase()) ||
+    (prompt.prompt_text ?? '').toLowerCase().includes(searchTermRepository.toLowerCase()) ||
     (prompt.user_name && prompt.user_name.toLowerCase().includes(searchTermRepository.toLowerCase()))
   );
   // const [prompts, setPrompts] = useState([]);
@@ -355,7 +355,6 @@ export default function Page() {
 
 
   const [showExportModal, setShowExportModal] = useState(false);
-  const [showImportModal, setShowImportModal] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [filterStatusMap, setFilterStatusMap] = useState<Record<number, boolean>>({});
@@ -377,8 +376,6 @@ export default function Page() {
 
   const [selectedPgTable, setSelectedPgTable] = useState<any | null>(null);
   const [showAddDataSourceModal, setShowAddDataSourceModal] = useState(false);
-  const [showTopBtn, setShowTopBtn] = useState(false);
-  const [resultTab, setResultTab] = useState('message');
   const [addDataSourceForm, setAddDataSourceForm] = useState({
     source_name: "",
     description: "",
@@ -855,9 +852,8 @@ useEffect(() => {
     setShowExportModal(false);
   };
 
-  const handleImportPrompts = async (fileArg?: File) => {
-    const file = fileArg ?? importFile;
-    if (!file) {
+  const handleImportPrompts = async () => {
+    if (!importFile) {
       toast.error("Please select a file to import");
       return;
     }
@@ -870,11 +866,11 @@ useEffect(() => {
     setIsImporting(true);
 
     try {
-      const fileContent = await file.text();
+      const fileContent = await importFile.text();
       let promptsToImport: { prompt_text: string; prompt_title?: string }[] = [];
 
       // Parse based on file type
-      if (file.name.endsWith('.csv')) {
+      if (importFile.name.endsWith('.csv')) {
         // Parse CSV
         const lines = fileContent.split('\n').slice(1); // Skip header
         const parsed = lines
@@ -918,6 +914,11 @@ useEffect(() => {
 
       // Get logged-in user info
       let loggedInUserName = localStorage.getItem('loggedInUserName') || 'Unknown User';
+      let importUserId = '';
+      try {
+        const raw = sessionStorage.getItem('currentUserData');
+        if (raw) { const d = JSON.parse(raw); importUserId = String(d.userId || d.user_id || d.id || ''); }
+      } catch { /* ignore */ }
 
       // Import each prompt
       let successCount = 0;
@@ -925,24 +926,22 @@ useEffect(() => {
 
       for (const prompt of promptsToImport) {
         try {
-          const promptData = {
-            board_id: boardId,
+          const params = new URLSearchParams({
+            demo_user_id: importUserId,
+            board_id: String(boardId),
             prompt_text: prompt.prompt_text,
-            prompt_title: prompt.prompt_title || 'Imported Prompt',
             prompt_out: "out_string",
             user_name: loggedInUserName,
-            created_by: loggedInUserName
-          };
+          });
 
           const response = await fetch(
-            `${API_BASE_URL}/main-boards/boards/prompts/`,
+            `${API_BASE_URL}/demo/prompts?${params}`,
             {
               method: "POST",
               headers: {
-                "Content-Type": "application/json",
+                "accept": "application/json",
                 "X-API-Key": EXCEL_API_KEY
               },
-              body: JSON.stringify(promptData),
             }
           );
 
@@ -961,7 +960,6 @@ useEffect(() => {
 
       setIsImporting(false);
       setImportFile(null);
-      setShowImportModal(false);
 
       if (successCount > 0) {
         toast.success(`Successfully imported ${successCount} prompt${successCount > 1 ? 's' : ''}!`);
@@ -1023,7 +1021,7 @@ useEffect(() => {
 
   // Filter prompts based on search term
   const filteredPrompts = prompts.filter(prompt =>
-    prompt.prompt_text.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (prompt.prompt_text ?? '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     (prompt.user_name && prompt.user_name.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
@@ -1317,7 +1315,7 @@ useEffect(() => {
       const formData = new FormData();
       formData.append('file', pptBlob, 'DataAnalysisReport.pptx');
       formData.append('email', emailData.email);
-      formData.append('user_id', '0');
+      formData.append('user_id', user.id || '0');
       formData.append('report_type', includeTable ? 'complete' : 'standard');
       formData.append('file_name', 'DataAnalysisReport.pptx');
       formData.append('subject', emailData.subject || 'Your GBusiness AI Report');
@@ -1517,21 +1515,17 @@ useEffect(() => {
     try {
       setCommentsLoading(true);
       const response = await fetch(
-        `${API_BASE_URL}/main-boards/boards/prompts/${promptId}/comments?order_by=created_at&order_dir=DESC`,
+        `${API_BASE_URL}/demo/prompt-comments/${promptId}?order_by=created_at&order_dir=DESC`,
         {
           headers: {
-            "Content-Type": "application/json",
+            "accept": "application/json",
             "X-API-Key": EXCEL_API_KEY,
           },
         }
       );
       if (!response.ok) throw new Error('Failed to fetch comments');
       const data = await response.json();
-
-      // 👇 ADD THIS — check browser console to see actual field names
-      // console.log('Comments API response:', JSON.stringify(data, null, 2));
-
-      const comments: PromptComment[] = Array.isArray(data) ? data : data.comments || [];
+      const comments: PromptComment[] = Array.isArray(data) ? data : (data.data ?? data.comments ?? []);
       setCommentsMap(prev => ({ ...prev, [promptId]: comments }));
     } catch (error) {
       console.error('Error fetching comments:', error);
@@ -1558,49 +1552,52 @@ useEffect(() => {
     e.preventDefault();
     if (!commentText.trim() || !currentPromptId) return;
 
+    let demoUserId = '';
+    let demoUserName = '';
+    try {
+      const raw = sessionStorage.getItem('currentUserData');
+      if (raw) { const d = JSON.parse(raw); demoUserId = String(d.userId || d.user_id || d.id || ''); demoUserName = d.userName || ''; }
+    } catch { /* ignore */ }
+
     try {
       setCommentSaving(true);
 
       if (editingCommentId !== null) {
+        const params = new URLSearchParams({ demo_user_id: demoUserId, comment_text: commentText.trim() });
         const response = await fetch(
-          `${API_BASE_URL}/main-boards/boards/prompts/comments/${editingCommentId}?comment_text=${encodeURIComponent(commentText)}`,
+          `${API_BASE_URL}/demo/prompt-comments/${editingCommentId}?${params}`,
           {
             method: "PUT",
-            headers: {
-              "Content-Type": "application/json",
-              "X-API-Key": EXCEL_API_KEY,
-            },
+            headers: { "accept": "application/json", "X-API-Key": EXCEL_API_KEY },
           }
         );
         if (!response.ok) throw new Error('Failed to update comment');
         const data = await response.json();
-        const updatedComment: PromptComment = data.comment; // ✅ unwrap from { success, comment }
+        const updatedComment: PromptComment = data.data ?? data.comment ?? data;
 
         setCommentsMap(prev => ({
           ...prev,
           [currentPromptId]: (prev[currentPromptId] || []).map(c =>
-            c.id === editingCommentId ? updatedComment : c // ✅ replace with actual API response
+            c.id === editingCommentId ? updatedComment : c
           )
         }));
         setEditingCommentId(null);
       } else {
+        const params = new URLSearchParams({ demo_user_id: demoUserId, comment_text: commentText.trim(), user_name: demoUserName });
         const response = await fetch(
-          `${API_BASE_URL}/main-boards/boards/prompts/${currentPromptId}/comments?comment_text=${encodeURIComponent(commentText)}`,
+          `${API_BASE_URL}/demo/prompt-comments/${currentPromptId}?${params}`,
           {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-API-Key": EXCEL_API_KEY,
-            },
+            headers: { "accept": "application/json", "X-API-Key": EXCEL_API_KEY },
           }
         );
         if (!response.ok) throw new Error('Failed to create comment');
         const data = await response.json();
-        const newComment: PromptComment = data.comment ?? data; // ✅ unwrap if wrapped
+        const newComment: PromptComment = data.data ?? data.comment ?? data;
 
         setCommentsMap(prev => ({
           ...prev,
-          [currentPromptId]: [newComment, ...(prev[currentPromptId] || [])] // ✅ shows immediately
+          [currentPromptId]: [newComment, ...(prev[currentPromptId] || [])]
         }));
       }
 
@@ -1625,13 +1622,18 @@ useEffect(() => {
   // Handle deleting a comment
   const handleDeleteComment = async (commentId: number) => {
     if (!currentPromptId) return;
+    let demoUserId = '';
+    try {
+      const raw = sessionStorage.getItem('currentUserData');
+      if (raw) { const d = JSON.parse(raw); demoUserId = String(d.userId || d.user_id || d.id || ''); }
+    } catch { /* ignore */ }
     try {
       setDeletingCommentId(commentId);
       const response = await fetch(
-        `${API_BASE_URL}/main-boards/boards/prompts/comments/${commentId}`,
+        `${API_BASE_URL}/demo/prompt-comments/${commentId}?demo_user_id=${demoUserId}`,
         {
           method: "DELETE",
-          headers: { "X-API-Key": EXCEL_API_KEY },
+          headers: { "accept": "application/json", "X-API-Key": EXCEL_API_KEY },
         }
       );
       if (!response.ok) throw new Error('Failed to delete comment');
@@ -2597,14 +2599,14 @@ useEffect(() => {
   };
 
   const fetchData = useCallback(async () => {
-    if (!boardId || !user?.id) return;
+    if (!boardId) return;
 
     setLoading(true);
     try {
       const response = await axios.get(
         `${API_BASE_URL}/main-boards/boards/ai-documentation/board/${boardId}/all`,
         {
-          params: { user_id: user?.id },
+          params: { user_id: 2 },
           headers: {
             "Content-Type": "application/json",
             "X-API-Key": EXCEL_API_KEY,
@@ -2612,15 +2614,13 @@ useEffect(() => {
         }
       );
 
-      // console.log("Fetched Documentation:", response.data);
-      // API returns { board_id, board_name, sources: [...] }
       setData(response.data.sources || []);
     } catch (error) {
       console.error("Error fetching AI documentation:", error);
     } finally {
       setLoading(false);
     }
-  }, [boardId, user?.id]);
+  }, [boardId]);
 
   // 2️⃣ useEffect declared AFTER fetchData ✅
   useEffect(() => {
@@ -3068,7 +3068,7 @@ const SpeechRecognition =
 
       try {
         const response = await fetch(
-          `${API_BASE_URL}/main-boards/boards/prompts/boards/${boardId}`,
+          `${API_BASE_URL}/demo/prompts/board/${mainBoardId}/${boardId}`,
           {
             headers: {
               "X-API-Key": EXCEL_API_KEY
@@ -3083,7 +3083,8 @@ const SpeechRecognition =
           throw new Error("Failed to fetch prompts");
         }
 
-        const data: Prompt[] = await response.json();
+        const json = await response.json();
+        const data: Prompt[] = Array.isArray(json) ? json : (json.data ?? json.items ?? []);
         // console.log("Fetched prompts data:", data);
 
         setPrompts(data);
@@ -3093,12 +3094,12 @@ const SpeechRecognition =
           data.map(async (p: Prompt) => {
             try {
               const res = await fetch(
-                `${API_BASE_URL}/main-boards/boards/prompts/${p.id}/comments?order_by=created_at&order_dir=DESC`,
-                { headers: { "Content-Type": "application/json", "X-API-Key": EXCEL_API_KEY } }
+                `${API_BASE_URL}/demo/prompt-comments/${p.id}?order_by=created_at&order_dir=DESC`,
+                { headers: { "accept": "application/json", "X-API-Key": EXCEL_API_KEY } }
               );
               if (!res.ok) return [p.id, []];
               const cData = await res.json();
-              const comments: PromptComment[] = Array.isArray(cData) ? cData : cData.comments || [];
+              const comments: PromptComment[] = Array.isArray(cData) ? cData : (cData.data ?? cData.comments ?? []);
               return [p.id, comments];
             } catch {
               return [p.id, []];
@@ -3134,18 +3135,11 @@ const SpeechRecognition =
     }
 
     try {
-      const url = new URL(`${API_BASE_URL}/main-boards/boards/prompts/run_prompt_v4?`);
+      const url = new URL(`${API_BASE_URL}/demo/prompts/${boardId}/run`);
       url.searchParams.append("input_text", promptText);
-      url.searchParams.append("board_id", boardId);
-      url.searchParams.append("user_name", "");
       url.searchParams.append("use_cache", "true");
 
-      const response = await axios.post(url.href, {
-        input_text: promptText,
-        board_id: boardId,
-        user_name: " ",
-        use_cache: true,
-      }, {
+      const response = await axios.post(url.href, null, {
         headers: { "X-API-Key": EXCEL_API_KEY },
       });
 
@@ -3201,6 +3195,7 @@ const SpeechRecognition =
 
       if (data) {
         setIsResultModalOpen(true);
+        setShowTopBtn(false);
 
         // ✅ Determine active tab from returned data directly (not from stale state)
         const hasCharts = (data.charts ?? []).length > 0;
@@ -3272,38 +3267,22 @@ const SpeechRecognition =
     }
 
     try {
-      const url = new URL(
-        `${API_BASE_URL}/main-boards/boards/prompts/run_prompt_v4?`
-      );
-
-      // Append parameters
+      const url = new URL(`${API_BASE_URL}/demo/prompts/${boardId}/run`);
       url.searchParams.append("input_text", newPromptName.trim());
-      url.searchParams.append("board_id", boardId);
-      url.searchParams.append("user_name", "");
       url.searchParams.append("use_cache", "true");
 
       // console.log("Making request to:", url.href);
 
       // Make the POST request with Axios
-      const response = await axios.post(
-        url.href,
-        {
-          input_text: newPromptName.trim(),
-          board_id: boardId,
-          user_name: "",
-          use_cache: true,
-        },
-        {
-          headers: {
-            "X-API-Key": EXCEL_API_KEY
-          },
-        }
-      );
+      const response = await axios.post(url.href, null, {
+        headers: { "X-API-Key": EXCEL_API_KEY },
+      });
 
       // Process the API response
       if (response?.data) {
         // console.log("Prompt run successfully:", response.data);
         setRunResult(response.data); // Set the result to display it
+        setShowTopBtn(false);
         setTableSortCol(null); setTableSortDir('asc'); setColWidths([]);
 
         const hasCharts = (response.data.charts ?? []).length > 0;
@@ -3557,13 +3536,19 @@ const SpeechRecognition =
   };
 
   const performDelete = async (promptId: string) => {
+    let demoUserId = '';
+    try {
+      const raw = sessionStorage.getItem('currentUserData');
+      if (raw) { const d = JSON.parse(raw); demoUserId = String(d.userId || d.user_id || d.id || ''); }
+    } catch { /* ignore */ }
 
     try {
       const response = await fetch(
-        `${API_BASE_URL}/main-boards/boards/prompts/${promptId}`,
+        `${API_BASE_URL}/demo/prompts/${promptId}?demo_user_id=${demoUserId}`,
         {
           method: "DELETE",
           headers: {
+            "accept": "application/json",
             "X-API-Key": EXCEL_API_KEY
           },
         }
@@ -3652,31 +3637,36 @@ const SpeechRecognition =
     // console.log("Logged-in User:", loggedInUserName);
     // console.log("User ID:", loggedInUserId);
 
-    // Prepare request body
-    const promptData = {
-      board_id: boardId,
-      prompt_text: newPromptName.trim(),
-      prompt_out: "out_string", // Default value as per the API example
-      user_name: loggedInUserName, // Use the logged-in user's name
-      created_by: loggedInUserName
-    };
-    // console.log("Prompt Data:", promptData);
-
     // Determine the URL and method based on edit mode
-    const url = editPromptId
-      ? `${API_BASE_URL}/main-boards/boards/prompts/${editPromptId}` // Update endpoint
-      : `${API_BASE_URL}/main-boards/boards/prompts/`; // Create endpoint
-
+    let url: string;
     const method = editPromptId ? "PUT" : "POST";
+
+    if (editPromptId) {
+      const params = new URLSearchParams({
+        demo_user_id: String(loggedInUserId),
+        prompt_text: newPromptName.trim(),
+        prompt_out: "out_string",
+        user_name: loggedInUserName,
+      });
+      url = `${API_BASE_URL}/demo/prompts/${editPromptId}?${params}`;
+    } else {
+      const params = new URLSearchParams({
+        demo_user_id: String(loggedInUserId),
+        board_id: String(boardId),
+        prompt_text: newPromptName.trim(),
+        prompt_out: "out_string",
+        user_name: loggedInUserName,
+      });
+      url = `${API_BASE_URL}/demo/prompts?${params}`;
+    }
 
     try {
       const response = await fetch(url, {
         method,
         headers: {
-          "Content-Type": "application/json",
+          "accept": "application/json",
           "X-API-Key": EXCEL_API_KEY
         },
-        body: JSON.stringify(promptData),
       });
 
       // Handle response
@@ -3687,7 +3677,8 @@ const SpeechRecognition =
         return;
       }
 
-      const newPromptData = await response.json();
+      const rawResponse = await response.json();
+      const newPromptData = rawResponse?.data ?? rawResponse;
       // console.log("API Response Data:", newPromptData);
 
       // Update the prompts state
@@ -3700,17 +3691,6 @@ const SpeechRecognition =
           )
           : [...prevPrompts, newPromptData]
       );
-
-      // Store output type badge for the saved prompt ID
-      const savedId = String(editPromptId || newPromptData.id || '');
-      if (savedId && runResult) {
-        const parts: string[] = [];
-        if ((runResult.charts ?? []).length > 0) parts.push('C');
-        if ((runResult.table?.columns?.length ?? 0) > 0) parts.push('T');
-        if ((runResult.message?.length ?? 0) > 0) parts.push('M');
-        const ot = parts.join('');
-        if (ot) setPromptOutputTypes(prev => ({ ...prev, [savedId]: ot }));
-      }
 
       // Close modal and reset state
       setIsModalOpen(false);
@@ -3883,9 +3863,9 @@ const SpeechRecognition =
     setNewPromptName("");
     setEditPromptId(null);
     setIsModalOpen(false);
-    setShowTopBtn(false);
     setActiveTab("prompts");
-    setRunResult(null); // Clear the result data
+    setShowRunTopBtn(false);
+    setRunResult(null);
     setShowCharts(false); // Reset chart visibility
     setIsRunClicked(false); // Reset to hide the tabs
     // Reset the flag that controls visibility of results
@@ -3985,10 +3965,10 @@ const SpeechRecognition =
 
                   // { key: "tally",        label: "Manage ETL" },
 
-                  { key: "master",       label: "Master Settings" },
-                  { key: "parameter",   label: "Parameter Settings" },
-                  { key: "timeline",     label: "Timeline Settings" },
-                  { key: "kpi",          label: "KPI Updates" },
+                  // { key: "master",       label: "Master Settings" },
+                  // { key: "parameter",   label: "Parameter Settings" },
+                  // { key: "timeline",     label: "Timeline Settings" },
+                  // { key: "kpi",          label: "KPI Updates" },
                 ].map((tab) => (
                   <button
                     key={tab.key}
@@ -4018,10 +3998,10 @@ const SpeechRecognition =
 
                       // { key: "tally",         label: "Manage ETL" },
 
-                      { key: "master",        label: "Master Settings" },
-                      { key: "parameter",    label: "Parameter Settings" },
-                      { key: "timeline",      label: "Timeline Settings" },
-                      { key: "kpi",           label: "KPI Updates" },
+                      // { key: "master",        label: "Master Settings" },
+                      // { key: "parameter",    label: "Parameter Settings" },
+                      // { key: "timeline",      label: "Timeline Settings" },
+                      // { key: "kpi",           label: "KPI Updates" },
                     ].find((t) => t.key === activeTab)?.label ?? "Select Tab"}
                   </span>
                   <span className="ml-2 text-gray-400 text-xs">{isMobileMenuOpen ? "▲" : "▼"}</span>
@@ -4110,8 +4090,8 @@ const SpeechRecognition =
                       setIsRunClicked(false);
                       setRunResult(null);
                       setNewPromptName('');
-                      setResultTab('message');
-                      setShowTopBtn(false);
+                      setActiveTab('message');
+                      setShowRunTopBtn(false);
                       setIsModalOpen(true);
                     }}
                   >
@@ -4119,12 +4099,20 @@ const SpeechRecognition =
                   </button>
 
                   {/* {prompts.length === 0 ? (
-                    <button
-                      className="py-1.5 px-3 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-xs font-medium whitespace-nowrap"
-                      onClick={() => { setImportFile(null); setShowImportModal(true); }}
-                    >
-                      Import Prompts
-                    </button>
+                    <label className="py-1.5 px-3 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-xs font-medium whitespace-nowrap cursor-pointer">
+                      <input
+                        type="file"
+                        accept=".txt,.csv"
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files.length > 0) {
+                            setImportFile(e.target.files[0]);
+                            handleImportPrompts();
+                          }
+                        }}
+                        className="hidden"
+                      />
+                      {isImporting ? 'Importing...' : 'Import Prompts'}
+                    </label>
                   ) : (
                     <button
                       className="py-1.5 px-3 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-xs font-medium whitespace-nowrap"
@@ -4320,62 +4308,6 @@ const SpeechRecognition =
           </div>
         )}
 
-        {/* Import Modal */}
-        {/* {showImportModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-base font-semibold text-gray-800">Import Prompts</h3>
-                <button onClick={() => { setShowImportModal(false); setImportFile(null); }} className="text-gray-400 hover:text-gray-600">
-                  <FaTimes size={16} />
-                </button>
-              </div>
-
-              <p className="text-xs text-gray-500 mb-4">Select a <strong>.csv</strong> or <strong>.txt</strong> file exported from this app to import prompts into the current board.</p>
-
-              <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors mb-4">
-                <input
-                  type="file"
-                  accept=".csv,.txt"
-                  className="hidden"
-                  onChange={(e) => {
-                    if (e.target.files && e.target.files[0]) setImportFile(e.target.files[0]);
-                  }}
-                />
-                {importFile ? (
-                  <div className="text-center px-3">
-                    <p className="text-sm font-medium text-green-600 break-all">{importFile.name}</p>
-                    <p className="text-xs text-gray-400 mt-1">{(importFile.size / 1024).toFixed(1)} KB — click to change</p>
-                  </div>
-                ) : (
-                  <div className="text-center">
-                    <svg className="w-8 h-8 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                    </svg>
-                    <p className="text-xs text-gray-500">Click to select a <span className="font-semibold">.csv</span> or <span className="font-semibold">.txt</span> file</p>
-                  </div>
-                )}
-              </label>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={() => { setShowImportModal(false); setImportFile(null); }}
-                  className="flex-1 py-2 px-4 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 text-sm font-medium transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => handleImportPrompts(importFile ?? undefined)}
-                  disabled={!importFile || isImporting}
-                  className="flex-1 py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium transition-colors"
-                >
-                  {isImporting ? 'Importing...' : 'Import'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )} */}
-
         {/* Export Modal */}
         {/* {showExportModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -4458,54 +4390,53 @@ const SpeechRecognition =
               <div className="max-w-[1400px] mx-auto px-3 py-3">
                 {!isLoading && filteredRepositoryPrompts.length > 0 ? (
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 auto-rows-fr">
-                    {filteredRepositoryPrompts.map((prompt, index) => (
-                      <div
-                        key={prompt.id}
-                        className="prompt-card border rounded-lg shadow-sm p-3 bg-white transition-all duration-300 hover:shadow-md flex flex-col justify-between cursor-pointer"
-                        style={{ minHeight: '150px', maxWidth: '100%' }}
-                        onClick={() => handlePlayClick(prompt)}
-                      >
-                        {/* Prompt text */}
-                        <p
-                          className="text-xs font-semibold mb-2 flex-grow text-gray-800"
-                          style={{
-                            display: '-webkit-box',
-                            WebkitLineClamp: 3,
-                            WebkitBoxOrient: 'vertical',
-                            overflow: 'hidden',
-                            wordBreak: 'break-word',
-                            overflowWrap: 'break-word',
-                            lineHeight: '1.4'
-                          }}
-                          title={prompt.prompt_text}
+                    {filteredRepositoryPrompts.map((prompt, index) => {
+                      const repoOutputType = promptOutputTypes[prompt.id];
+                      return (
+                        <div
+                          key={prompt.id}
+                          className="prompt-card border rounded-lg shadow-sm p-3 bg-white transition-all duration-300 hover:shadow-md flex flex-col justify-between cursor-pointer"
+                          style={{ minHeight: '150px', maxWidth: '100%' }}
+                          onClick={() => handlePlayClick(prompt)}
                         >
-                          {index + 1}. &quot;{prompt.prompt_text}&quot;
-                        </p>
+                          {/* Prompt text */}
+                          <p
+                            className="text-xs font-semibold mb-2 flex-grow text-gray-800"
+                            style={{
+                              display: '-webkit-box',
+                              WebkitLineClamp: 3,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                              wordBreak: 'break-word',
+                              overflowWrap: 'break-word',
+                              lineHeight: '1.4'
+                            }}
+                            title={prompt.prompt_text}
+                          >
+                            {index + 1}. &quot;{prompt.prompt_text}&quot;
+                          </p>
 
-                        <div className="mt-auto">
-                          <hr className="my-1.5 border-t border-gray-100" />
-                          <div className="mt-2 text-xs space-y-1">
-                            <p className="opacity-90 truncate">
-                              Created By: {prompt.user_name && prompt.user_name !== "undefined" ? prompt.user_name : ""}
-                            </p>
-                            <div className="flex items-center justify-between gap-1">
-                              <p className="opacity-80">Updated: {new Date(prompt.updated_at).toLocaleDateString()}</p>
-                              {(() => {
-                                const ot = promptOutputTypes[prompt.id];
-                                if (!ot) return null;
-                                return (
+                          <div className="mt-auto">
+                            <hr className="my-1.5 border-t border-gray-100" />
+                            <div className="mt-2 text-xs space-y-1">
+                              <p className="opacity-90 truncate">
+                                Created By: {prompt.user_name && prompt.user_name !== "undefined" ? prompt.user_name : ""}
+                              </p>
+                              <div className="flex items-center justify-between gap-1">
+                                <p className="opacity-80">Updated: {new Date(prompt.updated_at).toLocaleDateString()}</p>
+                                {repoOutputType && (
                                   <div className="flex gap-0.5 shrink-0">
-                                    {ot.includes('C') && <span className="w-4 h-4 rounded-full bg-purple-100 text-purple-700 text-[9px] font-bold flex items-center justify-center border border-purple-300" title="Chart">C</span>}
-                                    {ot.includes('T') && <span className="w-4 h-4 rounded-full bg-green-100 text-green-700 text-[9px] font-bold flex items-center justify-center border border-green-300" title="Table">T</span>}
-                                    {ot.includes('M') && <span className="w-4 h-4 rounded-full bg-blue-100 text-blue-700 text-[9px] font-bold flex items-center justify-center border border-blue-300" title="Message">M</span>}
+                                    {repoOutputType.includes('C') && <span className="w-4 h-4 rounded-full bg-purple-100 text-purple-700 text-[9px] font-bold flex items-center justify-center border border-purple-300" title="Chart">C</span>}
+                                    {repoOutputType.includes('T') && <span className="w-4 h-4 rounded-full bg-green-100 text-green-700 text-[9px] font-bold flex items-center justify-center border border-green-300" title="Table">T</span>}
+                                    {repoOutputType.includes('M') && <span className="w-4 h-4 rounded-full bg-blue-100 text-blue-700 text-[9px] font-bold flex items-center justify-center border border-blue-300" title="Message">M</span>}
                                   </div>
-                                );
-                              })()}
+                                )}
+                              </div>
                             </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : !isLoading ? (
                   <div className="text-center py-8">
@@ -4644,19 +4575,32 @@ const SpeechRecognition =
           </div>
         )} */}
 
+        {/* ↑ Top button for Demo Prompt result modal — outside container to avoid z-index issues */}
+        {isResultModalOpen && showTopBtn && (
+          <button
+            onClick={() => {
+              const el = document.getElementById('result-modal-scroll');
+              if (el) el.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            className="fixed bottom-6 right-6 z-[100] bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-full shadow-lg text-sm font-medium transition-colors"
+          >
+            ↑ Top
+          </button>
+        )}
+
         {isResultModalOpen && runResult && (
           <div
             id="result-modal-scroll"
             className="fixed inset-0 z-50 bg-white overflow-y-auto"
             style={{scrollbarWidth:'auto', scrollbarColor:'#313b96 #f1f1f1'}}
-            onScroll={(e) => setShowTopBtn((e.currentTarget.scrollTop > 200))}
+            onScroll={(e) => setShowTopBtn(e.currentTarget.scrollTop > 200)}
           >
             <div className="w-full p-4 relative">
               <div className="result-modal">
                 <div className="result-modal-content">
                   {/* Header row */}
                   <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-base font-semibold">Prompt</h3>
+                    <h3 className="text-base font-semibold">Demo Prompt</h3>
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => { setIsResultModalOpen(false); setShowTopBtn(false); setActiveTab(returnTab); }}
@@ -4664,12 +4608,6 @@ const SpeechRecognition =
                       >
                         ← Back
                       </button>
-                      {/* <button
-                        onClick={() => { setRunResult(null); setSelectedPrompt(""); setActiveTab("message"); }}
-                        className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-md transition-colors border border-red-200"
-                      >
-                        Clear
-                      </button> */}
                       <span
                         className="close-btn cursor-pointer text-xl text-gray-500 hover:text-gray-800 leading-none"
                         onClick={() => { setIsResultModalOpen(false); setShowTopBtn(false); setActiveTab(returnTab); }}
@@ -4702,7 +4640,7 @@ const SpeechRecognition =
                               key={tab}
                               onClick={() => hasData && setResultTab(tab)}
                               disabled={!hasData}
-                              className={`px-3 py-1.5 text-sm rounded font-medium transition-colors ${
+                              className={`px-3 py-1.5 text-sm font-medium rounded transition-colors ${
                                 !hasData
                                   ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50'
                                   : resultTab === tab
@@ -5147,18 +5085,6 @@ const SpeechRecognition =
                 </div>
               </div>
 
-              {/* Scroll to Top button — only after scrolling 200px */}
-              {showTopBtn && (
-                <button
-                  onClick={() => {
-                    const el = document.getElementById('result-modal-scroll');
-                    if (el) el.scrollTo({ top: 0, behavior: 'smooth' });
-                  }}
-                  className="fixed bottom-6 right-6 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-4 py-2 rounded-full shadow-lg z-[60] transition-all"
-                >
-                  ↑ Top
-                </button>
-              )}
             </div>
           </div>
 
@@ -6219,7 +6145,8 @@ const SpeechRecognition =
           </div>
         )}
 
-        {isModalOpen && showTopBtn && (
+        {/* ↑ Top button for Run Your Prompt modal — rendered outside modal container */}
+        {isModalOpen && showRunTopBtn && (
           <button
             onClick={() => {
               const el = document.getElementById('run-prompt-scroll');
@@ -6274,11 +6201,11 @@ const SpeechRecognition =
             </div>
 
             {/* ── Scrollable Body ── */}
-            <div id="run-prompt-scroll" className="flex-1 overflow-y-auto px-4 py-3" style={{scrollbarWidth:'thin', scrollbarColor:'#313b96 #f1f1f1'}} onScroll={(e) => setShowTopBtn(e.currentTarget.scrollTop > 200)}>
+            <div id="run-prompt-scroll" className="flex-1 overflow-y-auto px-4 py-3" style={{scrollbarWidth:'thin', scrollbarColor:'#313b96 #f1f1f1'}} onScroll={(e) => setShowRunTopBtn(e.currentTarget.scrollTop > 200)}>
 
               {/* Textarea */}
               <textarea
-                className="w-full p-2 border-2 border-blue-400 rounded text-xs bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                className="w-full p-2 border-2 border-blue-400 rounded text-xs bg-blue-50 text-gray-800 focus:outline-none resize-none"
                 placeholder="Type your prompt here..."
                 value={newPromptName}
                 rows={4}
@@ -6403,14 +6330,14 @@ const SpeechRecognition =
                  {resultTab === 'table' && (
                         <div className="table-tab">
                           {runResult?.table && runResult.table.columns?.length > 0 ? (
-                            <div className="overflow-auto max-h-96 border border-gray-300 rounded" style={{scrollbarWidth:'auto', scrollbarColor:'#313b96 #f1f1f1'}}>
+                            <div className="overflow-auto max-h-[520px] border border-gray-300 rounded" style={{scrollbarWidth:'auto', scrollbarColor:'#313b96 #f1f1f1'}}>
                               <table style={{ tableLayout: 'fixed', borderCollapse: 'collapse', width: 'max-content', minWidth: '100%' }}>
                                 <thead className="bg-gray-100 sticky top-0 z-10">
                                   <tr>
                                     {runResult.table.columns.map((col, idx) => (
                                       <th
                                         key={`col-header-${idx}-${col}`}
-                                        style={{ width: colWidths[idx] || 150, minWidth: 60, position: 'relative', userSelect: 'none', boxSizing: 'border-box' }}
+                                        style={{ width: colWidths[idx] || 200, minWidth: 100, position: 'relative', userSelect: 'none', boxSizing: 'border-box' }}
                                         className="border-b border-r border-gray-300 text-left text-sm font-semibold text-gray-700 cursor-pointer hover:bg-gray-200"
                                         onClick={() => handleColSort(idx)}
                                       >
@@ -6947,6 +6874,15 @@ const SpeechRecognition =
     </div >
   );
 
+}
+
+
+export default function Page() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <DemoContainerContent />
+    </Suspense>
+  );
 }
 
 

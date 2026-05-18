@@ -35,7 +35,7 @@ export default function Page() {
     const [isMounted, setIsMounted] = useState(false);
 
     const goToConsultantScreen = () => {
-        router.push('/Dashboard');
+        router.push('/Container');
         setShowMobileMenu(false);
     };
 
@@ -46,7 +46,7 @@ export default function Page() {
 
     const handleLogout = () => {
         sessionStorage.clear();
-        router.push('/');
+        router.replace('/');
         setShowMobileMenu(false);
     };
 

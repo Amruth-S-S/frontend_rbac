@@ -9,8 +9,9 @@ import {
 import {
   Play, RefreshCw, X, AlertCircle, Database,
   ChevronLeft, ChevronRight, CheckCircle, Layers,
-  Search, ArrowUpDown, ArrowUp, ArrowDown,
+  Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronDown,
 } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
 
 ChartJS.register(
   CategoryScale, LinearScale, BarElement,
@@ -388,7 +389,21 @@ export default function KPIDashboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortDir, setSortDir]         = useState<"asc" | "desc">("asc");
   const [showTopBtn, setShowTopBtn]   = useState(false);
+  const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const roleDropdownRef = useRef<HTMLDivElement>(null);
+  const pathname = usePathname();
+  const router = useRouter();
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (roleDropdownRef.current && !roleDropdownRef.current.contains(e.target as Node)) {
+        setRoleDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // ── Scroll-to-top: listen on both window AND nearest scrollable container ──
   useEffect(() => {
@@ -474,6 +489,37 @@ export default function KPIDashboard() {
         * { scrollbar-width: thin; scrollbar-color: #3b82f6 #eff6ff; }
         @keyframes fadeInUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
       `}</style>
+
+      {/* ── Role Navbar (standalone /Dashboard only) ── */}
+      {pathname === "/Dashboard" && (
+        <div className="bg-white border-b border-gray-200 px-6 py-2.5 flex items-center justify-end shadow-sm">
+          <div className="relative" ref={roleDropdownRef}>
+            <button
+              onClick={() => setRoleDropdownOpen(v => !v)}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors shadow-sm"
+            >
+              Consultant Role
+              <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform duration-200 ${roleDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {roleDropdownOpen && (
+              <div className="absolute right-0 top-full mt-1.5 bg-white border border-gray-200 rounded-lg shadow-lg min-w-[160px] z-50 overflow-hidden">
+                <button
+                  onClick={() => { setRoleDropdownOpen(false); router.push('/Dashboard'); }}
+                  className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors"
+                >
+                  Consultant
+                </button>
+                <button
+                  onClick={() => { setRoleDropdownOpen(false); router.push('/CXO'); }}
+                  className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors"
+                >
+                  CXO
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Gradient Header Banner ── */}
       <div style={{ background: "linear-gradient(135deg, #1d4ed8 0%, #2563eb 50%, #3b82f6 100%)" }}
