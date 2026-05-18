@@ -75,7 +75,7 @@ interface ManageParameterSettingProps {
 
 // ─────────────────────────── COMPONENT ───────────────────────────
 export default function ManageParameterSetting(props: ManageParameterSettingProps = {}) {
-  const API_BASE = process.env.NEXT_PUBLIC_GBUSINESS_API_URL || "https://gbus-dev1-35486280762.us-central1.run.app";
+  const API_BASE = process.env.NEXT_PUBLIC_GBUSINESS_API_URL || "https://gbus-ger-demo-35486280762.us-central1.run.app";
   const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
 
   const getHeaders = (json = false) => {
