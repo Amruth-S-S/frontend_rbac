@@ -9,6 +9,7 @@ import { toast, ToastContainer } from 'react-toastify';
 import Spinner from '../components/Spinner';
 import { useTranslation } from 'react-i18next';
 import useSWRMutation from 'swr/mutation';
+import { Eye, EyeOff } from 'lucide-react';
 
 // ─── SWR Fetcher ────────────────────────────────────────────────────────────
 // A single reusable POST fetcher for all mutations.
@@ -321,18 +322,26 @@ export default function Login() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) { toast.error('Please enter both email and password.'); return; }
+
+    // Step 1: verify password
     try {
-      const data: any = await triggerLogin({ email, password });
-      const userName = data.user_name ? data.user_name.trim() : 'Unknown User';
-      if (typeof window !== 'undefined') {
-        sessionStorage.setItem('currentUserData', JSON.stringify({
-          email: data.email, name: data.name, userId: data.user_id, userRole: data.role, userName,
-        }));
-      }
-      toast.success('Login successful!');
-      setTimeout(() => router.push('/Consultant'), 2000);
+      await triggerLogin({ email, password });
     } catch (err: any) {
       toast.error(`Login failed: ${err.data?.message || 'Invalid credentials.'}`);
+      return;
+    }
+
+    // Step 2: send OTP to the same email
+    try {
+      await triggerSendOtp({ email: email.trim().toLowerCase() });
+      setVerifyLoginEmail(email);
+      setOtpSuccess('OTP sent to your email. Please verify to continue.');
+      setCurrentForm('phone-verify');
+      setOtpExpiryTime(Date.now() + 10 * 60 * 1000);
+      setResendCooldown(60);
+      setOtp('');
+    } catch (err: any) {
+      toast.error(`Failed to send OTP: ${err.data?.message || 'Please try again.'}`);
     }
   };
 
@@ -530,9 +539,11 @@ export default function Login() {
                 <label>Password</label>
                 <div style={{ position: 'relative' }}>
                   <input type={showPassword ? 'text' : 'password'} placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} required />
-                  <i className={`fas ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`}
-                    style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', cursor: 'pointer', color: '#313b96' }}
-                    onClick={() => setShowPassword(!showPassword)} />
+                  <span
+                    onClick={() => setShowPassword(!showPassword)}
+                    style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', cursor: 'pointer', color: '#313b96', display: 'flex', alignItems: 'center' }}>
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </span>
                 </div>
               </div>
               <div className="forgot-password">
@@ -540,8 +551,6 @@ export default function Login() {
               </div>
               <button type="submit" disabled={loginLoading}>Login now</button>
             </form>
-            <div style={{ margin: '10px 0', textAlign: 'center' }}>or</div>
-            <button onClick={() => setCurrentForm('phone-entry')} style={{ marginTop: '5px', color: '#313b96' }}>Sign in with OTP</button>
           </>
         );
 
@@ -601,7 +610,7 @@ export default function Login() {
             )}
             <div style={{ margin: '30px 0 0 0', textAlign: 'center' }}>
               <button onClick={() => setCurrentForm('email-login')} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', margin: '0 auto', padding: '8px 12px', borderRadius: '6px' }}>
-                <i className="fas fa-arrow-left" /> Back to Email Login
+                <i className="fas fa-arrow-left" /> Back to Sign in
               </button>
             </div>
           </div>
@@ -610,32 +619,50 @@ export default function Login() {
       case 'signup':
         return (
           <form onSubmit={handleSignup} className="compact-form">
-            <div className="form-grid">
-              <div className="form-group">
-                <label>Name</label>
-                <input type="text" placeholder="Name" value={signupName} onChange={e => setSignupName(e.target.value)} required />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+              {/* Row 1: Name | Email */}
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '4px' }}>Name</label>
+                <input type="text" placeholder="Full Name" value={signupName} onChange={e => setSignupName(e.target.value)} required
+                  style={{ width: '100%', padding: '8px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }} />
               </div>
-              <div className="form-group">
-                <label>Email Address</label>
-                <input type="email" placeholder="Email" value={signupEmail} onChange={e => setSignupEmail(e.target.value)} required />
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '4px' }}>Email Address</label>
+                <input type="email" placeholder="Email" value={signupEmail} onChange={e => setSignupEmail(e.target.value)} required
+                  style={{ width: '100%', padding: '8px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }} />
               </div>
-              <div className="form-group">
-                <label>Password</label>
-                <div className="password-input">
-                  <input type={showSignupPassword ? 'text' : 'password'} placeholder="Password" value={signupPassword} onChange={e => setSignupPassword(e.target.value)} required />
-                  <i className={`fas ${showSignupPassword ? 'fa-eye-slash' : 'fa-eye'}`} onClick={() => setShowSignupPassword(!showSignupPassword)} />
+
+              {/* Row 2: Password | Confirm Password */}
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '4px' }}>Password</label>
+                <div style={{ position: 'relative' }}>
+                  <input type={showSignupPassword ? 'text' : 'password'} placeholder="Password" value={signupPassword} onChange={e => setSignupPassword(e.target.value)} required
+                    style={{ width: '100%', padding: '8px 32px 8px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }} />
+                  <span onClick={() => setShowSignupPassword(!showSignupPassword)}
+                    style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', cursor: 'pointer', color: '#313b96', display: 'flex', alignItems: 'center' }}>
+                    {showSignupPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </span>
                 </div>
               </div>
-              <div className="form-group">
-                <label>Confirm Password</label>
-                <div className="confirm-password-input">
-                  <input type={showSignupConfirmPassword ? 'text' : 'password'} placeholder="Confirm Password" value={signupConfirmPassword} onChange={e => setSignupConfirmPassword(e.target.value)} required />
-                  <i className={`fas ${showSignupConfirmPassword ? 'fa-eye-slash' : 'fa-eye'}`} onClick={() => setShowSignupConfirmPassword(!showSignupConfirmPassword)} />
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '4px' }}>Confirm Password</label>
+                <div style={{ position: 'relative' }}>
+                  <input type={showSignupConfirmPassword ? 'text' : 'password'} placeholder="Confirm Password" value={signupConfirmPassword} onChange={e => setSignupConfirmPassword(e.target.value)} required
+                    style={{ width: '100%', padding: '8px 32px 8px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }} />
+                  <span onClick={() => setShowSignupConfirmPassword(!showSignupConfirmPassword)}
+                    style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', cursor: 'pointer', color: '#313b96', display: 'flex', alignItems: 'center' }}>
+                    {showSignupConfirmPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </span>
                 </div>
               </div>
-              <div className="form-group">
-                <label>Mobile Number</label>
-                <input type="tel" placeholder="Mobile Number" value={signupPhone} onChange={e => setSignupPhone(e.target.value)} required />
+
+              {/* Row 3: Mobile Number (full width) */}
+              <div style={{ gridColumn: 'span 2' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '4px', textAlign: 'left' }}>
+                  Mobile Number <span style={{ color: '#9ca3af', fontWeight: 400, fontSize: '11px' }}>(Optional)</span>
+                </label>
+                <input type="tel" placeholder="Mobile Number" value={signupPhone} onChange={e => setSignupPhone(e.target.value)}
+                  style={{ width: '100%', padding: '8px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }} />
               </div>
             </div>
             <button type="submit" className="submit-btn" disabled={signupLoading}>Create Account</button>
@@ -729,8 +756,10 @@ export default function Login() {
                 <div style={{ position: 'relative' }}>
                   <input type={showNewPassword ? 'text' : 'password'} placeholder="Enter new password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required disabled={resetLoading}
                     style={{ width: '100%', padding: '12px 40px 12px 12px', fontSize: '15px', border: '2px solid #e1e5e9', borderRadius: '10px', outline: 'none', boxSizing: 'border-box' }} />
-                  <i className={`fas ${showNewPassword ? 'fa-eye-slash' : 'fa-eye'}`} onClick={() => setShowNewPassword(!showNewPassword)}
-                    style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', cursor: 'pointer', color: '#9ca3af' }} />
+                  <span onClick={() => setShowNewPassword(!showNewPassword)}
+                    style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', cursor: 'pointer', color: '#9ca3af', display: 'flex', alignItems: 'center' }}>
+                    {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </span>
                 </div>
               </div>
               <div style={{ marginBottom: '20px', textAlign: 'left' }}>
@@ -738,8 +767,10 @@ export default function Login() {
                 <div style={{ position: 'relative' }}>
                   <input type={showConfirmNewPassword ? 'text' : 'password'} placeholder="Confirm new password" value={confirmNewPassword} onChange={e => setConfirmNewPassword(e.target.value)} required disabled={resetLoading}
                     style={{ width: '100%', padding: '12px 40px 12px 12px', fontSize: '15px', border: '2px solid #e1e5e9', borderRadius: '10px', outline: 'none', boxSizing: 'border-box' }} />
-                  <i className={`fas ${showConfirmNewPassword ? 'fa-eye-slash' : 'fa-eye'}`} onClick={() => setShowConfirmNewPassword(!showConfirmNewPassword)}
-                    style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', cursor: 'pointer', color: '#9ca3af' }} />
+                  <span onClick={() => setShowConfirmNewPassword(!showConfirmNewPassword)}
+                    style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', cursor: 'pointer', color: '#9ca3af', display: 'flex', alignItems: 'center' }}>
+                    {showConfirmNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </span>
                 </div>
               </div>
               <ErrorMessage message={resetOtpError} type="error" />

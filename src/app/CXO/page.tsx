@@ -85,12 +85,13 @@ export default function CXO() {
   const [newPromptName, setNewPromptName] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [activeTab, setActiveTab] = useState("prompts");
-  const [cxoView, setCxoView] = useState<"home" | "dashboard">("dashboard");
+  const [cxoView, setCxoView] = useState<"home" | "dashboard">("home");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [, setShowCharts] = useState(false);
   const [isRunClicked, setIsRunClicked] = useState(false);
   const router = useRouter();
   const [showDropdown, setShowDropdown] = useState(false);
+  const [showBoardDropdown, setShowBoardDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [orgLogoUrl, setOrgLogoUrl] = useState<string | null>(null);
@@ -221,6 +222,12 @@ export default function CXO() {
   }, []);
 
   useEffect(() => { setIsMounted(true); }, []);
+
+  useEffect(() => {
+    if (!isMounted) return;
+    setIsDemoLoading(true);
+    Promise.all([fetchDemoMainBoards(), fetchDemoBoards()]).finally(() => setIsDemoLoading(false));
+  }, [isMounted]);
 
   useEffect(() => {
     if (!isMounted || typeof window === 'undefined') return;
@@ -405,6 +412,7 @@ export default function CXO() {
     setShowBoardModal(false); setSelectedBoardId(null); setActiveTab("prompts");
     setSelectedPrompt(null); setNewPromptName(''); setIsRunClicked(false); setRunResult(null);
     setIsDemoBoard(false); setSelectedDemoBoardId(null); setDemoBoardName('');
+    setShowBoardDropdown(false);
   };
   const handleViewPromptsClick = () => setShowPromptsModal(true);
   const handleClosePromptsModal = () => { setShowPromptsModal(false); setCurrentPromptIndex(0); setSearchTerm(''); };
@@ -748,21 +756,8 @@ export default function CXO() {
             <LayoutDashboard className="w-4 h-4 flex-shrink-0" />
             {!isSidebarCollapsed && <span className="text-xs font-medium">Dashboard</span>}
           </button>
-          {/* Demo Reference */}
-          <button onClick={toggleDemoRef}
-            className={`w-full flex items-center gap-3 px-2 py-2 rounded-lg transition-colors ${cxoView === "home" && homeSection === "demo" ? "bg-blue-100 text-blue-700" : "text-gray-600 hover:bg-gray-100"}`}>
-            <BookOpen className="w-4 h-4 flex-shrink-0" />
-            {!isSidebarCollapsed && <span className="text-xs font-medium">Demo Reference</span>}
-          </button>
 
-          {/* Mainboard */}
-          <button onClick={() => { setCxoView("home"); setHomeSection("mainboard"); setSelectedMainBoardId(null); }}
-            className={`w-full flex items-center gap-3 px-2 py-2 rounded-lg transition-colors ${cxoView === "home" && homeSection === "mainboard" ? "bg-blue-100 text-blue-700" : "text-gray-600 hover:bg-gray-100"}`}>
-            <BarChart2 className="w-4 h-4 flex-shrink-0" />
-            {!isSidebarCollapsed && <span className="text-xs font-medium">Mainboard</span>}
-          </button>
 
-          
         </nav>
 
         {/* User info at bottom */}
@@ -856,36 +851,122 @@ export default function CXO() {
         {/* Content */}
         <div className="flex-1 overflow-auto p-8">
           {cxoView === "dashboard" ? (
-            <KPIDashboard />
+            <>
+              <div className="mb-4">
+                <button onClick={() => setCxoView("home")}
+                  className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-600 border border-blue-400 rounded-md hover:bg-blue-50 transition-colors">
+                  ← Back
+                </button>
+              </div>
+              <KPIDashboard />
+            </>
           ) : (
             <div className="p-6">
 
-              {/* ── Mainboard tiles ── */}
-              {homeSection === "mainboard" && (
+              {/* ── Sub-navigation: Mainboard boards ── */}
+              {selectedMainBoardId ? (
                 <>
                   <div className="flex items-center gap-3 mb-5">
-                    {selectedMainBoardId && (
-                      <button onClick={() => setSelectedMainBoardId(null)}
-                        className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-600 border border-blue-400 rounded-md hover:bg-blue-50 transition-colors">
-                        ← Back
-                      </button>
-                    )}
+                    <button onClick={() => setSelectedMainBoardId(null)}
+                      className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-600 border border-blue-400 rounded-md hover:bg-blue-50 transition-colors">
+                      ← Back
+                    </button>
                     <h2 className="text-sm font-bold text-gray-700">
-                      {selectedMainBoardId ? (navItems.find(i => i.main_board_id === selectedMainBoardId)?.name ?? "Boards") : "Mainboards"}
+                      {navItems.find(i => i.main_board_id === selectedMainBoardId)?.name ?? "Boards"}
                     </h2>
                   </div>
+                  <div className="flex flex-row gap-4 overflow-x-auto pb-3" style={{ scrollbarWidth: 'auto', scrollbarColor: '#313b96 #f1f1f1' }}>
+                    {Object.entries(navItems.find(i => i.main_board_id === selectedMainBoardId)?.boards ?? {})
+                      .filter(([, b]) => b.is_active)
+                      .map(([bid, board], idx) => {
+                        const style = cardIconStyles[idx % cardIconStyles.length];
+                        const isChecking = boardCheckLoading === bid;
+                        return (
+                          <button key={bid} onClick={() => handleBoardClick(bid)} disabled={isChecking}
+                            className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col items-center gap-3 hover:shadow-md hover:border-blue-200 transition-all disabled:opacity-50 flex-shrink-0 w-44">
+                            <div className={`w-16 h-16 rounded-full ${style.bg} flex items-center justify-center`}>
+                              {isChecking ? <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600" /> : <style.Icon className={`w-8 h-8 ${style.iconColor}`} />}
+                            </div>
+                            <span className={`text-sm font-semibold text-center ${style.textColor}`}>{board.name}</span>
+                          </button>
+                        );
+                      })}
+                  </div>
+                </>
 
-                  {!selectedMainBoardId ? (
-                    loading ? (
+              ) : activeDemoMainBoard ? (
+                /* ── Sub-navigation: Demo boards ── */
+                <>
+                  <div className="flex items-center gap-3 mb-5">
+                    <button onClick={() => setActiveDemoMainBoard(null)}
+                      className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-600 border border-blue-400 rounded-md hover:bg-blue-50 transition-colors">
+                      ← Back
+                    </button>
+                    <h2 className="text-sm font-bold text-gray-700">
+                      {demoMainBoards.find(m => String(m.id) === activeDemoMainBoard)?.name ?? "Demo Boards"}
+                    </h2>
+                  </div>
+                  <div className="flex flex-row gap-4 overflow-x-auto pb-3" style={{ scrollbarWidth: 'auto', scrollbarColor: '#313b96 #f1f1f1' }}>
+                    {demoBoards.filter(b => b.main_board_id === parseInt(activeDemoMainBoard)).map((board, idx) => {
+                      const style = cardIconStyles[idx % cardIconStyles.length];
+                      const isChecking = boardCheckLoading === String(board.id);
+                      return (
+                        <button key={board.id}
+                          onClick={() => handleDemoBoardClick(board.id, parseInt(activeDemoMainBoard), board.name)}
+                          disabled={isChecking}
+                          className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col items-center gap-3 hover:shadow-md hover:border-blue-200 transition-all disabled:opacity-50 flex-shrink-0 w-44">
+                          <div className={`w-16 h-16 rounded-full ${style.bg} flex items-center justify-center`}>
+                            {isChecking ? <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600" /> : <style.Icon className={`w-8 h-8 ${style.iconColor}`} />}
+                          </div>
+                          <span className={`text-sm font-semibold text-center ${style.textColor}`}>{board.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+
+              ) : (
+                /* ── Combined home: Demo Reference + Mainboards side by side ── */
+                <div className="flex gap-10 overflow-x-auto pb-3" style={{ scrollbarWidth: 'auto', scrollbarColor: '#313b96 #f1f1f1' }}>
+
+                  {/* Demo Reference column */}
+                  <div className="flex-shrink-0">
+                    <h2 className="text-sm font-bold text-gray-700 mb-4">Demo Reference</h2>
+                    {isDemoLoading ? (
                       <div className="text-xs text-gray-400">Loading...</div>
                     ) : (
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                      <div className="flex flex-row gap-4">
+                        {demoMainBoards.map((mb, idx) => {
+                          const style = cardIconStyles[(idx + 4) % cardIconStyles.length];
+                          return (
+                            <button key={mb.id} onClick={() => setActiveDemoMainBoard(String(mb.id))}
+                              className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col items-center gap-3 hover:shadow-md hover:border-blue-200 transition-all flex-shrink-0 w-44">
+                              <div className={`w-16 h-16 rounded-full ${style.bg} flex items-center justify-center`}>
+                                <style.Icon className={`w-8 h-8 ${style.iconColor}`} />
+                              </div>
+                              <span className={`text-sm font-semibold text-center ${style.textColor}`}>{mb.name}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Divider */}
+                  <div className="w-px bg-gray-200 flex-shrink-0 self-stretch" />
+
+                  {/* Mainboards column */}
+                  <div className="flex-shrink-0">
+                    <h2 className="text-sm font-bold text-gray-700 mb-4">Mainboards</h2>
+                    {loading ? (
+                      <div className="text-xs text-gray-400">Loading...</div>
+                    ) : (
+                      <div className="flex flex-row gap-4">
                         {navItems.map((item, idx) => {
                           const style = cardIconStyles[idx % cardIconStyles.length];
                           return (
-                            <button key={item.main_board_id}
-                              onClick={() => setSelectedMainBoardId(item.main_board_id)}
-                              className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col items-center gap-3 hover:shadow-md hover:border-blue-200 transition-all text-left">
+                            <button key={item.main_board_id} onClick={() => setSelectedMainBoardId(item.main_board_id)}
+                              className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col items-center gap-3 hover:shadow-md hover:border-blue-200 transition-all flex-shrink-0 w-44">
                               <div className={`w-16 h-16 rounded-full ${style.bg} flex items-center justify-center`}>
                                 <style.Icon className={`w-8 h-8 ${style.iconColor}`} />
                               </div>
@@ -894,97 +975,9 @@ export default function CXO() {
                           );
                         })}
                       </div>
-                    )
-                  ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                      {Object.entries(navItems.find(i => i.main_board_id === selectedMainBoardId)?.boards ?? {})
-                        .filter(([, b]) => b.is_active)
-                        .map(([bid, board], idx) => {
-                          const style = cardIconStyles[idx % cardIconStyles.length];
-                          const isChecking = boardCheckLoading === bid;
-                          return (
-                            <button key={bid}
-                              onClick={() => handleBoardClick(bid)}
-                              disabled={isChecking}
-                              className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col items-center gap-3 hover:shadow-md hover:border-blue-200 transition-all disabled:opacity-50">
-                              <div className={`w-16 h-16 rounded-full ${style.bg} flex items-center justify-center`}>
-                                {isChecking
-                                  ? <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600" />
-                                  : <style.Icon className={`w-8 h-8 ${style.iconColor}`} />}
-                              </div>
-                              <span className={`text-sm font-semibold text-center ${style.textColor}`}>{board.name}</span>
-                            </button>
-                          );
-                        })}
-                    </div>
-                  )}
-                </>
-              )}
-
-              {/* ── Demo Reference tiles ── */}
-              {homeSection === "demo" && (
-                <>
-                  <div className="flex items-center gap-3 mb-5">
-                    {activeDemoMainBoard && (
-                      <button onClick={() => setActiveDemoMainBoard(null)}
-                        className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-600 border border-blue-400 rounded-md hover:bg-blue-50 transition-colors">
-                        ← Back
-                      </button>
                     )}
-                    <h2 className="text-sm font-bold text-gray-700">
-                      {activeDemoMainBoard
-                        ? (demoMainBoards.find(m => String(m.id) === activeDemoMainBoard)?.name ?? "Demo Boards")
-                        : "Demo Reference"}
-                    </h2>
                   </div>
 
-                  {isDemoLoading ? (
-                    <div className="text-xs text-gray-400">Loading demo boards...</div>
-                  ) : !activeDemoMainBoard ? (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                      {demoMainBoards.map((mb, idx) => {
-                        const style = cardIconStyles[idx % cardIconStyles.length];
-                        return (
-                          <button key={mb.id}
-                            onClick={() => setActiveDemoMainBoard(String(mb.id))}
-                            className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col items-center gap-3 hover:shadow-md hover:border-blue-200 transition-all">
-                            <div className={`w-16 h-16 rounded-full ${style.bg} flex items-center justify-center`}>
-                              <style.Icon className={`w-8 h-8 ${style.iconColor}`} />
-                            </div>
-                            <span className={`text-sm font-semibold text-center ${style.textColor}`}>{mb.name}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                      {demoBoards.filter(b => b.main_board_id === parseInt(activeDemoMainBoard)).map((board, idx) => {
-                        const style = cardIconStyles[idx % cardIconStyles.length];
-                        const isChecking = boardCheckLoading === String(board.id);
-                        return (
-                          <button key={board.id}
-                            onClick={() => handleDemoBoardClick(board.id, parseInt(activeDemoMainBoard), board.name)}
-                            disabled={isChecking}
-                            className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col items-center gap-3 hover:shadow-md hover:border-blue-200 transition-all disabled:opacity-50">
-                            <div className={`w-16 h-16 rounded-full ${style.bg} flex items-center justify-center`}>
-                              {isChecking
-                                ? <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600" />
-                                : <style.Icon className={`w-8 h-8 ${style.iconColor}`} />}
-                            </div>
-                            <span className={`text-sm font-semibold text-center ${style.textColor}`}>{board.name}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </>
-              )}
-
-              {/* ── Nothing selected ── */}
-              {!homeSection && (
-                <div className="flex flex-col items-center justify-center h-64 text-gray-400">
-                  <BarChart2 className="w-12 h-12 mb-3 text-gray-300" />
-                  <p className="text-sm font-medium">Select a section from the sidebar to get started</p>
                 </div>
               )}
             </div>
@@ -1026,12 +1019,12 @@ export default function CXO() {
                   <p className="text-xs text-gray-500 leading-tight">{userData.email}</p>
                 </div>
                 <div className="relative">
-                  <button onClick={() => setShowDropdown(v => !v)}
+                  <button onClick={() => setShowBoardDropdown(v => !v)}
                     className="w-9 h-9 rounded-full bg-blue-600 hover:bg-blue-700 flex items-center justify-center">
                     <Settings className="w-4 h-4 text-white" />
                   </button>
-                  {showDropdown && (
-                    <div onMouseDown={e => e.stopPropagation()} className="absolute right-0 top-full mt-1.5 bg-white shadow-lg rounded-md border border-gray-100 min-w-[120px] z-50">
+                  {showBoardDropdown && (
+                    <div className="absolute right-0 top-full mt-1.5 bg-white shadow-lg rounded-md border border-gray-100 min-w-[120px] z-[200]">
                       <button onClick={handleLogout} className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 rounded-md">Logout</button>
                     </div>
                   )}
