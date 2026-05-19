@@ -1491,6 +1491,55 @@ useEffect(() => {
     setCurrentPromptIndex(0);
   };
 
+  interface PromptSuggestion {
+    prompt_text: string;
+    category: string;
+    difficulty: string;
+    columns_used: string[];
+    confidence: number;
+  }
+
+  const [showGeneratePromptModal, setShowGeneratePromptModal] = useState(false);
+  const [generatedSuggestions, setGeneratedSuggestions] = useState<PromptSuggestion[]>([]);
+  const [generateLoading, setGenerateLoading] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+  const [generateSearchTerm, setGenerateSearchTerm] = useState('');
+  const [generateSourceName, setGenerateSourceName] = useState('');
+
+  const handleGeneratePrompt = async () => {
+    if (!dataSources || dataSources.length === 0) {
+      setGenerateError('No data source found. Please add a data source in Manage Tables first.');
+      setGeneratedSuggestions([]);
+      setShowGeneratePromptModal(true);
+      return;
+    }
+    const source = dataSources[0];
+    setGenerateSourceName(source.source_name || '');
+    setShowGeneratePromptModal(true);
+    setGenerateLoading(true);
+    setGenerateError(null);
+    setGeneratedSuggestions([]);
+    try {
+      const res = await fetch(`${API_BASE_URL}/prompt-suggestions/source/${source.id}`, {
+        headers: { Accept: 'application/json', 'X-API-Key': EXCEL_API_KEY },
+      });
+      if (!res.ok) throw new Error(`Error ${res.status}`);
+      const data = await res.json();
+      const byCategory: Record<string, PromptSuggestion[]> = data?.suggestions_by_category || {};
+      const all: PromptSuggestion[] = Object.values(byCategory).flat();
+      setGeneratedSuggestions(all);
+    } catch {
+      setGenerateError('Failed to generate prompt suggestions. Please try again.');
+    } finally {
+      setGenerateLoading(false);
+    }
+  };
+
+  const filteredGeneratedSuggestions = generatedSuggestions.filter(s =>
+    s.prompt_text.toLowerCase().includes(generateSearchTerm.toLowerCase()) ||
+    s.category.toLowerCase().includes(generateSearchTerm.toLowerCase())
+  );
+
 
 
   const [commentsLoading, setCommentsLoading] = useState(false);
@@ -6302,6 +6351,12 @@ const SpeechRecognition =
                   View Prompts
                 </button>
                 <button
+                  className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium whitespace-nowrap"
+                  onClick={handleGeneratePrompt}
+                >
+                  Generate Prompts
+                </button>
+                <button
                   onClick={handleRePrompt}
                   className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium whitespace-nowrap disabled:opacity-50"
                   disabled={isLoading}
@@ -6916,6 +6971,111 @@ const SpeechRecognition =
           </>
         )}
 
+        {/* Generate Prompt Modal */}
+        {showGeneratePromptModal && (
+          <>
+            <div
+              className="fixed inset-0 bg-black bg-opacity-30 z-[70]"
+              onClick={() => { setShowGeneratePromptModal(false); setGenerateSearchTerm(''); }}
+            />
+            <div className="fixed top-0 right-0 h-full bg-white shadow-2xl z-[80] flex flex-col" style={{ width: '420px' }}>
+              {/* Header */}
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-sm text-gray-800">Generate Prompt</span>
+                  {generateSourceName && (
+                    <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-[10px] font-semibold rounded-full">
+                      {generateSourceName}
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => { setShowGeneratePromptModal(false); setGenerateSearchTerm(''); }}
+                  className="text-gray-400 hover:text-gray-700 text-xl leading-none"
+                >
+                  ×
+                </button>
+              </div>
+
+              {/* Search */}
+              <div className="px-3 py-2 border-b border-gray-100">
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Search suggestions..."
+                    value={generateSearchTerm}
+                    onChange={(e) => setGenerateSearchTerm(e.target.value)}
+                    className="w-full pl-3 pr-7 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  />
+                  {generateSearchTerm && (
+                    <button
+                      onClick={() => setGenerateSearchTerm('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Suggestions list */}
+              <div className="flex-1 overflow-y-auto px-3 py-2" style={{ scrollbarWidth: 'auto', scrollbarColor: '#313b96 #f1f1f1' }}>
+                {generateLoading ? (
+                  <div className="flex flex-col items-center justify-center py-12 gap-3">
+                    <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                    <p className="text-xs text-gray-500">Generating prompt suggestions...</p>
+                  </div>
+                ) : generateError ? (
+                  <p className="text-xs text-red-500 p-2">{generateError}</p>
+                ) : filteredGeneratedSuggestions.length === 0 ? (
+                  <div className="text-center py-8 text-xs text-gray-500">
+                    {generateSearchTerm
+                      ? `No suggestions found for "${generateSearchTerm}"`
+                      : generatedSuggestions.length === 0
+                      ? 'No suggestions generated.'
+                      : 'No results.'}
+                    {generateSearchTerm && (
+                      <button onClick={() => setGenerateSearchTerm('')} className="block mx-auto mt-2 text-blue-500 underline">Clear search</button>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    {generateSearchTerm && (
+                      <div className="flex justify-between items-center mb-2 text-xs text-gray-500">
+                        <span>Found {filteredGeneratedSuggestions.length} suggestion{filteredGeneratedSuggestions.length !== 1 ? 's' : ''}</span>
+                        <button onClick={() => setGenerateSearchTerm('')} className="text-blue-500 underline">Clear</button>
+                      </div>
+                    )}
+                    {filteredGeneratedSuggestions.map((suggestion, index) => (
+                      <div
+                        key={index}
+                        onClick={() => {
+                          setNewPromptName(suggestion.prompt_text);
+                          setShowGeneratePromptModal(false);
+                          setGenerateSearchTerm('');
+                        }}
+                        className="mb-2 p-3 bg-white border border-gray-200 rounded-lg cursor-pointer hover:border-blue-400 hover:shadow-sm transition-all"
+                      >
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <span className="text-xs font-bold text-blue-600">{index + 1}.</span>
+                        </div>
+                        <p className="text-xs text-gray-800 leading-relaxed">{suggestion.prompt_text}</p>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+
+              {/* Footer hint */}
+              {!generateLoading && filteredGeneratedSuggestions.length > 0 && (
+                <div className="px-4 py-2 border-t border-gray-100 bg-gray-50">
+                  <p className="text-[10px] text-gray-400 text-center">Click a suggestion to use it as your prompt</p>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
         {activeTab === "timeline" && (
           <TimelineSettings boardId={boardId ?? ""} />
         )}
@@ -6950,8 +7110,5 @@ const SpeechRecognition =
 }
 
 
-function hsl(hue: number, saturation: number, lightness: number) {
-  return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-}
 
 
