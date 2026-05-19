@@ -750,14 +750,6 @@ export default function CXO() {
             </div>
           )}
 
-          {/* Dashboard */}
-          <button onClick={() => setCxoView("dashboard")}
-            className={`w-full flex items-center gap-3 px-2 py-2 rounded-lg transition-colors ${cxoView === "dashboard" ? "bg-blue-100 text-blue-700" : "text-gray-600 hover:bg-gray-100"}`}>
-            <LayoutDashboard className="w-4 h-4 flex-shrink-0" />
-            {!isSidebarCollapsed && <span className="text-xs font-medium">Dashboard</span>}
-          </button>
-
-
         </nav>
 
         {/* User info at bottom */}
@@ -790,16 +782,10 @@ export default function CXO() {
           </div>
           <nav className="mt-3 space-y-1.5">
             <button
-              onClick={() => { setCxoView("dashboard"); toggleMobileMenu(); }}
-              className={`w-full text-left py-2 px-3 text-sm rounded ${cxoView === "dashboard" ? "bg-blue-100 text-blue-700 font-medium" : "text-gray-700 hover:bg-gray-300"}`}
-            >
-              Dashboard
-            </button>
-            <button
               onClick={() => { setCxoView("home"); setSelectedMainBoardId(null); toggleMobileMenu(); }}
               className={`w-full text-left py-2 px-3 text-sm rounded ${cxoView === "home" ? "bg-blue-100 text-blue-700 font-medium" : "text-gray-700 hover:bg-gray-300"}`}
             >
-              Main board
+              Home
             </button>
             <a href="/Consultant" className="block py-2 px-3 text-blue-600 text-sm hover:bg-gray-300 rounded">Consultant</a>
             <button onClick={handleLogout} className="w-full py-2 px-3 bg-blue-600 hover:bg-red-500 rounded text-white text-sm text-left">Logout</button>
@@ -926,8 +912,27 @@ export default function CXO() {
                 </>
 
               ) : (
-                /* ── Combined home: Demo Reference + Mainboards side by side ── */
+                /* ── Combined home: Dashboard + Demo Reference + Mainboards side by side ── */
                 <div className="flex gap-10 overflow-x-auto pb-3" style={{ scrollbarWidth: 'auto', scrollbarColor: '#313b96 #f1f1f1' }}>
+
+                  {/* Dashboard tile */}
+                  <div className="flex-shrink-0">
+                    <h2 className="text-sm font-bold text-gray-700 mb-4">Dashboard</h2>
+                    <div className="flex flex-row gap-4">
+                      <button
+                        onClick={() => setCxoView("dashboard")}
+                        className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col items-center gap-3 hover:shadow-md hover:border-teal-200 transition-all flex-shrink-0 w-44"
+                      >
+                        <div className="w-16 h-16 rounded-full bg-teal-50 flex items-center justify-center">
+                          <LayoutDashboard className="w-8 h-8 text-teal-400" />
+                        </div>
+                        <span className="text-sm font-semibold text-center text-teal-500">Dashboard</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Divider */}
+                  <div className="w-px bg-gray-200 flex-shrink-0 self-stretch" />
 
                   {/* Demo Reference column */}
                   <div className="flex-shrink-0">

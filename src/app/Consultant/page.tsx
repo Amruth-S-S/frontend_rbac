@@ -17,6 +17,7 @@ export default function Page() {
     const router = useRouter();
     const [showDropdown, setShowDropdown] = useState(false);
     const [showMobileMenu, setShowMobileMenu] = useState(false);
+    const [view, setView] = useState<'home' | 'welcome'>('home');
     const dropdownRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
