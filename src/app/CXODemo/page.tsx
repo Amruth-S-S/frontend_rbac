@@ -408,7 +408,7 @@ function CXODemoContent() {
               {/* Table tab */}
               {activeTab === 'table' && (
                 runResult.table?.columns?.length > 0 ? (
-                  <div className="border border-gray-200 rounded-xl bg-white shadow-sm overflow-auto" style={{ maxHeight: 'calc(100vh - 260px)', scrollbarWidth: 'thin', scrollbarColor: '#313b96 #f1f1f1' }}>
+                  <div className="border border-gray-200 rounded-xl bg-white shadow-sm overflow-auto" style={{ maxHeight: 'calc(100vh - 260px)', scrollbarWidth: 'thin', scrollbarColor: '#93c5fd #f1f1f1' }}>
                     <table className="min-w-full table-auto text-sm whitespace-nowrap border-collapse">
                       <thead style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#f3f4f6' }}>
                         <tr>{runResult.table.columns.map((col, i) => <th key={i} className="px-3 py-2 border-b border-gray-200 text-left font-bold text-gray-700 text-xs uppercase tracking-wide">{col}</th>)}</tr>

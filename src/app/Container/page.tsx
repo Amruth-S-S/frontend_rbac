@@ -1505,6 +1505,20 @@ useEffect(() => {
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [generateSearchTerm, setGenerateSearchTerm] = useState('');
   const [generateSourceName, setGenerateSourceName] = useState('');
+  const [generatedPromptIds, setGeneratedPromptIds] = useState<Set<string>>(new Set());
+  const [isSavingGenerated, setIsSavingGenerated] = useState(false);
+  const [generateDone, setGenerateDone] = useState(false);
+
+  // Load generated prompt IDs from localStorage when boardId is available
+  useEffect(() => {
+    if (!boardId) return;
+    try {
+      const stored = localStorage.getItem(`gen_prompt_ids_${boardId}`);
+      if (stored) {
+        setGeneratedPromptIds(new Set(JSON.parse(stored)));
+      }
+    } catch {}
+  }, [boardId]);
 
   const handleGeneratePrompt = async () => {
     if (!dataSources || dataSources.length === 0) {
@@ -1540,7 +1554,84 @@ useEffect(() => {
     s.category.toLowerCase().includes(generateSearchTerm.toLowerCase())
   );
 
+  const handleGenerateAndSavePrompts = async () => {
+    if (!dataSources || dataSources.length === 0) {
+      toast.error('No data source found. Please add a data source in Manage Tables first.');
+      return;
+    }
+    if (!boardId) {
+      toast.error('Board ID is missing.');
+      return;
+    }
+    const source = dataSources[0];
+    setIsSavingGenerated(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/prompt-suggestions/source/${source.id}`, {
+        headers: { Accept: 'application/json', 'X-API-Key': EXCEL_API_KEY },
+      });
+      if (!res.ok) throw new Error(`Error ${res.status}`);
+      const data = await res.json();
+      const byCategory: Record<string, PromptSuggestion[]> = data?.suggestions_by_category || {};
+      const all: PromptSuggestion[] = Object.values(byCategory).flat();
+      if (all.length === 0) {
+        toast.info('No prompt suggestions returned.');
+        return;
+      }
 
+      let loggedInUserName: string | null = null;
+      try {
+        const currentUserData = sessionStorage.getItem('currentUserData');
+        if (currentUserData) {
+          const userData = JSON.parse(currentUserData);
+          loggedInUserName = userData.userName;
+        }
+      } catch {}
+      if (!loggedInUserName) {
+        loggedInUserName = localStorage.getItem('loggedInUserName');
+      }
+      if (!loggedInUserName) loggedInUserName = 'AI';
+
+      const newIds: string[] = [];
+      const savedPrompts: Prompt[] = [];
+      for (const suggestion of all) {
+        const promptData = {
+          board_id: boardId,
+          prompt_text: suggestion.prompt_text.trim(),
+          prompt_out: 'out_string',
+          user_name: loggedInUserName,
+          created_by: loggedInUserName,
+        };
+        const saveRes = await fetch(`${API_BASE_URL}/main-boards/boards/prompts/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-API-Key': EXCEL_API_KEY },
+          body: JSON.stringify(promptData),
+        });
+        if (saveRes.ok) {
+          const saved: Prompt = await saveRes.json();
+          savedPrompts.push(saved);
+          newIds.push(String(saved.id));
+        }
+      }
+
+      if (savedPrompts.length > 0) {
+        setPrompts(prev => [...prev, ...savedPrompts]);
+        setGeneratedPromptIds(prev => {
+          const next = new Set(prev);
+          newIds.forEach(id => next.add(id));
+          try {
+            localStorage.setItem(`gen_prompt_ids_${boardId}`, JSON.stringify([...next]));
+          } catch {}
+          return next;
+        });
+        toast.success(`${savedPrompts.length} generated prompt${savedPrompts.length > 1 ? 's' : ''} saved!`);
+        setGenerateDone(true);
+      }
+    } catch {
+      toast.error('Failed to generate and save prompts. Please try again.');
+    } finally {
+      setIsSavingGenerated(false);
+    }
+  };
 
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [commentSaving, setCommentSaving] = useState(false);
@@ -4167,6 +4258,25 @@ const SpeechRecognition =
                     New Prompts +
                   </button>
 
+                  <button
+                    className={`py-1.5 px-3 rounded-md text-xs font-medium whitespace-nowrap flex items-center gap-1 transition-colors ${
+                      generateDone
+                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        : 'bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-60'
+                    }`}
+                    onClick={handleGenerateAndSavePrompts}
+                    disabled={isSavingGenerated || generateDone}
+                    title={generateDone ? 'Prompts already generated for this session' : 'Generate AI prompts'}
+                  >
+                    {isSavingGenerated ? (
+                      <><span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin inline-block" /> Generating...</>
+                    ) : generateDone ? (
+                      <>✓ Generated</>
+                    ) : (
+                      <>✨ Generate Prompt</>
+                    )}
+                  </button>
+
                   {/* {prompts.length === 0 ? (
                     <button
                       className="py-1.5 px-3 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-xs font-medium whitespace-nowrap"
@@ -4191,14 +4301,19 @@ const SpeechRecognition =
               <div className="max-w-[1400px] mx-auto px-3 py-3">
                 {!isLoading && filteredPrompts.length > 0 && (
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 auto-rows-fr">
-                    {filteredPrompts.map((prompt, index) => {
+                    {filteredPrompts.map((prompt, _idx, arr) => {
+                      const gIds = generatedPromptIds;
+                      const gCount = arr.slice(0, arr.indexOf(prompt)).filter(p => gIds.has(String(p.id))).length + 1;
+                      const nCount = arr.slice(0, arr.indexOf(prompt)).filter(p => !gIds.has(String(p.id))).length + 1;
+                      const isGenerated = gIds.has(String(prompt.id));
+                      const label = isGenerated ? `G${gCount}` : `${nCount}`;
                       const datasetName = getDatasetName(prompt);
                       const outputType = promptOutputTypes[prompt.id];
 
                       return (
                         <div
                           key={prompt.id}
-                          className="prompt-card border rounded-lg shadow-sm p-3 bg-white transition-all duration-300 hover:shadow-md flex flex-col justify-between"
+                          className={`prompt-card border rounded-lg shadow-sm p-3 bg-white transition-all duration-300 hover:shadow-md flex flex-col justify-between ${isGenerated ? 'border-blue-300' : ''}`}
                           style={{ minHeight: '160px', maxWidth: '100%' }}
                         >
                           {/* Prompt text */}
@@ -4214,7 +4329,7 @@ const SpeechRecognition =
                             }}
                             title={prompt.prompt_text}
                           >
-                            {index + 1}. &quot;{prompt.prompt_text}&quot;
+                            <span className={isGenerated ? 'text-blue-600 font-bold' : ''}>{label}.</span> &quot;{prompt.prompt_text}&quot;
                           </p>
 
                           <div className="mt-auto">
@@ -4697,7 +4812,7 @@ const SpeechRecognition =
           <div
             id="result-modal-scroll"
             className="fixed inset-0 z-50 bg-white overflow-y-auto"
-            style={{scrollbarWidth:'auto', scrollbarColor:'#313b96 #f1f1f1'}}
+            style={{scrollbarWidth:'auto', scrollbarColor:'#93c5fd #f1f1f1'}}
             onScroll={(e) => setShowTopBtn((e.currentTarget.scrollTop > 200))}
           >
             <div className="w-full p-4 relative">
@@ -4805,7 +4920,7 @@ const SpeechRecognition =
                      {resultTab === 'table' && (
                         <div className="table-tab">
                           {runResult?.table && runResult.table.columns?.length > 0 ? (
-                            <div className="max-h-[520px] overflow-auto border border-gray-300 rounded" style={{scrollbarWidth:'auto', scrollbarColor:'#313b96 #f1f1f1'}}>
+                            <div className="max-h-[520px] overflow-auto border border-gray-300 rounded" style={{scrollbarWidth:'auto', scrollbarColor:'#93c5fd #f1f1f1'}}>
                               <table style={{ tableLayout: 'fixed', borderCollapse: 'collapse', width: 'max-content', minWidth: '100%' }}>
                                 <thead className="bg-gray-100 sticky top-0 z-10">
                                   <tr>
@@ -6323,17 +6438,25 @@ const SpeechRecognition =
             </div>
 
             {/* ── Scrollable Body ── */}
-            <div id="run-prompt-scroll" className="flex-1 overflow-y-auto px-4 py-3" style={{scrollbarWidth:'thin', scrollbarColor:'#313b96 #f1f1f1'}} onScroll={(e) => setShowTopBtn(e.currentTarget.scrollTop > 200)}>
+            <div id="run-prompt-scroll" className="flex-1 overflow-y-auto px-4 py-3" style={{scrollbarWidth:'thin', scrollbarColor:'#93c5fd #f1f1f1'}} onScroll={(e) => setShowTopBtn(e.currentTarget.scrollTop > 200)}>
 
               {/* Textarea */}
-              <textarea
-                className="w-full p-2 border-2 border-blue-400 rounded text-xs bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                placeholder="Type your prompt here..."
-                value={newPromptName}
-                rows={4}
-                ref={textareaRef}
-                onChange={(e) => setNewPromptName(e.target.value)}
-              />
+              <div className="relative">
+                <textarea
+                  className="w-full p-2 pb-8 border-2 border-blue-400 rounded text-xs bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  placeholder="Type your prompt here..."
+                  value={newPromptName}
+                  rows={4}
+                  ref={textareaRef}
+                  onChange={(e) => setNewPromptName(e.target.value)}
+                />
+                {/* <button
+                  onClick={handleGeneratePrompt}
+                  className="absolute bottom-2 right-2 px-2.5 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-[11px] font-medium whitespace-nowrap shadow-sm"
+                >
+                  Generate Prompts
+                </button> */}
+              </div>
 
               {/* Action Buttons */}
               <div className="mt-2 flex flex-wrap justify-end gap-1.5">
@@ -6349,12 +6472,6 @@ const SpeechRecognition =
                   onClick={handleViewPromptsClick}
                 >
                   View Prompts
-                </button>
-                <button
-                  className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium whitespace-nowrap"
-                  onClick={handleGeneratePrompt}
-                >
-                  Generate Prompts
                 </button>
                 <button
                   onClick={handleRePrompt}
@@ -6458,7 +6575,7 @@ const SpeechRecognition =
                  {resultTab === 'table' && (
                         <div className="table-tab">
                           {runResult?.table && runResult.table.columns?.length > 0 ? (
-                            <div className="overflow-auto max-h-96 border border-gray-300 rounded" style={{scrollbarWidth:'auto', scrollbarColor:'#313b96 #f1f1f1'}}>
+                            <div className="overflow-auto max-h-96 border border-gray-300 rounded" style={{scrollbarWidth:'auto', scrollbarColor:'#93c5fd #f1f1f1'}}>
                               <table style={{ tableLayout: 'fixed', borderCollapse: 'collapse', width: 'max-content', minWidth: '100%' }}>
                                 <thead className="bg-gray-100 sticky top-0 z-10">
                                   <tr>
@@ -6917,7 +7034,7 @@ const SpeechRecognition =
               </div>
 
               {/* Prompt list */}
-              <div className="flex-1 overflow-y-auto px-3 py-2" style={{scrollbarWidth:'thin', scrollbarColor:'#313b96 #f1f1f1'}}>
+              <div className="flex-1 overflow-y-auto px-3 py-2" style={{scrollbarWidth:'thin', scrollbarColor:'#93c5fd #f1f1f1'}}>
                 {promptsLoading ? (
                   <div className="flex justify-center py-8"><div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
                 ) : error ? (
@@ -6936,15 +7053,21 @@ const SpeechRecognition =
                       </div>
                     )}
                     {filteredPrompts.map((prompt, index) => {
+                      const gIds = generatedPromptIds;
+                      const arr = filteredPrompts;
+                      const isGenerated = gIds.has(String(prompt.id));
+                      const gCount = arr.slice(0, index).filter(p => gIds.has(String(p.id))).length + 1;
+                      const nCount = arr.slice(0, index).filter(p => !gIds.has(String(p.id))).length + 1;
+                      const label = isGenerated ? `G${gCount}` : `${nCount}`;
                       const outputType = promptOutputTypes[prompt.id];
                       return (
                         <div
                           key={prompt.id || index}
                           onClick={() => handlePromptClick(prompt)}
-                          className="mb-2 p-3 bg-white border border-gray-200 rounded-lg cursor-pointer hover:border-blue-400 hover:shadow-sm transition-all"
+                          className={`mb-2 p-3 bg-white border rounded-lg cursor-pointer hover:shadow-sm transition-all ${isGenerated ? 'border-blue-300 hover:border-blue-500' : 'border-gray-200 hover:border-blue-400'}`}
                         >
                           <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs font-bold text-blue-600">{index + 1}.</span>
+                            <span className="text-xs font-bold text-blue-600">{label}.</span>
                             {outputType && (
                               <div className="flex gap-1">
                                 {outputType.includes('C') && (
@@ -7019,7 +7142,7 @@ const SpeechRecognition =
               </div>
 
               {/* Suggestions list */}
-              <div className="flex-1 overflow-y-auto px-3 py-2" style={{ scrollbarWidth: 'auto', scrollbarColor: '#313b96 #f1f1f1' }}>
+              <div className="flex-1 overflow-y-auto px-3 py-2" style={{ scrollbarWidth: 'auto', scrollbarColor: '#93c5fd #f1f1f1' }}>
                 {generateLoading ? (
                   <div className="flex flex-col items-center justify-center py-12 gap-3">
                     <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />

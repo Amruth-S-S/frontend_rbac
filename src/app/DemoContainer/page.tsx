@@ -4592,7 +4592,7 @@ const SpeechRecognition =
           <div
             id="result-modal-scroll"
             className="fixed inset-0 z-50 bg-white overflow-y-auto"
-            style={{scrollbarWidth:'auto', scrollbarColor:'#313b96 #f1f1f1'}}
+            style={{scrollbarWidth:'auto', scrollbarColor:'#93c5fd #f1f1f1'}}
             onScroll={(e) => setShowTopBtn(e.currentTarget.scrollTop > 200)}
           >
             <div className="w-full p-4 relative">
@@ -4694,7 +4694,7 @@ const SpeechRecognition =
                      {resultTab === 'table' && (
                         <div className="table-tab">
                           {runResult?.table && runResult.table.columns?.length > 0 ? (
-                            <div className="max-h-[520px] overflow-auto border border-gray-300 rounded" style={{scrollbarWidth:'auto', scrollbarColor:'#313b96 #f1f1f1'}}>
+                            <div className="max-h-[520px] overflow-auto border border-gray-300 rounded" style={{scrollbarWidth:'auto', scrollbarColor:'#93c5fd #f1f1f1'}}>
                               <table style={{ tableLayout: 'fixed', borderCollapse: 'collapse', width: 'max-content', minWidth: '100%' }}>
                                 <thead className="bg-gray-100 sticky top-0 z-10">
                                   <tr>
@@ -6201,7 +6201,7 @@ const SpeechRecognition =
             </div>
 
             {/* ── Scrollable Body ── */}
-            <div id="run-prompt-scroll" className="flex-1 overflow-y-auto px-4 py-3" style={{scrollbarWidth:'thin', scrollbarColor:'#313b96 #f1f1f1'}} onScroll={(e) => setShowRunTopBtn(e.currentTarget.scrollTop > 200)}>
+            <div id="run-prompt-scroll" className="flex-1 overflow-y-auto px-4 py-3" style={{scrollbarWidth:'thin', scrollbarColor:'#93c5fd #f1f1f1'}} onScroll={(e) => setShowRunTopBtn(e.currentTarget.scrollTop > 200)}>
 
               {/* Textarea */}
               <textarea
@@ -6330,7 +6330,7 @@ const SpeechRecognition =
                  {resultTab === 'table' && (
                         <div className="table-tab">
                           {runResult?.table && runResult.table.columns?.length > 0 ? (
-                            <div className="overflow-auto max-h-[520px] border border-gray-300 rounded" style={{scrollbarWidth:'auto', scrollbarColor:'#313b96 #f1f1f1'}}>
+                            <div className="overflow-auto max-h-[520px] border border-gray-300 rounded" style={{scrollbarWidth:'auto', scrollbarColor:'#93c5fd #f1f1f1'}}>
                               <table style={{ tableLayout: 'fixed', borderCollapse: 'collapse', width: 'max-content', minWidth: '100%' }}>
                                 <thead className="bg-gray-100 sticky top-0 z-10">
                                   <tr>
@@ -6789,7 +6789,7 @@ const SpeechRecognition =
               </div>
 
               {/* Prompt list */}
-              <div className="flex-1 overflow-y-auto px-3 py-2" style={{scrollbarWidth:'thin', scrollbarColor:'#313b96 #f1f1f1'}}>
+              <div className="flex-1 overflow-y-auto px-3 py-2" style={{scrollbarWidth:'thin', scrollbarColor:'#93c5fd #f1f1f1'}}>
                 {promptsLoading ? (
                   <div className="flex justify-center py-8"><div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
                 ) : error ? (
