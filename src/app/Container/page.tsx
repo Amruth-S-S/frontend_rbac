@@ -4273,7 +4273,7 @@ const SpeechRecognition =
                     ) : generateDone ? (
                       <>✓ Generated</>
                     ) : (
-                      <>✨ Generate Prompt</>
+                      <>✨ Prompts Suggestion</>
                     )}
                   </button>
 
