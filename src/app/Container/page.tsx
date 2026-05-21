@@ -1515,7 +1515,17 @@ useEffect(() => {
     try {
       const stored = localStorage.getItem(`gen_prompt_ids_${boardId}`);
       if (stored) {
-        setGeneratedPromptIds(new Set(JSON.parse(stored)));
+        setGeneratedPromptIds(new Set(JSON.parse(stored).map(String)));
+      }
+    } catch {}
+  }, [boardId]);
+
+  // Persist generateDone across sessions — load from localStorage on mount
+  useEffect(() => {
+    if (!boardId) return;
+    try {
+      if (localStorage.getItem(`generate_done_${boardId}`) === 'true') {
+        setGenerateDone(true);
       }
     } catch {}
   }, [boardId]);
@@ -1625,6 +1635,7 @@ useEffect(() => {
         });
         toast.success(`${savedPrompts.length} generated prompt${savedPrompts.length > 1 ? 's' : ''} saved!`);
         setGenerateDone(true);
+        try { localStorage.setItem(`generate_done_${boardId}`, 'true'); } catch {}
       }
     } catch {
       toast.error('Failed to generate and save prompts. Please try again.');
@@ -3228,6 +3239,15 @@ const SpeechRecognition =
 
         setPrompts(data);
 
+        // Reload generatedPromptIds right here so G1 labels always show
+        // even after login/logout or CXO navigation
+        try {
+          const genStored = localStorage.getItem(`gen_prompt_ids_${boardId}`);
+          if (genStored) {
+            setGeneratedPromptIds(new Set(JSON.parse(genStored).map(String)));
+          }
+        } catch { /* keep existing */ }
+
         // Auto-fetch comment counts for all prompts so badges show immediately
         const commentEntries = await Promise.all(
           data.map(async (p: Prompt) => {
@@ -4125,9 +4145,9 @@ const SpeechRecognition =
 
                   // { key: "tally",        label: "Manage ETL" },
 
-                  { key: "master",       label: "Master Settings" },
-                  { key: "parameter",   label: "Parameter Settings" },
-                  { key: "timeline",     label: "Timeline Settings" },
+                  { key: "master",       label: "Master Data" },
+                  // { key: "parameter",   label: "Parameter Settings" },
+                  // { key: "timeline",     label: "Timeline Settings" },
                   { key: "kpi",          label: "KPI Updates" },
                 ].map((tab) => (
                   <button
@@ -4158,9 +4178,9 @@ const SpeechRecognition =
 
                       // { key: "tally",         label: "Manage ETL" },
 
-                      { key: "master",        label: "Master Settings" },
-                      { key: "parameter",    label: "Parameter Settings" },
-                      { key: "timeline",      label: "Timeline Settings" },
+                      { key: "master",        label: "Master Data" },
+                      // { key: "parameter",    label: "Parameter Settings" },
+                      // { key: "timeline",      label: "Timeline Settings" },
                       { key: "kpi",           label: "KPI Updates" },
                     ].find((t) => t.key === activeTab)?.label ?? "Select Tab"}
                   </span>
@@ -4178,9 +4198,9 @@ const SpeechRecognition =
 
                         // { key: "tally",         label: "Manage ETL" },
 
-                        { key: "master",        label: "Master Settings" },
-                        { key: "parameter",    label: "Parameter Settings" },
-                        { key: "timeline",      label: "Timeline Settings" },
+                        { key: "master",        label: "Master Data" },
+                        // { key: "parameter",    label: "Parameter Settings" },
+                        // { key: "timeline",      label: "Timeline Settings" },
                       ].map((tab) => (
                         <button
                           key={tab.key}

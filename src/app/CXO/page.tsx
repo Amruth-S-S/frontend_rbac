@@ -128,6 +128,8 @@ export default function CXO() {
   const [isLoading, setIsLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [filteredPrompt, setFilteredPrompt] = useState<Prompt[]>([]);
+  // Track which prompt IDs are AI-generated (loaded from localStorage, same key as Container page)
+  const [cxoGeneratedPromptIds, setCxoGeneratedPromptIds] = useState<Set<string>>(new Set());
   const [toasts, setToasts] = useState<{ id: number; message: string; type: 'error' | 'info' }[]>([]);
 
   const showToast = (message: string, type: 'error' | 'info' = 'error') => {
@@ -355,11 +357,25 @@ export default function CXO() {
         const data = await res.json();
         if (!Array.isArray(data)) { setPrompts([]); throw new Error("Invalid response format"); }
         setPrompts(data);
+        // Load generated prompt IDs from localStorage so G1 labels show in View Prompts modal
+        try {
+          const genStored = localStorage.getItem(`gen_prompt_ids_${selectedBoardId}`);
+          setCxoGeneratedPromptIds(genStored ? new Set(JSON.parse(genStored).map(String)) : new Set());
+        } catch { setCxoGeneratedPromptIds(new Set()); }
       } catch (e) {
         setError(e instanceof Error ? e.message : "An unknown error occurred");
       } finally { setPromptsLoading(false); }
     };
     fetchPrompts();
+  }, [selectedBoardId]);
+
+  // Also reload cxoGeneratedPromptIds when selectedBoardId changes (handles modal open without re-fetch)
+  useEffect(() => {
+    if (!selectedBoardId) { setCxoGeneratedPromptIds(new Set()); return; }
+    try {
+      const genStored = localStorage.getItem(`gen_prompt_ids_${selectedBoardId}`);
+      setCxoGeneratedPromptIds(genStored ? new Set(JSON.parse(genStored).map(String)) : new Set());
+    } catch { setCxoGeneratedPromptIds(new Set()); }
   }, [selectedBoardId]);
 
   const handleMainBoardClick = (id: string) => setSelectedMainBoardId(id);
@@ -1444,18 +1460,24 @@ export default function CXO() {
               </div>
             ) : (
               <div className="space-y-2">
-                {filteredPrompt.map((prompt: Prompt, index: number) => (
-                  <div key={prompt.id || index} onClick={() => handlePromptClick(prompt)}
-                    className="border border-gray-100 rounded-lg p-3 cursor-pointer hover:bg-blue-50 hover:border-blue-200 transition-colors">
-                    <div className="flex items-start gap-2">
-                      <span className="text-xs font-bold text-blue-500 flex-shrink-0">{index + 1}.</span>
-                      <div>
-                        <h4 className="text-xs font-semibold text-gray-800 leading-snug">{prompt.prompt_title}</h4>
-                        <p className="text-[10px] text-gray-500 mt-0.5 line-clamp-3 leading-relaxed">{prompt.prompt_text}</p>
+                {filteredPrompt.map((prompt: Prompt, index: number) => {
+                  const isGenerated = cxoGeneratedPromptIds.has(String(prompt.id));
+                  const gCount = filteredPrompt.slice(0, index).filter(p => cxoGeneratedPromptIds.has(String(p.id))).length + 1;
+                  const nCount = filteredPrompt.slice(0, index).filter(p => !cxoGeneratedPromptIds.has(String(p.id))).length + 1;
+                  const label = isGenerated ? `G${gCount}` : `${nCount}`;
+                  return (
+                    <div key={prompt.id || index} onClick={() => handlePromptClick(prompt)}
+                      className={`border rounded-lg p-3 cursor-pointer hover:bg-blue-50 transition-colors ${isGenerated ? 'border-blue-300 hover:border-blue-500' : 'border-gray-100 hover:border-blue-200'}`}>
+                      <div className="flex items-start gap-2">
+                        <span className={`text-xs font-bold flex-shrink-0 ${isGenerated ? 'text-blue-600' : 'text-blue-500'}`}>{label}.</span>
+                        <div>
+                          <h4 className="text-xs font-semibold text-gray-800 leading-snug">{prompt.prompt_title}</h4>
+                          <p className="text-[10px] text-gray-500 mt-0.5 line-clamp-3 leading-relaxed">{prompt.prompt_text}</p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
