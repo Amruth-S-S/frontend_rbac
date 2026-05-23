@@ -1311,75 +1311,51 @@ useEffect(() => {
 
 
   const sendViaEmail = async (includeTable: boolean | undefined, tableOption: string | undefined) => {
+    if (!emailData.email) {
+      toast.error('Please enter a recipient email address');
+      return;
+    }
     try {
-      const pptBlob = await generatePPTBlob(includeTable, tableOption);
+      // Generate PPT client-side using PptxGenJS (same as download, avoids CORS/backend issues)
+      const pptBase64 = await downloadPPT(
+        includeTable ?? true,
+        tableOption ?? 'limited',
+        true
+      ) as string;
 
-      const formData = new FormData();
-      formData.append('file', pptBlob, 'DataAnalysisReport.pptx');
-      formData.append('email', emailData.email);
-      formData.append('user_id', '0');
-      formData.append('report_type', includeTable ? 'complete' : 'standard');
-      formData.append('file_name', 'DataAnalysisReport.pptx');
-      formData.append('subject', emailData.subject || 'Your GBusiness AI Report');
-      formData.append('message', emailData.message || 'Please find your personalized GBusiness AI report attached. Thank you for using our services!');
-      formData.append('include_charts', 'true');
-      formData.append('include_summary', 'true');
+      if (!pptBase64) {
+        throw new Error('Failed to generate PPT — please check that there is chart/table data available.');
+      }
 
-      const response = await fetch('http://localhost:8002/client-users/generate-and-send-ppt', {
+      // Send via Next.js API route (uses nodemailer server-side, no CORS)
+      const response = await fetch('/api/send-report-email', {
         method: 'POST',
-        headers: {
-          "X-API-Key": "xxAJf365FZZidPt496lk9M2XDbvQCMKevOSuBgx2k6BAjp3ALe4vLTjXtcmgatoQtvsSLED3lx7zEgyHcohd1Wa2iJWTlukzQTuauvTbGYjSgMtFq5AUQLuAcMW44mp",
-        },
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipientEmail: emailData.email,
+          subject: emailData.subject || 'Your Data Analysis Report',
+          message: emailData.message || '',
+          reportType: includeTable ? 'complete' : 'charts-only',
+          tableOption: tableOption || 'limited',
+          pptBase64,
+        }),
       });
 
-      if (!response.ok) {
-        let errorDetails = `HTTP ${response.status}`;
-        try {
-          const errorData = await response.json();
-          if (typeof errorData === 'string') {
-            errorDetails = errorData;
-          } else if (errorData.detail) {
-            errorDetails = errorData.detail;
-          } else if (errorData.message) {
-            errorDetails = errorData.message;
-          } else if (errorData.errors) {
-            errorDetails = Object.entries(errorData.errors)
-              .map(([key, value]) => `${key}: ${value}`)
-              .join(', ');
-          } else {
-            errorDetails = JSON.stringify(errorData);
-          }
-        } catch (e) {
-          errorDetails = `Failed to parse error response (Status ${response.status})`;
-        }
+      const result = await response.json();
 
-        // Special handling for email quota errors
-        if (errorDetails.includes('OverQuota') || errorDetails.includes('out of storage space')) {
-          errorDetails = `The recipient's email inbox is full. Please ask them to free up space or use a different email address.`;
+      if (!response.ok || !result.success) {
+        const errMsg = result.error || result.message || `HTTP ${response.status}`;
+        if (errMsg.includes('OverQuota') || errMsg.includes('out of storage space')) {
+          throw new Error("The recipient's email inbox is full. Please use a different email address.");
         }
-
-        throw new Error(errorDetails);
+        throw new Error(errMsg);
       }
 
-      toast.error('Email sent successfully!');
+      toast.success('Email sent successfully!');
     } catch (error) {
       console.error('Error sending email:', error);
-      const errorMessage = error instanceof Error ?
-        error.message :
-        typeof error === 'object' ?
-          JSON.stringify(error, null, 2) :
-          String(error);
-
-      // User-friendly error messages
-      let displayMessage = errorMessage;
-      if (errorMessage.includes('out of storage space')) {
-        displayMessage = `The recipient's email inbox is full. Please ask them to free up space or use a different email address.`;
-      } else if (errorMessage.includes('422')) {
-        displayMessage = `Invalid request parameters: ${errorMessage}`;
-      }
-
-      toast.error(`Failed to send email: ${displayMessage}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      toast.error(`Failed to send email: ${errorMessage}`);
     } finally {
       setShowEmailModal(false);
       setShowDownloadModal(false);
@@ -1977,7 +1953,7 @@ useEffect(() => {
 
   // This is your existing PPT download function, modified to work with React
   // This is your fixed PPT download function with clean prompt handling
-  const downloadPPT = (includeTableData = true, tableRowOption = 'limited') => {
+  const downloadPPT = async (includeTableData = true, tableRowOption = 'limited', returnAsBase64 = false): Promise<string | void> => {
     // console.log(`Downloading PPT with includeTableData=${includeTableData}, tableOption=${tableRowOption}`);
 
     try {
@@ -2584,10 +2560,15 @@ useEffect(() => {
       }
       fileName += ".pptx";
 
-      // Save the file
-      ppt.writeFile({ fileName: fileName });
+      // Save or return as base64
+      if (returnAsBase64) {
+        return await ppt.write({ outputType: 'base64' }) as string;
+      } else {
+        ppt.writeFile({ fileName: fileName });
+      }
     } catch (error) {
       console.error("An error occurred:", error);
+      if (returnAsBase64) throw error;
     }
   };
 
@@ -4642,10 +4623,15 @@ const SpeechRecognition =
               <div className="max-w-[1400px] mx-auto px-3 py-3">
                 {!isLoading && filteredRepositoryPrompts.length > 0 ? (
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 auto-rows-fr">
-                    {filteredRepositoryPrompts.map((prompt, index) => (
+                    {filteredRepositoryPrompts.map((prompt, index) => {
+                      const isGenerated = generatedPromptIds.has(String(prompt.id));
+                      const gCount = filteredRepositoryPrompts.slice(0, index).filter(p => generatedPromptIds.has(String(p.id))).length + 1;
+                      const nCount = filteredRepositoryPrompts.slice(0, index).filter(p => !generatedPromptIds.has(String(p.id))).length + 1;
+                      const label = isGenerated ? `G${gCount}` : `${nCount}`;
+                      return (
                       <div
                         key={prompt.id}
-                        className="prompt-card border rounded-lg shadow-sm p-3 bg-white transition-all duration-300 hover:shadow-md flex flex-col justify-between cursor-pointer"
+                        className={`prompt-card border rounded-lg shadow-sm p-3 bg-white transition-all duration-300 hover:shadow-md flex flex-col justify-between cursor-pointer ${isGenerated ? 'border-blue-300 hover:border-blue-500' : 'hover:border-blue-200'}`}
                         style={{ minHeight: '150px', maxWidth: '100%' }}
                         onClick={() => handlePlayClick(prompt)}
                       >
@@ -4663,7 +4649,7 @@ const SpeechRecognition =
                           }}
                           title={prompt.prompt_text}
                         >
-                          {index + 1}. &quot;{prompt.prompt_text}&quot;
+                          <span className={isGenerated ? 'text-blue-600 font-bold' : ''}>{label}.</span> &quot;{prompt.prompt_text}&quot;
                         </p>
 
                         <div className="mt-auto">
@@ -4689,7 +4675,8 @@ const SpeechRecognition =
                           </div>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : !isLoading ? (
                   <div className="text-center py-8">

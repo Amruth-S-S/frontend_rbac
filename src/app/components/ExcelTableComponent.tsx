@@ -143,11 +143,14 @@ const ExcelTableComponent = ({ boardId }: ExcelTableComponentProps) => {
   // ── Effects ───────────────────────────────────────────────────────────────
 
   useEffect(() => {
+    // Reset ALL board-specific state whenever the board switches
+    setTables([]);
+    setFieldsMap({});
+    setExpandedTableId(null);
+    setUploadingFor(null);
+    setDatasetFile(null);
+    setEditingTableId(null);
     if (boardId && loggedInUserId) fetchTables();
-    else {
-      setTables([]);
-      setFieldsMap({});
-    }
   }, [boardId, loggedInUserId]);
 
   useEffect(() => {
@@ -161,11 +164,12 @@ const ExcelTableComponent = ({ boardId }: ExcelTableComponentProps) => {
   // ── Fetch Tables ──────────────────────────────────────────────────────────
 
   const fetchTables = async () => {
-    if (!loggedInUserId) return;
+    if (!loggedInUserId || !boardId) return;
     setTablesLoading(true);
     try {
+      // Filter by both user AND board so each board shows only its own tables
       const res = await fetch(
-        `${API_BASE_URL}/api/master-data/user/${loggedInUserId}?active_only=false`,
+        `${API_BASE_URL}/api/master-data/user/${loggedInUserId}?active_only=false&board_id=${boardId}`,
         { headers: { "X-API-Key": API_KEY } },
       );
       if (res.ok) {
@@ -279,12 +283,13 @@ const ExcelTableComponent = ({ boardId }: ExcelTableComponentProps) => {
       const body = {
         table_name: newTableName.trim(),
         description: newTableDesc.trim(),
+        board_id: boardId,
         selected_currency_code: "USD",
         selected_currency_symbol: "$",
         selected_currency_name: "US Dollar",
       };
       const res = await fetch(
-        `${API_BASE_URL}/api/master-data/manual?user_id=${loggedInUserId}`,
+        `${API_BASE_URL}/api/master-data/manual?user_id=${loggedInUserId}&board_id=${boardId}`,
         {
           method: "POST",
           headers: { "X-API-Key": API_KEY, "Content-Type": "application/json" },
@@ -422,6 +427,7 @@ const ExcelTableComponent = ({ boardId }: ExcelTableComponentProps) => {
         JSON.stringify({
           table_name: table.table_name,
           description: table.description,
+          board_id: boardId,
           selected_currency_code: "USD",
           selected_currency_symbol: "$",
           selected_currency_name: "US Dollar",
@@ -429,7 +435,7 @@ const ExcelTableComponent = ({ boardId }: ExcelTableComponentProps) => {
       );
 
       const res = await fetch(
-        `${API_BASE_URL}/api/master-data/upload?user_id=${loggedInUserId}`,
+        `${API_BASE_URL}/api/master-data/upload?user_id=${loggedInUserId}&board_id=${boardId}`,
         { method: "POST", headers: { "X-API-Key": API_KEY }, body: fd },
       );
 
