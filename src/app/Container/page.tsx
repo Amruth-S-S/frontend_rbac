@@ -42,6 +42,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import TallySetting from "../components/TallySetting";
 import ManageParameterSetting from "../components/Manageparametersetting";
 import KpiUpdates from "../components/KpiUpdates";
+import ReportComponent from "../components/ReportComponent";
 
 ChartJS.register(
   ArcElement,
@@ -4130,6 +4131,7 @@ const SpeechRecognition =
                   // { key: "parameter",   label: "Parameter Settings" },
                   // { key: "timeline",     label: "Timeline Settings" },
                   { key: "kpi",          label: "KPI Updates" },
+                  { key: "report",       label: "Reports" },
                 ].map((tab) => (
                   <button
                     key={tab.key}
@@ -4163,6 +4165,7 @@ const SpeechRecognition =
                       // { key: "parameter",    label: "Parameter Settings" },
                       // { key: "timeline",      label: "Timeline Settings" },
                       { key: "kpi",           label: "KPI Updates" },
+                      { key: "report",        label: "Reports" },
                     ].find((t) => t.key === activeTab)?.label ?? "Select Tab"}
                   </span>
                   <span className="ml-2 text-gray-400 text-xs">{isMobileMenuOpen ? "▲" : "▼"}</span>
@@ -4182,6 +4185,8 @@ const SpeechRecognition =
                         { key: "master",        label: "Master Data" },
                         // { key: "parameter",    label: "Parameter Settings" },
                         // { key: "timeline",      label: "Timeline Settings" },
+                        { key: "kpi",           label: "KPI Updates" },
+                        { key: "report",        label: "Reports" },
                       ].map((tab) => (
                         <button
                           key={tab.key}
@@ -7231,6 +7236,10 @@ const SpeechRecognition =
 
         {activeTab === "kpi" && (
           <KpiUpdates />
+        )}
+
+        {activeTab === "report" && (
+          <ReportComponent />
         )}
 
       </div>
