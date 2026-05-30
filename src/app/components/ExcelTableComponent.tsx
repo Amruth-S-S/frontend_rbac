@@ -955,12 +955,13 @@ const ExcelTableComponent = ({ boardId }: ExcelTableComponentProps) => {
         <div className="flex justify-end items-center my-2">
           <button
             onClick={openCreateModal}
-            disabled={!boardId || !loggedInUserId}
+            disabled={!boardId || !loggedInUserId || tables.length > 0}
             className={`px-4 py-2 rounded text-xs font-medium transition-colors shadow-sm ${
-              !boardId || !loggedInUserId
+              !boardId || !loggedInUserId || tables.length > 0
                 ? "bg-gray-300 text-gray-500 cursor-not-allowed"
                 : "bg-blue-600 text-white hover:bg-blue-700"
             }`}
+            title={tables.length > 0 ? "Delete the existing table to create a new one" : undefined}
           >
             {!boardId ? "Select Board First" : "+ Create Master Data"}
           </button>

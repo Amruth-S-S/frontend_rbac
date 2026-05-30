@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import axios from 'axios';
+import LanguageSelector from '../components/LanguageSelector';
+import { useLanguage } from '../context/LanguageContext';
+import { translateBatch, formatNumber } from '../utils/translateService';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -71,6 +75,11 @@ interface UserData {
 }
 
 export default function CXO() {
+  const { t } = useTranslation();
+  const { language } = useLanguage();
+  const [boardNameMap, setBoardNameMap] = useState<Record<string, string>>({});
+  const [translatedCxoTexts, setTranslatedCxoTexts] = useState<Record<string, string>>({});
+  const [translatedCxoTitles, setTranslatedCxoTitles] = useState<Record<string, string>>({});
   const [navItems, setNavItems] = useState<MainBoard[]>([]);
   const [selectedMainBoardId, setSelectedMainBoardId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -125,6 +134,9 @@ export default function CXO() {
   };
 
   const [runResult, setRunResult] = useState<RunResult | null>(null);
+  const [translatedCxoResultColumns, setTranslatedCxoResultColumns] = useState<string[]>([]);
+  const [translatedCxoResultData, setTranslatedCxoResultData] = useState<string[][]>([]);
+  const [translatedCxoResultMessages, setTranslatedCxoResultMessages] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [filteredPrompt, setFilteredPrompt] = useState<Prompt[]>([]);
@@ -368,6 +380,97 @@ export default function CXO() {
     };
     fetchPrompts();
   }, [selectedBoardId]);
+
+  // Auto-translate all board names when language or navItems changes
+  useEffect(() => {
+    if (language === 'en' || navItems.length === 0) {
+      setBoardNameMap({});
+      return;
+    }
+    const allNames: string[] = [];
+    navItems.forEach(item => {
+      allNames.push(item.name);
+      Object.values(item.boards).forEach(board => {
+        if (board.is_active) allNames.push(board.name);
+      });
+    });
+    const unique = [...new Set(allNames)];
+    translateBatch(unique, language).then(translated => {
+      const map: Record<string, string> = {};
+      unique.forEach((name, i) => { map[name] = translated[i] || name; });
+      setBoardNameMap(map);
+    });
+  }, [language, navItems]);
+
+  // Auto-translate prompt text and titles when language or prompts change
+  useEffect(() => {
+    if (language === 'en' || prompts.length === 0) {
+      setTranslatedCxoTexts({});
+      setTranslatedCxoTitles({});
+      return;
+    }
+    const texts = prompts.map(p => p.prompt_text || '');
+    translateBatch(texts, language).then(translated => {
+      const map: Record<string, string> = {};
+      prompts.forEach((p, i) => { map[p.id] = translated[i] || texts[i]; });
+      setTranslatedCxoTexts(map);
+    });
+    const titles = prompts.map(p => p.prompt_title || '');
+    if (titles.some(t => t.trim() !== '')) {
+      translateBatch(titles, language).then(translated => {
+        const map: Record<string, string> = {};
+        prompts.forEach((p, i) => { if (p.prompt_title) map[p.id] = translated[i] || titles[i]; });
+        setTranslatedCxoTitles(map);
+      });
+    }
+  }, [language, prompts]);
+
+  // Translate run result when language or runResult changes
+  useEffect(() => {
+    if (!runResult || language === 'en') {
+      setTranslatedCxoResultColumns([]);
+      setTranslatedCxoResultData([]);
+      setTranslatedCxoResultMessages([]);
+      return;
+    }
+    const columns = runResult.table?.columns ?? [];
+    const messages: string[] = Array.isArray(runResult.message) ? runResult.message : (runResult.message ? [runResult.message as unknown as string] : []);
+    const tableData = runResult.table?.data ?? [];
+
+    // Format numbers synchronously; collect strings for translation
+    const formattedData: string[][] = tableData.map(row => [...row]);
+    const stringCellCoords: { row: number; col: number }[] = [];
+    const stringCellTexts: string[] = [];
+    tableData.forEach((row, r) => {
+      row.forEach((cell, c) => {
+        const str = String(cell ?? '');
+        if (!str) return;
+        if (!isNaN(Number(str))) {
+          formattedData[r][c] = formatNumber(str, language);
+        } else {
+          stringCellCoords.push({ row: r, col: c });
+          stringCellTexts.push(str);
+        }
+      });
+    });
+
+    const allTexts = [...columns, ...messages, ...stringCellTexts];
+    if (!allTexts.some(t => t.trim())) {
+      setTranslatedCxoResultData(formattedData);
+      return;
+    }
+
+    translateBatch(allTexts, language).then(translated => {
+      const colEnd = columns.length;
+      const msgEnd = colEnd + messages.length;
+      setTranslatedCxoResultColumns(translated.slice(0, colEnd));
+      setTranslatedCxoResultMessages(translated.slice(colEnd, msgEnd));
+      stringCellCoords.forEach(({ row, col }, i) => {
+        formattedData[row][col] = translated[msgEnd + i] || tableData[row][col];
+      });
+      setTranslatedCxoResultData(formattedData);
+    });
+  }, [runResult, language]);
 
   // Also reload cxoGeneratedPromptIds when selectedBoardId changes (handles modal open without re-fetch)
   useEffect(() => {
@@ -764,7 +867,7 @@ export default function CXO() {
           {/* Search bar */}
           {!isSidebarCollapsed && (
             <div className="relative mb-2">
-              <input type="text" placeholder="Search boards..." value={sidebarSearch}
+              <input type="text" placeholder={t('sidebar.searchBoards')} value={sidebarSearch}
                 onChange={e => setSidebarSearch(e.target.value)}
                 className="w-full py-1.5 pl-3 pr-7 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white" />
               {sidebarSearch && (
@@ -898,7 +1001,7 @@ export default function CXO() {
                       >
                         <ChevronRight className={`w-3 h-3 flex-shrink-0 transition-transform duration-200 ${isExpMb ? "rotate-90" : ""}`} />
                         <BarChart2 className="w-4 h-4 flex-shrink-0" />
-                        {!isSidebarCollapsed && <span className="ml-0.5 truncate">{hl(item.name)}</span>}
+                        {!isSidebarCollapsed && <span className="ml-0.5 truncate">{hl(boardNameMap[item.name] || item.name)}</span>}
                       </button>
                       {isExpMb && !isSidebarCollapsed && (
                         <div className="ml-5 mt-0.5 space-y-0.5">
@@ -912,7 +1015,7 @@ export default function CXO() {
                                 >
                                   {boardCheckLoading === boardId
                                     ? <span className="flex items-center gap-1"><span className="animate-spin inline-block w-3 h-3 border-b border-blue-600 rounded-full" />Loading...</span>
-                                    : hl(board.name)}
+                                    : hl(boardNameMap[board.name] || board.name)}
                                 </button>
                               ))}
                         </div>
@@ -959,10 +1062,10 @@ export default function CXO() {
               onClick={() => { setCxoView("home"); setSelectedMainBoardId(null); toggleMobileMenu(); }}
               className={`w-full text-left py-2 px-3 text-sm rounded ${cxoView === "home" ? "bg-blue-100 text-blue-700 font-medium" : "text-gray-700 hover:bg-gray-300"}`}
             >
-              Home
+              {t('header.home')}
             </button>
-            <a href="/Consultant" className="block py-2 px-3 text-blue-600 text-sm hover:bg-gray-300 rounded">Consultant</a>
-            <button onClick={handleLogout} className="w-full py-2 px-3 bg-blue-600 hover:bg-red-500 rounded text-white text-sm text-left">Logout</button>
+            <a href="/Consultant" className="block py-2 px-3 text-blue-600 text-sm hover:bg-gray-300 rounded">{t('header.consultant')}</a>
+            <button onClick={handleLogout} className="w-full py-2 px-3 bg-blue-600 hover:bg-red-500 rounded text-white text-sm text-left">{t('header.logout')}</button>
           </nav>
         </div>
       </div>
@@ -977,33 +1080,38 @@ export default function CXO() {
 
           {/* Nav — centered */}
           <div className="flex-1 flex justify-center gap-8">
-            <a href="/Consultant" className="text-blue-500 text-sm font-medium hover:text-blue-700 transition-colors">Consultant</a>
-            <a href="/CXO" className="text-blue-500 text-sm font-medium hover:text-blue-700 transition-colors">CXO</a>
+            <a href="/Consultant" className="text-blue-500 text-sm font-medium hover:text-blue-700 transition-colors">{t('header.consultant')}</a>
+            <a href="/CXO" className="text-blue-500 text-sm font-medium hover:text-blue-700 transition-colors">{t('header.cxo')}</a>
           </div>
 
-          {/* User info + settings */}
-          <div className="flex items-center gap-3 flex-shrink-0" ref={dropdownRef}>
-            <div className="text-right hidden sm:block">
-              <p className="text-sm font-semibold text-gray-800 leading-tight">{userData.userName || 'User'}</p>
-              <p className="text-xs text-gray-500 leading-tight">{userData.email}</p>
-            </div>
-            <div className="relative">
-              <button
-                onClick={() => setShowDropdown(v => !v)}
-                className="w-9 h-9 rounded-full bg-blue-600 hover:bg-blue-700 flex items-center justify-center transition-colors"
-              >
-                <Settings className="w-4 h-4 text-white" />
-              </button>
-              {showDropdown && (
-                <div className="absolute right-0 top-full mt-1.5 bg-white shadow-lg rounded-md border border-gray-100 min-w-[120px] z-50">
-                  <button
-                    onClick={handleLogout}
-                    className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 rounded-md"
-                  >
-                    Logout
-                  </button>
-                </div>
-              )}
+          {/* Language selector + User info + settings */}
+          <div className="flex items-center gap-3 flex-shrink-0">
+            {/* Language Selector */}
+            <LanguageSelector />
+
+            <div className="flex items-center gap-3" ref={dropdownRef}>
+              <div className="text-right hidden sm:block">
+                <p className="text-sm font-semibold text-gray-800 leading-tight">{userData.userName || 'User'}</p>
+                <p className="text-xs text-gray-500 leading-tight">{userData.email}</p>
+              </div>
+              <div className="relative">
+                <button
+                  onClick={() => setShowDropdown(v => !v)}
+                  className="w-9 h-9 rounded-full bg-blue-600 hover:bg-blue-700 flex items-center justify-center transition-colors"
+                >
+                  <Settings className="w-4 h-4 text-white" />
+                </button>
+                {showDropdown && (
+                  <div className="absolute right-0 top-full mt-1.5 bg-white shadow-lg rounded-md border border-gray-100 min-w-[120px] z-50">
+                    <button
+                      onClick={handleLogout}
+                      className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 rounded-md"
+                    >
+                      {t('header.logout')}
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </header>
@@ -1015,7 +1123,7 @@ export default function CXO() {
               <div className="mb-4">
                 <button onClick={() => setCxoView("home")}
                   className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-600 border border-blue-400 rounded-md hover:bg-blue-50 transition-colors">
-                  ← Back
+                  {t('header.back')}
                 </button>
               </div>
               <KPIDashboard />
@@ -1032,7 +1140,7 @@ export default function CXO() {
                       ← Back
                     </button>
                     <h2 className="text-sm font-bold text-gray-700">
-                      {navItems.find(i => i.main_board_id === selectedMainBoardId)?.name ?? "Boards"}
+                      {(() => { const n = navItems.find(i => i.main_board_id === selectedMainBoardId)?.name ?? "Boards"; return boardNameMap[n] || n; })()}
                     </h2>
                   </div>
                   <div className="flex flex-row gap-4 overflow-x-auto pb-3" style={{ scrollbarWidth: 'auto', scrollbarColor: '#93c5fd #f1f1f1' }}>
@@ -1047,7 +1155,7 @@ export default function CXO() {
                             <div className={`w-16 h-16 rounded-full ${style.bg} flex items-center justify-center`}>
                               {isChecking ? <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600" /> : <style.Icon className={`w-8 h-8 ${style.iconColor}`} />}
                             </div>
-                            <span className={`text-sm font-semibold text-center ${style.textColor}`}>{board.name}</span>
+                            <span className={`text-sm font-semibold text-center ${style.textColor}`}>{boardNameMap[board.name] || board.name}</span>
                           </button>
                         );
                       })}
@@ -1149,7 +1257,7 @@ export default function CXO() {
                               <div className={`w-16 h-16 rounded-full ${style.bg} flex items-center justify-center`}>
                                 <style.Icon className={`w-8 h-8 ${style.iconColor}`} />
                               </div>
-                              <span className={`text-sm font-semibold text-center ${style.textColor}`}>{item.name}</span>
+                              <span className={`text-sm font-semibold text-center ${style.textColor}`}>{boardNameMap[item.name] || item.name}</span>
                             </button>
                           );
                         })}
@@ -1330,7 +1438,9 @@ export default function CXO() {
                   <div>
                     {activeTab === 'message' && (
                       <div className="text-sm text-gray-700 p-4 bg-white rounded-xl shadow-sm">
-                        {runResult?.message?.length > 0 ? <p>{runResult.message[0]}</p> : <p className="text-gray-400">No message found.</p>}
+                        {runResult?.message?.length > 0
+                          ? <p>{translatedCxoResultMessages.length > 0 ? translatedCxoResultMessages[0] : runResult.message[0]}</p>
+                          : <p className="text-gray-400">No message found.</p>}
                       </div>
                     )}
                     {activeTab === 'table' && (
@@ -1340,13 +1450,13 @@ export default function CXO() {
                           <thead style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#f3f4f6' }}>
                             <tr>
                               {runResult.table.columns.map((col, i) => (
-                                <th key={i} className="px-3 py-2 border-b border-gray-200 text-left font-bold text-gray-700 text-xs uppercase tracking-wide">{col}</th>
+                                <th key={i} className="px-3 py-2 border-b border-gray-200 text-left font-bold text-gray-700 text-xs uppercase tracking-wide">{translatedCxoResultColumns[i] || col}</th>
                               ))}
                             </tr>
                           </thead>
                           <tbody>
                             {runResult.table.data.length > 0
-                              ? runResult.table.data.map((row, ri) => (
+                              ? (translatedCxoResultData.length > 0 ? translatedCxoResultData : runResult.table.data).map((row, ri) => (
                                   <tr key={ri} className={ri % 2 === 0 ? 'bg-white hover:bg-blue-50' : 'bg-gray-50 hover:bg-blue-50'}>
                                     {row.map((cell, ci) => <td key={ci} className="px-3 py-2 border-b border-gray-100 text-gray-700 text-sm">{cell}</td>)}
                                   </tr>
@@ -1471,8 +1581,8 @@ export default function CXO() {
                       <div className="flex items-start gap-2">
                         <span className={`text-xs font-bold flex-shrink-0 ${isGenerated ? 'text-blue-600' : 'text-blue-500'}`}>{label}.</span>
                         <div>
-                          <h4 className="text-xs font-semibold text-gray-800 leading-snug">{prompt.prompt_title}</h4>
-                          <p className="text-[10px] text-gray-500 mt-0.5 line-clamp-3 leading-relaxed">{prompt.prompt_text}</p>
+                          <h4 className="text-xs font-semibold text-gray-800 leading-snug">{translatedCxoTitles[prompt.id] || prompt.prompt_title}</h4>
+                          <p className="text-[10px] text-gray-500 mt-0.5 line-clamp-3 leading-relaxed">{translatedCxoTexts[prompt.id] || prompt.prompt_text}</p>
                         </div>
                       </div>
                     </div>

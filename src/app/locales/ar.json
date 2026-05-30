@@ -1,4 +1,169 @@
 {
   "welcome": "مرحبًا بكم في موقعنا",
-  "language": "اللغة"
+  "language": "اللغة",
+
+  "tabs": {
+    "manageTables": "إدارة الجداول",
+    "aiDocumentation": "توثيق الذكاء الاصطناعي",
+    "managePrompts": "إدارة الأوامر",
+    "promptsRepository": "مستودع الأوامر",
+    "masterData": "البيانات الرئيسية",
+    "parameterSettings": "إعدادات المعاملات",
+    "timelineSettings": "إعدادات الجدول الزمني",
+    "kpiUpdates": "تحديثات مؤشرات الأداء",
+    "reports": "التقارير"
+  },
+
+  "header": {
+    "consultantRole": "دور المستشار",
+    "cxoRole": "دور CXO",
+    "selectScreen": "اختر الشاشة",
+    "selectLanguage": "اختر اللغة",
+    "consultant": "المستشار",
+    "cxo": "CXO",
+    "home": "الرئيسية",
+    "logout": "تسجيل الخروج",
+    "back": "→ رجوع"
+  },
+
+  "prompts": {
+    "search": "البحث في الأوامر...",
+    "noPromptsAvailable": "لا توجد أوامر متاحة",
+    "noPromptsFound": "لم يتم العثور على أوامر لـ \"{{term}}\"",
+    "noRepositoryPrompts": "لا تتوفر أوامر في المستودع",
+    "newPrompts": "أوامر جديدة +",
+    "promptsSuggestion": "✨ اقتراحات الأوامر",
+    "generating": "جارٍ الإنشاء...",
+    "generated": "✓ تم الإنشاء",
+    "noPromptsToDownload": "لا توجد أوامر للتحميل",
+    "noDataSource": "لم يتم العثور على مصدر بيانات. يرجى إضافة مصدر بيانات في إدارة الجداول أولاً.",
+    "noPromptsBoard": "لا توجد أوامر لهذا اللوح.",
+    "createdBy": "أنشأه",
+    "updated": "تم التحديث",
+    "filterOn": "الفلتر مفعّل",
+    "filterOff": "الفلتر معطّل",
+    "newPrompt": "+ أمر جديد"
+  },
+
+  "runPrompt": {
+    "title": "تشغيل الأمر",
+    "parameterFilter": "فلتر المعاملات",
+    "on": "مفعّل",
+    "off": "معطّل",
+    "back": "→ رجوع",
+    "clear": "مسح",
+    "placeholder": "اكتب أمرك هنا...",
+    "viewPrompts": "عرض الأوامر",
+    "reprompt": "إعادة الأمر",
+    "run": "تشغيل",
+    "save": "حفظ",
+    "clearSearch": "مسح البحث"
+  },
+
+  "actions": {
+    "save": "حفظ",
+    "cancel": "إلغاء",
+    "delete": "حذف",
+    "edit": "تعديل",
+    "view": "عرض",
+    "create": "إنشاء",
+    "update": "تحديث",
+    "search": "بحث",
+    "clearSearch": "مسح",
+    "download": "تحميل",
+    "upload": "رفع",
+    "run": "تشغيل",
+    "back": "رجوع",
+    "confirm": "تأكيد",
+    "close": "إغلاق",
+    "submit": "إرسال",
+    "uploading": "جارٍ الرفع..."
+  },
+
+  "sidebar": {
+    "createMainBoard": "إنشاء لوحة رئيسية",
+    "search": "بحث...",
+    "demoReference": "مرجع العرض التوضيحي",
+    "loading": "جارٍ التحميل...",
+    "noDemoBoards": "لا توجد لوحات عرض توضيحي",
+    "resultsFor": "نتائج لـ",
+    "uploadLogo": "رفع الشعار",
+    "clickToUpload": "انقر للرفع",
+    "descriptionOptional": "الوصف (اختياري)",
+    "enterDescription": "أدخل وصفاً...",
+    "modalTitle": "إنشاء لوحة رئيسية",
+    "enterBoardName": "أدخل اسم اللوحة الرئيسية",
+    "editBoard": "تعديل اللوحة",
+    "deleteBoard": "حذف اللوحة",
+    "boardName": "اسم اللوحة",
+    "enterBoardNamePlaceholder": "أدخل اسم اللوحة",
+    "searchBoards": "البحث في اللوحات..."
+  },
+
+  "modal": {
+    "createMainBoard": "إنشاء لوحة رئيسية",
+    "enterMainBoardName": "أدخل اسم اللوحة الرئيسية",
+    "cancel": "إلغاء",
+    "save": "حفظ"
+  },
+
+  "common": {
+    "loading": "جارٍ التحميل...",
+    "error": "خطأ",
+    "success": "نجاح",
+    "warning": "تحذير",
+    "info": "معلومة",
+    "yes": "نعم",
+    "no": "لا",
+    "ok": "موافق",
+    "authRequired": "التحقق مطلوب",
+    "pleaseLogin": "يرجى تسجيل الدخول للوصول إلى هذه الصفحة.",
+    "login": "تسجيل الدخول"
+  },
+
+  "login": {
+    "title": "تسجيل الدخول",
+    "email": "البريد الإلكتروني",
+    "password": "كلمة المرور",
+    "loginButton": "دخول",
+    "forgotPassword": "نسيت كلمة المرور؟",
+    "noAccount": "ليس لديك حساب؟",
+    "signUp": "إنشاء حساب"
+  },
+
+  "dashboard": {
+    "title": "لوحة التحكم",
+    "welcome": "مرحباً"
+  },
+
+  "roles": {
+    "title": "الأدوار",
+    "userRole": "دور المستخدم",
+    "consultantRole": "دور المستشار",
+    "cxoRole": "دور CXO"
+  },
+
+  "users": {
+    "title": "المستخدمون",
+    "name": "الاسم",
+    "email": "البريد الإلكتروني",
+    "role": "الدور",
+    "status": "الحالة",
+    "active": "نشط",
+    "inactive": "غير نشط"
+  },
+
+  "kpi": {
+    "title": "مؤشرات الأداء",
+    "upload": "رفع",
+    "download": "تحميل",
+    "run": "تشغيل"
+  },
+
+  "reports": {
+    "title": "التقارير",
+    "generate": "إنشاء تقرير",
+    "download": "تحميل",
+    "send": "إرسال"
+  }
 }

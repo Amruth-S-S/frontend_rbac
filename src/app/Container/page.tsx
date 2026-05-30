@@ -6,8 +6,12 @@
 'use client';
 
 import { useState, useEffect, SetStateAction, useRef, ReactNode, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import PptxGenJS from "pptxgenjs";
 import { useSearchParams } from "next/navigation";
+import LanguageSelector from "../components/LanguageSelector";
+import { useLanguage } from "../context/LanguageContext";
+import { translateBatch, translateText, formatNumber } from "../utils/translateService";
 // import { MdManageSearch } from "react-icons/md";
 import { FaPlay, FaPen, FaTrash, FaEdit, FaCheck, FaBan } from "react-icons/fa";
 import { FaFileUpload, FaCaretUp, FaCaretDown, FaUpload, FaTimes, FaComment, FaBars } from 'react-icons/fa';
@@ -172,6 +176,8 @@ interface PromptComment {
 
 
 export default function Page() {
+  const { t } = useTranslation();
+  const { language } = useLanguage();
   const apiUrl = process.env.NEXT_PUBLIC_API_URL;
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -190,6 +196,10 @@ export default function Page() {
   const [promptOutputTypes, setPromptOutputTypes] = useState<Record<string, string>>({});
   const [isDropdownOpenn, setIsDropdownOpenn] = useState<string | null>(null);
   const [prompts, setPrompts] = useState<Prompt[]>([]);
+  // Map of prompt id → translated prompt_text (for current language)
+  const [translatedTexts, setTranslatedTexts] = useState<Record<string, string>>({});
+  // Map of prompt id → translated prompt_title (for current language)
+  const [translatedTitles, setTranslatedTitles] = useState<Record<string, string>>({});
   const [, setLoading] = useState(false);
   const [, setShowCharts] = useState(false);
   type TableRow = {
@@ -227,6 +237,10 @@ export default function Page() {
   };
 
   const [runResult, setRunResult] = useState<RunResult | null>(null);
+  const [translatedResultColumns, setTranslatedResultColumns] = useState<string[]>([]);
+  const [translatedResultData, setTranslatedResultData] = useState<string[][]>([]);
+  const [translatedResultMessages, setTranslatedResultMessages] = useState<string[]>([]);
+  const [translatedPromptDisplay, setTranslatedPromptDisplay] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [tableSortCol, setTableSortCol] = useState<number | null>(null);
   const [tableSortDir, setTableSortDir] = useState<'asc' | 'desc'>('asc');
@@ -236,6 +250,9 @@ export default function Page() {
   const [hasReprompted, setHasReprompted] = useState(false);
   const [showPopup, setShowPopup] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const promptEnRef = useRef(''); // English original — always sent to API
+  const [translatedPromptInput, setTranslatedPromptInput] = useState('');
+  const isApplyingTranslation = useRef(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [formData, setFormData] = useState({
     tableName: "",
@@ -432,6 +449,111 @@ useEffect(() => {
     router.replace('/Login');
   }
 }, []);
+
+// Auto-translate prompt_text AND prompt_title when language or prompts list changes
+useEffect(() => {
+  if (language === 'en' || prompts.length === 0) {
+    setTranslatedTexts({});
+    setTranslatedTitles({});
+    return;
+  }
+
+  // Translate the main prompt_text (what's shown in cards)
+  const texts = prompts.map((p) => p.prompt_text || '');
+  translateBatch(texts, language).then((translated) => {
+    const map: Record<string, string> = {};
+    prompts.forEach((p, i) => { map[p.id] = translated[i] || texts[i]; });
+    setTranslatedTexts(map);
+  });
+
+  // Also translate prompt_title (shown in the View Prompts drawer)
+  const titles = prompts.map((p) => p.prompt_title || '');
+  const hasAnyTitle = titles.some(t => t.trim() !== '');
+  if (hasAnyTitle) {
+    translateBatch(titles, language).then((translated) => {
+      const map: Record<string, string> = {};
+      prompts.forEach((p, i) => { if (p.prompt_title) map[p.id] = translated[i] || titles[i]; });
+      setTranslatedTitles(map);
+    });
+  }
+}, [language, prompts]);
+
+// Debounce: auto-translate the prompt input textarea when language is not English
+useEffect(() => {
+  if (language === 'en') {
+    setTranslatedPromptInput('');
+    return;
+  }
+  const en = promptEnRef.current.trim();
+  if (!en || isApplyingTranslation.current) return;
+
+  const timer = setTimeout(() => {
+    translateText(en, language).then(translated => {
+      if (translated && translated !== en) {
+        isApplyingTranslation.current = true;
+        setTranslatedPromptInput(translated);
+        setTimeout(() => { isApplyingTranslation.current = false; }, 100);
+      }
+    });
+  }, 700);
+  return () => clearTimeout(timer);
+}, [newPromptName, language]);
+
+// Translate run result (table columns, table data strings, messages, prompt display) when language or result changes
+useEffect(() => {
+  if (!runResult || language === 'en') {
+    setTranslatedResultColumns([]);
+    setTranslatedResultData([]);
+    setTranslatedResultMessages([]);
+    setTranslatedPromptDisplay('');
+    return;
+  }
+
+  const columns = runResult.table?.columns ?? [];
+  const messages: string[] = Array.isArray(runResult.message) ? runResult.message : (runResult.message ? [runResult.message as unknown as string] : []);
+  const tableData = runResult.table?.data ?? [];
+  const promptText = selectedPrompt || '';
+
+  // Apply number formatting synchronously first; collect string cells for translation
+  const formattedData: string[][] = tableData.map(row => [...row]);
+  const stringCellCoords: { row: number; col: number }[] = [];
+  const stringCellTexts: string[] = [];
+  tableData.forEach((row, r) => {
+    row.forEach((cell, c) => {
+      const str = String(cell ?? '');
+      if (!str) return;
+      if (!isNaN(Number(str))) {
+        formattedData[r][c] = formatNumber(str, language);
+      } else {
+        stringCellCoords.push({ row: r, col: c });
+        stringCellTexts.push(str);
+      }
+    });
+  });
+
+  const allTexts = [...columns, ...messages, promptText, ...stringCellTexts];
+  if (!allTexts.some(t => t.trim())) {
+    setTranslatedResultData(formattedData);
+    return;
+  }
+
+  translateBatch(allTexts, language).then(translated => {
+    const colEnd = columns.length;
+    const msgEnd = colEnd + messages.length;
+    const promptIdx = msgEnd;
+    const cellStart = promptIdx + 1;
+
+    setTranslatedResultColumns(translated.slice(0, colEnd));
+    setTranslatedResultMessages(translated.slice(colEnd, msgEnd));
+    setTranslatedPromptDisplay(translated[promptIdx] || promptText);
+
+    // Apply string translations on top of the already-number-formatted data
+    stringCellCoords.forEach(({ row, col }, i) => {
+      formattedData[row][col] = translated[cellStart + i] || tableData[row][col];
+    });
+    setTranslatedResultData(formattedData);
+  });
+}, [runResult, language, selectedPrompt]);
 
 useEffect(() => {
   if (boardId) {
@@ -2699,9 +2821,9 @@ useEffect(() => {
   // }, [boardId]);
 
 
-  // Sorted table rows derived from runResult
+  // Sorted table rows derived from runResult (or translated version)
   const sortedTableData = (() => {
-    const rows = runResult?.table?.data ?? [];
+    const rows = (translatedResultData.length > 0 ? translatedResultData : runResult?.table?.data) ?? [];
     if (tableSortCol === null) return rows;
     return [...rows].sort((a, b) => {
       const av = a[tableSortCol] ?? '';
@@ -3398,8 +3520,11 @@ const SpeechRecognition =
     setIsLoading(true);
     setIsRunClicked(true); // Set to true when Run is clicked
 
+    // Use English original for API — never send translated text to backend
+    const apiPromptText = promptEnRef.current.trim() || newPromptName.trim();
+
     // Validate input
-    if (!newPromptName?.trim()) {
+    if (!apiPromptText) {
       console.error("Error: Prompt cannot be empty");
       toast.error("Please enter a valid prompt.");
       setIsLoading(false);
@@ -3419,7 +3544,7 @@ const SpeechRecognition =
       );
 
       // Append parameters
-      url.searchParams.append("input_text", newPromptName.trim());
+      url.searchParams.append("input_text", apiPromptText);
       url.searchParams.append("board_id", boardId);
       url.searchParams.append("user_name", "");
       url.searchParams.append("use_cache", "true");
@@ -3430,7 +3555,7 @@ const SpeechRecognition =
       const response = await axios.post(
         url.href,
         {
-          input_text: newPromptName.trim(),
+          input_text: apiPromptText,
           board_id: boardId,
           user_name: "",
           use_cache: true,
@@ -4043,19 +4168,22 @@ const SpeechRecognition =
 
     <div className="flex-1 overflow-y-auto bg-gray-200 rounded-2xl shadow-lg border border-gray-200 min-h-screen">
       <header className="bg-white p-3 shadow-sm">
-        <div className="flex justify-end items-center max-w-screen-xl mx-auto">
-          {/* Left-aligned items (empty for now, can add logo or other items later) */}
+        <div className="flex justify-end items-center gap-2 max-w-screen-xl mx-auto">
+          {/* Language Selector */}
+          <LanguageSelector />
 
-          {/* Right-aligned dropdown showing current screen */}
+          {/* Role dropdown showing current screen */}
           <div className="relative">
             <button
               onClick={toggleDropdown}
               className="flex items-center gap-2 text-gray-700 hover:bg-gray-50 px-3 py-1.5 rounded-md transition-colors border border-gray-200 text-sm"
             >
               <span className="text-sm font-medium">
-                {location.pathname === '/Container' ? 'Consultant Role' :
-                  location.pathname === '/CXO' ? 'CXO Role' :
-                    'Select Screen'}
+                {location.pathname === '/Container'
+                  ? t('header.consultantRole')
+                  : location.pathname === '/CXO'
+                  ? t('header.cxoRole')
+                  : t('header.selectScreen')}
               </span>
               <svg
                 className={`w-3 h-3 transition-transform ${showDropdown ? 'rotate-180' : ''}`}
@@ -4071,19 +4199,19 @@ const SpeechRecognition =
             {showDropdown && (
               <div
                 ref={dropdownRef}
-                className="absolute right-0 mt-2 w-40 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50"
+                className="absolute right-0 mt-2 w-44 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50"
               >
                 <a
                   href="/Consultant"
                   className={`block px-4 py-2 text-sm ${location.pathname === '/Container' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}
                 >
-                  Consultant Role
+                  {t('header.consultantRole')}
                 </a>
                 <a
                   href="/CXO"
                   className={`block px-4 py-2 text-sm ${location.pathname === '/CXO' ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-100'}`}
                 >
-                  CXO Role
+                  {t('header.cxoRole')}
                 </a>
               </div>
             )}
@@ -4120,18 +4248,18 @@ const SpeechRecognition =
               {/* Desktop: horizontal tabs */}
               <div className="hidden md:flex gap-1 p-1 bg-gray-100 rounded-lg overflow-x-auto">
                 {[
-                  { key: "tables", label: "Manage Tables" },
-                  { key: "documentation", label: "AI Documentation" },
-                  { key: "prompts", label: "Manage Prompts" },
-                  { key: "repository", label: "Prompts Repository" },
+                  { key: "tables",        label: t("tabs.manageTables") },
+                  { key: "documentation", label: t("tabs.aiDocumentation") },
+                  { key: "prompts",       label: t("tabs.managePrompts") },
+                  { key: "repository",    label: t("tabs.promptsRepository") },
 
-                  // { key: "tally",        label: "Manage ETL" },
+                  // { key: "tally",      label: "Manage ETL" },
 
-                  { key: "master",       label: "Master Data" },
-                  // { key: "parameter",   label: "Parameter Settings" },
-                  // { key: "timeline",     label: "Timeline Settings" },
-                  { key: "kpi",          label: "KPI Updates" },
-                  { key: "report",       label: "Reports" },
+                  { key: "master",        label: t("tabs.masterData") },
+                  // { key: "parameter",  label: t("tabs.parameterSettings") },
+                  // { key: "timeline",   label: t("tabs.timelineSettings") },
+                  { key: "kpi",           label: t("tabs.kpiUpdates") },
+                  { key: "report",        label: t("tabs.reports") },
                 ].map((tab) => (
                   <button
                     key={tab.key}
@@ -4154,19 +4282,19 @@ const SpeechRecognition =
                 >
                   <span>
                     {[
-                      { key: "tables", label: "Manage Tables" },
-                      { key: "documentation", label: "AI Documentation" },
-                      { key: "prompts", label: "Manage Prompts" },
-                      { key: "repository", label: "Prompts Repository" },
+                      { key: "tables",        label: t("tabs.manageTables") },
+                      { key: "documentation", label: t("tabs.aiDocumentation") },
+                      { key: "prompts",       label: t("tabs.managePrompts") },
+                      { key: "repository",    label: t("tabs.promptsRepository") },
 
-                      // { key: "tally",         label: "Manage ETL" },
+                      // { key: "tally",      label: "Manage ETL" },
 
-                      { key: "master",        label: "Master Data" },
-                      // { key: "parameter",    label: "Parameter Settings" },
-                      // { key: "timeline",      label: "Timeline Settings" },
-                      { key: "kpi",           label: "KPI Updates" },
-                      { key: "report",        label: "Reports" },
-                    ].find((t) => t.key === activeTab)?.label ?? "Select Tab"}
+                      { key: "master",        label: t("tabs.masterData") },
+                      // { key: "parameter",  label: t("tabs.parameterSettings") },
+                      // { key: "timeline",   label: t("tabs.timelineSettings") },
+                      { key: "kpi",           label: t("tabs.kpiUpdates") },
+                      { key: "report",        label: t("tabs.reports") },
+                    ].find((tab) => tab.key === activeTab)?.label ?? t("header.selectScreen")}
                   </span>
                   <span className="ml-2 text-gray-400 text-xs">{isMobileMenuOpen ? "▲" : "▼"}</span>
                 </button>
@@ -4175,18 +4303,18 @@ const SpeechRecognition =
                   <div className="mt-1 bg-white border border-gray-200 rounded-lg shadow-md z-50">
                     <div className="p-1.5 space-y-0.5 max-h-52 overflow-y-auto">
                       {[
-                        { key: "tables", label: "Manage Tables" },
-                        { key: "documentation", label: "AI Documentation" },
-                        { key: "prompts", label: "Manage Prompts" },
-                        { key: "repository", label: "Prompts Repository" },
+                        { key: "tables",        label: t("tabs.manageTables") },
+                        { key: "documentation", label: t("tabs.aiDocumentation") },
+                        { key: "prompts",       label: t("tabs.managePrompts") },
+                        { key: "repository",    label: t("tabs.promptsRepository") },
 
-                        // { key: "tally",         label: "Manage ETL" },
+                        // { key: "tally",      label: "Manage ETL" },
 
-                        { key: "master",        label: "Master Data" },
-                        // { key: "parameter",    label: "Parameter Settings" },
-                        // { key: "timeline",      label: "Timeline Settings" },
-                        { key: "kpi",           label: "KPI Updates" },
-                        { key: "report",        label: "Reports" },
+                        { key: "master",        label: t("tabs.masterData") },
+                        // { key: "parameter",  label: t("tabs.parameterSettings") },
+                        // { key: "timeline",   label: t("tabs.timelineSettings") },
+                        { key: "kpi",           label: t("tabs.kpiUpdates") },
+                        { key: "report",        label: t("tabs.reports") },
                       ].map((tab) => (
                         <button
                           key={tab.key}
@@ -4226,7 +4354,7 @@ const SpeechRecognition =
                   <div className="relative flex-1">
                     <input
                       type="text"
-                      placeholder="Search prompts..."
+                      placeholder={t("prompts.search")}
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                       className="w-full py-1.5 px-3 pr-8 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs"
@@ -4261,7 +4389,7 @@ const SpeechRecognition =
                       setIsModalOpen(true);
                     }}
                   >
-                    New Prompts +
+                    {t("prompts.newPrompts")}
                   </button>
 
                   <button
@@ -4275,11 +4403,11 @@ const SpeechRecognition =
                     title={generateDone ? 'Prompts already generated for this session' : 'Generate AI prompts'}
                   >
                     {isSavingGenerated ? (
-                      <><span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin inline-block" /> Generating...</>
+                      <><span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin inline-block" /> {t("prompts.generating")}</>
                     ) : generateDone ? (
-                      <>✓ Generated</>
+                      <>{t("prompts.generated")}</>
                     ) : (
-                      <>✨ Prompts Suggestion</>
+                      <>{t("prompts.promptsSuggestion")}</>
                     )}
                   </button>
 
@@ -4335,7 +4463,7 @@ const SpeechRecognition =
                             }}
                             title={prompt.prompt_text}
                           >
-                            <span className={isGenerated ? 'text-blue-600 font-bold' : ''}>{label}.</span> &quot;{prompt.prompt_text}&quot;
+                            <span className={isGenerated ? 'text-blue-600 font-bold' : ''}>{label}.</span> &quot;{translatedTexts[prompt.id] || prompt.prompt_text}&quot;
                           </p>
 
                           <div className="mt-auto">
@@ -4375,10 +4503,10 @@ const SpeechRecognition =
   <div className="flex items-center justify-between gap-1">
     <div>
       <p className="text-gray-600 truncate">
-        Created By: {prompt.user_name && prompt.user_name !== "undefined" ? prompt.user_name : ""}
+        {t('prompts.createdBy')}: {prompt.user_name && prompt.user_name !== "undefined" ? prompt.user_name : ""}
       </p>
       <p className="text-gray-600">
-        Updated: {new Date(prompt.updated_at || prompt.created_at).toLocaleDateString()}
+        {t('prompts.updated')}: {new Date(prompt.updated_at || prompt.created_at).toLocaleDateString()}
       </p>
     </div>
     <div className="flex flex-col items-end gap-1">
@@ -4402,7 +4530,7 @@ const SpeechRecognition =
             : "bg-gray-100 text-gray-500 border-gray-300"
         }`}>
           <span className={`w-1.5 h-1.5 rounded-full ${filterStatusMap[prompt.data_source_id] ? "bg-emerald-500" : "bg-gray-400"}`} />
-          Filter: {filterStatusMap[prompt.data_source_id] ? "ON" : "OFF"}
+          {filterStatusMap[prompt.data_source_id] ? t('prompts.filterOn') : t('prompts.filterOff')}
         </span>
       )}
     </div>
@@ -4473,7 +4601,7 @@ const SpeechRecognition =
                 {!isLoading && filteredPrompts.length === 0 && (
                   <div className="text-center py-8">
                     <p className="text-gray-500 text-xs">
-                      {searchTerm ? `No prompts found for "${searchTerm}"` : "No prompts available"}
+                      {searchTerm ? t("prompts.noPromptsFound", { term: searchTerm }) : t("prompts.noPromptsAvailable")}
                     </p>
                     {searchTerm && (
                       <button
@@ -4654,17 +4782,17 @@ const SpeechRecognition =
                           }}
                           title={prompt.prompt_text}
                         >
-                          <span className={isGenerated ? 'text-blue-600 font-bold' : ''}>{label}.</span> &quot;{prompt.prompt_text}&quot;
+                          <span className={isGenerated ? 'text-blue-600 font-bold' : ''}>{label}.</span> &quot;{translatedTexts[prompt.id] || prompt.prompt_text}&quot;
                         </p>
 
                         <div className="mt-auto">
                           <hr className="my-1.5 border-t border-gray-100" />
                           <div className="mt-2 text-xs space-y-1">
                             <p className="opacity-90 truncate">
-                              Created By: {prompt.user_name && prompt.user_name !== "undefined" ? prompt.user_name : ""}
+                              {t('prompts.createdBy')}: {prompt.user_name && prompt.user_name !== "undefined" ? prompt.user_name : ""}
                             </p>
                             <div className="flex items-center justify-between gap-1">
-                              <p className="opacity-80">Updated: {new Date(prompt.updated_at).toLocaleDateString()}</p>
+                              <p className="opacity-80">{t('prompts.updated')}: {new Date(prompt.updated_at).toLocaleDateString()}</p>
                               {(() => {
                                 const ot = promptOutputTypes[prompt.id];
                                 if (!ot) return null;
@@ -4856,7 +4984,7 @@ const SpeechRecognition =
                   </div>
 
                   <textarea
-                    value={selectedPrompt || ""}
+                    value={translatedPromptDisplay || selectedPrompt || ""}
                     readOnly
                     rows={3}
                     className="w-full p-2 border-2 border-blue-400 rounded text-sm resize-none bg-blue-50 text-gray-800 focus:outline-none"
@@ -4916,7 +5044,7 @@ const SpeechRecognition =
                       {resultTab === 'message' && (
                         <div>
                           {runResult?.message?.length > 0 ? (
-                            <p className="text-sm text-black-700 whitespace-pre-wrap p-4">{runResult.message}</p>
+                            <p className="text-sm text-black-700 whitespace-pre-wrap p-4">{translatedResultMessages.length > 0 ? translatedResultMessages : runResult.message}</p>
                           ) : (
                             <div className="flex flex-col items-center justify-center py-16 text-black-400">
                               <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mb-3 text-black-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -4944,7 +5072,7 @@ const SpeechRecognition =
                                         onClick={() => handleColSort(idx)}
                                       >
                                         <span className="flex items-center gap-1 px-2 py-2 overflow-hidden">
-                                          <span className="truncate">{col}</span>
+                                          <span className="truncate">{translatedResultColumns[idx] || col}</span>
                                           {tableSortCol === idx && (
                                             <span className="flex-shrink-0 text-blue-500 text-xs">
                                               {tableSortDir === 'asc' ? '▲' : '▼'}
@@ -6413,7 +6541,7 @@ const SpeechRecognition =
             {/* ── Header ── */}
             <div className="flex items-center justify-between px-4 py-2 border-b bg-white flex-shrink-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-sm font-bold text-gray-800">Run Your Prompt</h2>
+                <h2 className="text-sm font-bold text-gray-800">{t('runPrompt.title')}</h2>
                 {anyFilterEnabled !== null && (
                   <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold border ${
                     anyFilterEnabled
@@ -6423,7 +6551,7 @@ const SpeechRecognition =
                     <span className={`w-1.5 h-1.5 rounded-full ${
                       anyFilterEnabled ? "bg-emerald-500 animate-pulse" : "bg-gray-400"
                     }`} />
-                    Parameter Filter: {anyFilterEnabled ? "ON" : "OFF"}
+                    {t('runPrompt.parameterFilter')}: {anyFilterEnabled ? t('runPrompt.on') : t('runPrompt.off')}
                   </span>
                 )}
               </div>
@@ -6432,13 +6560,13 @@ const SpeechRecognition =
                   onClick={handleCloseModal}
                   className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-600 border border-blue-400 rounded-md hover:bg-blue-50 transition-colors"
                 >
-                  ← Back
+                  {t('runPrompt.back')}
                 </button>
                 <button
                   onClick={() => { setNewPromptName(""); setRunResult(null); setIsRunClicked(false); }}
                   className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-md transition-colors border border-red-200"
                 >
-                  Clear
+                  {t('runPrompt.clear')}
                 </button>
                 <button
                   onClick={handleCloseModal}
@@ -6456,11 +6584,16 @@ const SpeechRecognition =
               <div className="relative">
                 <textarea
                   className="w-full p-2 pb-8 border-2 border-blue-400 rounded text-xs bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                  placeholder="Type your prompt here..."
-                  value={newPromptName}
+                  placeholder={t('runPrompt.placeholder')}
+                  value={translatedPromptInput || newPromptName}
                   rows={4}
                   ref={textareaRef}
-                  onChange={(e) => setNewPromptName(e.target.value)}
+                  onChange={(e) => {
+                    const text = e.target.value;
+                    promptEnRef.current = text;
+                    setNewPromptName(text);
+                    setTranslatedPromptInput('');
+                  }}
                 />
                 {/* <button
                   onClick={handleGeneratePrompt}
@@ -6483,28 +6616,28 @@ const SpeechRecognition =
                   className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium whitespace-nowrap"
                   onClick={handleViewPromptsClick}
                 >
-                  View Prompts
+                  {t('runPrompt.viewPrompts')}
                 </button>
                 <button
                   onClick={handleRePrompt}
                   className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium whitespace-nowrap disabled:opacity-50"
                   disabled={isLoading}
                 >
-                  Reprompt
+                  {t('runPrompt.reprompt')}
                 </button>
                 <button
                   onClick={handleRunPrompt}
                   className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium whitespace-nowrap disabled:opacity-50"
-                  disabled={!newPromptName.trim() || isLoading}
+                  disabled={!(promptEnRef.current.trim() || newPromptName.trim()) || isLoading}
                 >
-                  Run
+                  {t('runPrompt.run')}
                 </button>
                 <button
                   onClick={handleSavePrompt}
                   className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium whitespace-nowrap disabled:opacity-50"
                   disabled={isLoading}
                 >
-                  Save
+                  {t('runPrompt.save')}
                 </button>
               </div>
 
@@ -6570,7 +6703,7 @@ const SpeechRecognition =
                   {resultTab === 'message' && (
                         <div>
                           {runResult?.message?.length > 0 ? (
-                            <p className="text-sm text-black-700 whitespace-pre-wrap p-4">{runResult.message}</p>
+                            <p className="text-sm text-black-700 whitespace-pre-wrap p-4">{translatedResultMessages.length > 0 ? translatedResultMessages : runResult.message}</p>
                           ) : (
                             <div className="flex flex-col items-center justify-center py-16 text-black-400">
                               <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mb-3 text-black-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -6599,7 +6732,7 @@ const SpeechRecognition =
                                         onClick={() => handleColSort(idx)}
                                       >
                                         <span className="flex items-center gap-1 px-2 py-2 overflow-hidden">
-                                          <span className="truncate">{col}</span>
+                                          <span className="truncate">{translatedResultColumns[idx] || col}</span>
                                           {tableSortCol === idx && (
                                             <span className="flex-shrink-0 text-blue-500 text-xs">
                                               {tableSortDir === 'asc' ? '▲' : '▼'}
@@ -7015,7 +7148,7 @@ const SpeechRecognition =
             <div className="fixed top-0 right-0 h-full w-72 bg-white shadow-2xl z-[80] flex flex-col">
               {/* Header */}
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-                <span className="font-semibold text-sm text-gray-800">View Prompts</span>
+                <span className="font-semibold text-sm text-gray-800">{t('runPrompt.viewPrompts')}</span>
                 <button
                   onClick={handleClosePromptsModal}
                   className="text-gray-400 hover:text-gray-700 text-xl leading-none"
@@ -7029,7 +7162,7 @@ const SpeechRecognition =
                 <div className="relative">
                   <input
                     type="text"
-                    placeholder="Search prompts..."
+                    placeholder={t('prompts.search')}
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="w-full pl-3 pr-7 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
@@ -7053,15 +7186,15 @@ const SpeechRecognition =
                   <p className="text-xs text-red-500 p-2">{error}</p>
                 ) : filteredPrompts.length === 0 ? (
                   <div className="text-center py-8 text-xs text-gray-500">
-                    {searchTerm ? `No prompts found for "${searchTerm}"` : 'No prompts found for this board.'}
-                    {searchTerm && <button onClick={() => setSearchTerm('')} className="block mx-auto mt-2 text-blue-500 underline">Clear search</button>}
+                    {searchTerm ? t('prompts.noPromptsFound', { term: searchTerm }) : t('prompts.noPromptsBoard')}
+                    {searchTerm && <button onClick={() => setSearchTerm('')} className="block mx-auto mt-2 text-blue-500 underline">{t('runPrompt.clearSearch')}</button>}
                   </div>
                 ) : (
                   <>
                     {searchTerm && (
                       <div className="flex justify-between items-center mb-2 text-xs text-gray-500">
                         <span>Found {filteredPrompts.length} prompt{filteredPrompts.length !== 1 ? 's' : ''}</span>
-                        <button onClick={() => setSearchTerm('')} className="text-blue-500 underline">Clear</button>
+                        <button onClick={() => setSearchTerm('')} className="text-blue-500 underline">{t('runPrompt.clear')}</button>
                       </div>
                     )}
                     {filteredPrompts.map((prompt, index) => {
@@ -7094,8 +7227,8 @@ const SpeechRecognition =
                               </div>
                             )}
                           </div>
-                          {prompt.prompt_title && <p className="text-xs font-medium text-gray-700 mb-0.5">{prompt.prompt_title}</p>}
-                          <p className="text-xs text-gray-500 line-clamp-2">{prompt.prompt_text}</p>
+                          {prompt.prompt_title && <p className="text-xs font-medium text-gray-700 mb-0.5">{translatedTitles[prompt.id] || prompt.prompt_title}</p>}
+                          <p className="text-xs text-gray-500 line-clamp-2">{translatedTexts[prompt.id] || prompt.prompt_text}</p>
                         </div>
                       );
                     })}

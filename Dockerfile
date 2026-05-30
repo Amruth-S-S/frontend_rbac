@@ -19,6 +19,8 @@ COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
+# Copy all env files so API routes can read server-side env vars at runtime
+COPY --from=builder /app/.env* ./
 
 # Next.js will run on port 8080 (Cloud Run expects this)
 EXPOSE 8080

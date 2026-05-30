@@ -1,7 +1,11 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useRouter, usePathname } from 'next/navigation';
+import LanguageSelector from './LanguageSelector';
+import { useLanguage } from '../context/LanguageContext';
+import { translateBatch } from '../utils/translateService';
 import useSWR from "swr";
 import Link from 'next/link';
 import {
@@ -116,6 +120,10 @@ const GlobalLoader = ({ message = "Loading..." }: { message?: string }) => (
 
 // ─── Main Sidebar Component ─────────────────────────────────────────────────────
 const Sidebar: React.FC<SidebarProps> = ({ }) => {
+  const { t } = useTranslation();
+  const { language } = useLanguage();
+  // Map of original name → translated name for current language
+  const [boardNameMap, setBoardNameMap] = useState<Record<string, string>>({});
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(260);
   const [isResizing, setIsResizing] = useState(false);
@@ -997,6 +1005,28 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
   useEffect(() => { if (refreshTrigger) mutateNavItems(); }, [refreshTrigger]);
   const forceRefresh = () => mutateNavItems();
 
+  // Auto-translate all board names when language or navItems changes
+  useEffect(() => {
+    if (language === 'en' || navItems.length === 0) {
+      setBoardNameMap({});
+      return;
+    }
+    // Collect all unique names: main boards + sub-boards
+    const allNames: string[] = [];
+    navItems.forEach(item => {
+      allNames.push(item.name);
+      Object.values(item.boards).forEach(board => {
+        if (board.is_active) allNames.push(board.name);
+      });
+    });
+    const unique = [...new Set(allNames)];
+    translateBatch(unique, language).then(translated => {
+      const map: Record<string, string> = {};
+      unique.forEach((name, i) => { map[name] = translated[i] || name; });
+      setBoardNameMap(map);
+    });
+  }, [language, navItems]);
+
   const toggleMainBoard = (mainBoardId: string) => {
     setActiveMainBoard(prev => prev === mainBoardId ? null : mainBoardId);
     setShowSubMenu(false);
@@ -1068,16 +1098,19 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
                   <div className="flex items-center justify-center w-[120px] h-[42px] border-2 border-dashed border-blue-400/40 rounded-lg bg-blue-800/30 hover:bg-blue-700/40 transition-colors group">
                     <button onClick={() => setIsLogoModalOpen(true)} className="flex flex-col items-center text-black transition-colors">
                       <Upload className="w-4 h-4 mb-0.5" />
-                      <span className="text-xs font-medium">Upload Logo</span>
+                      <span className="text-xs font-medium">{t('sidebar.uploadLogo')}</span>
                     </button>
                   </div>
                 )}
               </div>
             )}
             {!isMobile && (
-              <button onClick={toggleSidebar} className="p-2 text-black hover:bg-blue-700/50 focus:outline-none rounded-lg transition-all duration-200 hover:scale-105">
-                {isSidebarOpen ? <ChevronLeft className="w-4 h-4 text-black" /> : <ChevronRight className="w-4 h-4" />}
-              </button>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                {(isSidebarOpen || isMobile) && <LanguageSelector />}
+                <button onClick={toggleSidebar} className="p-2 text-black hover:bg-blue-700/50 focus:outline-none rounded-lg transition-all duration-200 hover:scale-105">
+                  {isSidebarOpen ? <ChevronLeft className="w-4 h-4 text-black" /> : <ChevronRight className="w-4 h-4" />}
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -1090,7 +1123,7 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
               className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white py-2 px-3 rounded-lg font-medium text-sm transition-all duration-200 shadow-md hover:shadow-lg flex items-center justify-center gap-2 group"
             >
               <Plus className="w-3.5 h-3.5 group-hover:rotate-90 transition-transform duration-200" />
-              Create Main Board
+              {t('sidebar.createMainBoard')}
             </button>
           </div>
         )}
@@ -1101,7 +1134,7 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 w-3.5 h-3.5" />
               <input
-                ref={searchInputRef} type="text" placeholder="Search..."
+                ref={searchInputRef} type="text" placeholder={t('sidebar.search')}
                 value={searchQuery} onChange={handleSearchChange}
                 className="w-full py-2 pl-8 pr-8 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white shadow-sm transition-all duration-200"
               />
@@ -1131,9 +1164,9 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
               <div className="mb-3 p-2 bg-blue-50 rounded-lg border border-blue-200">
                 <div className="flex justify-between items-center">
                   <p className="text-xs text-blue-800">
-                    <span className="font-medium">{filteredNavItems.length + filteredAdminItems.length}</span> results for "{searchQuery}"
+                    <span className="font-medium">{filteredNavItems.length + filteredAdminItems.length}</span> {t('sidebar.resultsFor')} "{searchQuery}"
                   </p>
-                  <button onClick={clearSearch} className="text-blue-600 hover:text-blue-800 text-xs font-medium hover:bg-blue-100 px-1.5 py-0.5 rounded">Clear</button>
+                  <button onClick={clearSearch} className="text-blue-600 hover:text-blue-800 text-xs font-medium hover:bg-blue-100 px-1.5 py-0.5 rounded">{t('actions.clearSearch')}</button>
                 </div>
               </div>
             )}
@@ -1170,7 +1203,7 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
                       : <ChevronRight className="w-3.5 h-3.5 mr-1.5 text-gray-700 flex-shrink-0" />
                     }
                     {(isSidebarOpen || isMobile) && (
-                      <span className="font-medium text-xs truncate">Demo Reference</span>
+                      <span className="font-medium text-xs truncate">{t('sidebar.demoReference')}</span>
                     )}
                   </div>
                 </div>
@@ -1178,9 +1211,9 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
                 {isDemoRefOpen && (isSidebarOpen || isMobile) && (
                   <div className="ml-5 space-y-0.5 pb-1">
                     {isDemoLoading ? (
-                      <div className="text-xs text-gray-400 px-2 py-1">Loading...</div>
+                      <div className="text-xs text-gray-400 px-2 py-1">{t('sidebar.loading')}</div>
                     ) : !Array.isArray(demoMainBoards) || demoMainBoards.length === 0 ? (
-                      <div className="text-xs text-gray-400 px-2 py-1">No demo boards found</div>
+                      <div className="text-xs text-gray-400 px-2 py-1">{t('sidebar.noDemoBoards')}</div>
                     ) : (
                       demoMainBoards.map(mb => {
                         const mbId = String(mb.id);
@@ -1281,7 +1314,9 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
                         )}
                         {(isSidebarOpen || isMobile) && (
                           <span className="font-medium text-xs group-hover:text-black truncate">
-                            {searchQuery ? <span dangerouslySetInnerHTML={{ __html: highlight(item.name, searchQuery) }} /> : item.name}
+                            {searchQuery
+                              ? <span dangerouslySetInnerHTML={{ __html: highlight(item.name, searchQuery) }} />
+                              : (boardNameMap[item.name] || item.name)}
                           </span>
                         )}
                       </div>
@@ -1311,7 +1346,9 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
                                 onClick={closeMobileMenu}
                                 className="flex-1 text-black text-xs font-medium truncate"
                               >
-                                {searchQuery ? <span dangerouslySetInnerHTML={{ __html: highlight(board.name, searchQuery) }} /> : board.name}
+                                {searchQuery
+                                  ? <span dangerouslySetInnerHTML={{ __html: highlight(board.name, searchQuery) }} />
+                                  : (boardNameMap[board.name] || board.name)}
                               </Link>
                               {!searchQuery.trim() && (
                                 <div className="flex space-x-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
@@ -1396,7 +1433,7 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
                       <Settings className="w-3.5 h-3.5" /><span>Settings</span>
                     </button>
                     <button onClick={handleLogout} className="w-full flex items-center space-x-2 p-2.5 text-left text-xs text-gray-700 hover:bg-gray-50 transition-colors">
-                      <LogOut className="w-3.5 h-3.5" /><span>Log out</span>
+                      <LogOut className="w-3.5 h-3.5" /><span>{t('header.logout')}</span>
                     </button>
                   </div>
                 </div>
@@ -1427,7 +1464,7 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
                       <Settings className="w-3.5 h-3.5" /><span>Settings</span>
                     </button>
                     <button onClick={handleLogout} className="w-full flex items-center space-x-2 p-2.5 text-left text-xs text-gray-700 hover:bg-gray-50 transition-colors">
-                      <LogOut className="w-3.5 h-3.5" /><span>Log out</span>
+                      <LogOut className="w-3.5 h-3.5" /><span>{t('header.logout')}</span>
                     </button>
                   </div>
                 </div>
@@ -1513,17 +1550,17 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
         {isModalOpen && (
           <div className="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-50">
             <div className="bg-white rounded-xl shadow-2xl p-5 w-80 mx-4">
-              <h2 className="text-base font-bold mb-4 text-gray-900">Create Main Board</h2>
+              <h2 className="text-base font-bold mb-4 text-gray-900">{t('modal.createMainBoard')}</h2>
               <input
                 style={{ color: "black" }} type="text" value={mainBoardName}
                 onChange={e => setMainBoardName(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleSave()}
-                placeholder="Enter Main Board Name"
+                placeholder={t('modal.enterMainBoardName')}
                 className="w-full p-2.5 text-sm border border-gray-300 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <div className="flex justify-end space-x-3">
-                <button onClick={() => setIsModalOpen(false)} className="bg-gray-300 hover:bg-gray-400 text-black py-2 px-4 text-sm rounded-lg font-medium transition-all duration-200">Cancel</button>
-                <button onClick={handleSave} className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 text-sm rounded-lg font-medium transition-all duration-200">Save</button>
+                <button onClick={() => setIsModalOpen(false)} className="bg-gray-300 hover:bg-gray-400 text-black py-2 px-4 text-sm rounded-lg font-medium transition-all duration-200">{t('modal.cancel')}</button>
+                <button onClick={handleSave} className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 text-sm rounded-lg font-medium transition-all duration-200">{t('modal.save')}</button>
               </div>
             </div>
           </div>

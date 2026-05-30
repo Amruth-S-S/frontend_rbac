@@ -1,0 +1,169 @@
+{
+  "welcome": "Willkommen auf unserer Website",
+  "language": "Sprache",
+
+  "tabs": {
+    "manageTables": "Tabellen verwalten",
+    "aiDocumentation": "KI-Dokumentation",
+    "managePrompts": "Prompts verwalten",
+    "promptsRepository": "Prompt-Repository",
+    "masterData": "Stammdaten",
+    "parameterSettings": "Parametereinstellungen",
+    "timelineSettings": "Zeitplaneinstellungen",
+    "kpiUpdates": "KPI-Aktualisierungen",
+    "reports": "Berichte"
+  },
+
+  "header": {
+    "consultantRole": "Berater-Rolle",
+    "cxoRole": "CXO-Rolle",
+    "selectScreen": "Bildschirm auswählen",
+    "selectLanguage": "Sprache auswählen",
+    "consultant": "Berater",
+    "cxo": "CXO",
+    "home": "Startseite",
+    "logout": "Abmelden",
+    "back": "← Zurück"
+  },
+
+  "prompts": {
+    "search": "Prompts suchen...",
+    "noPromptsAvailable": "Keine Prompts verfügbar",
+    "noPromptsFound": "Keine Prompts für \"{{term}}\" gefunden",
+    "noRepositoryPrompts": "Keine Repository-Prompts verfügbar",
+    "newPrompts": "Neue Prompts +",
+    "promptsSuggestion": "✨ Prompt-Vorschläge",
+    "generating": "Generiere...",
+    "generated": "✓ Generiert",
+    "noPromptsToDownload": "Keine Prompts zum Herunterladen",
+    "noDataSource": "Keine Datenquelle gefunden. Bitte fügen Sie eine Datenquelle unter 'Tabellen verwalten' hinzu.",
+    "noPromptsBoard": "Keine Prompts für dieses Board gefunden.",
+    "createdBy": "Erstellt von",
+    "updated": "Aktualisiert",
+    "filterOn": "Filter AN",
+    "filterOff": "Filter AUS",
+    "newPrompt": "+ Neuer Prompt"
+  },
+
+  "runPrompt": {
+    "title": "Prompt ausführen",
+    "parameterFilter": "Parameterfilter",
+    "on": "AN",
+    "off": "AUS",
+    "back": "← Zurück",
+    "clear": "Löschen",
+    "placeholder": "Prompt hier eingeben...",
+    "viewPrompts": "Prompts anzeigen",
+    "reprompt": "Neu eingeben",
+    "run": "Ausführen",
+    "save": "Speichern",
+    "clearSearch": "Suche löschen"
+  },
+
+  "actions": {
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "delete": "Löschen",
+    "edit": "Bearbeiten",
+    "view": "Ansehen",
+    "create": "Erstellen",
+    "update": "Aktualisieren",
+    "search": "Suchen",
+    "clearSearch": "Löschen",
+    "download": "Herunterladen",
+    "upload": "Hochladen",
+    "run": "Ausführen",
+    "back": "Zurück",
+    "confirm": "Bestätigen",
+    "close": "Schließen",
+    "submit": "Absenden",
+    "uploading": "Wird hochgeladen..."
+  },
+
+  "sidebar": {
+    "createMainBoard": "Hauptboard erstellen",
+    "search": "Suchen...",
+    "demoReference": "Demo-Referenz",
+    "loading": "Laden...",
+    "noDemoBoards": "Keine Demo-Boards gefunden",
+    "resultsFor": "Ergebnisse für",
+    "uploadLogo": "Logo hochladen",
+    "clickToUpload": "Zum Hochladen klicken",
+    "descriptionOptional": "Beschreibung (Optional)",
+    "enterDescription": "Beschreibung eingeben...",
+    "modalTitle": "Hauptboard erstellen",
+    "enterBoardName": "Hauptboard-Name eingeben",
+    "editBoard": "Board bearbeiten",
+    "deleteBoard": "Board löschen",
+    "boardName": "Board-Name",
+    "enterBoardNamePlaceholder": "Board-Name eingeben",
+    "searchBoards": "Boards suchen..."
+  },
+
+  "modal": {
+    "createMainBoard": "Hauptboard erstellen",
+    "enterMainBoardName": "Hauptboard-Name eingeben",
+    "cancel": "Abbrechen",
+    "save": "Speichern"
+  },
+
+  "common": {
+    "loading": "Laden...",
+    "error": "Fehler",
+    "success": "Erfolg",
+    "warning": "Warnung",
+    "info": "Information",
+    "yes": "Ja",
+    "no": "Nein",
+    "ok": "OK",
+    "authRequired": "Authentifizierung erforderlich",
+    "pleaseLogin": "Bitte melden Sie sich an, um auf diese Seite zuzugreifen.",
+    "login": "Anmelden"
+  },
+
+  "login": {
+    "title": "Anmelden",
+    "email": "E-Mail",
+    "password": "Passwort",
+    "loginButton": "Anmelden",
+    "forgotPassword": "Passwort vergessen?",
+    "noAccount": "Noch kein Konto?",
+    "signUp": "Registrieren"
+  },
+
+  "dashboard": {
+    "title": "Dashboard",
+    "welcome": "Willkommen"
+  },
+
+  "roles": {
+    "title": "Rollen",
+    "userRole": "Benutzerrolle",
+    "consultantRole": "Berater-Rolle",
+    "cxoRole": "CXO-Rolle"
+  },
+
+  "users": {
+    "title": "Benutzer",
+    "name": "Name",
+    "email": "E-Mail",
+    "role": "Rolle",
+    "status": "Status",
+    "active": "Aktiv",
+    "inactive": "Inaktiv"
+  },
+
+  "kpi": {
+    "title": "KPI",
+    "upload": "Hochladen",
+    "download": "Herunterladen",
+    "run": "Ausführen"
+  },
+
+  "reports": {
+    "title": "Berichte",
+    "generate": "Bericht erstellen",
+    "download": "Herunterladen",
+    "send": "Senden"
+  }
+}
