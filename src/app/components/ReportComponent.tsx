@@ -111,7 +111,7 @@ function PaginationBar({ page, total, count, filtered, onChange }: PaginationPro
   const nums  = Array.from({ length: Math.min(5, total) }, (_, i) => start + i);
 
   return (
-    <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50 border-t border-gray-200 flex-wrap gap-2 flex-shrink-0">
+    <div className="flex items-center justify-between px-3 py-1.5 bg-gray-50 border-t border-gray-200 flex-wrap gap-1.5 flex-shrink-0">
       <p className="text-xs text-gray-500 whitespace-nowrap">
         Page <strong className="text-gray-700">{page}</strong> of{' '}
         <strong className="text-gray-700">{total}</strong>
@@ -227,24 +227,24 @@ function DataTable({
   return (
     /* Outer card: flex-col so header + table + pagination stack cleanly */
     <div
-      className="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col overflow-hidden"
-      style={{ maxHeight: maxHeight || 'calc(100vh - 280px)' }}
+      className="bg-white rounded-lg border border-gray-200 shadow-sm flex flex-col overflow-hidden"
+      style={{ maxHeight: maxHeight || 'calc(100vh - 220px)' }}
     >
       {/* ── Card header ── */}
-      <div className={`px-5 py-3 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2 flex-shrink-0 ${accentClass}`}>
+      <div className={`px-3 py-2 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2 flex-shrink-0 ${accentClass}`}>
         <div>
-          <h3 className="text-sm font-semibold text-gray-800">{title}</h3>
-          {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
+          <h3 className="text-xs font-semibold text-gray-800">{title}</h3>
+          {subtitle && <p className="text-[10px] text-gray-500 mt-0.5">{subtitle}</p>}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {rows.length > 0 && (
             <div className="relative">
-              <FaSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={10} />
+              <FaSearch className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" size={9} />
               <input
                 value={search}
                 onChange={e => { setSearch(e.target.value); setPage(1); }}
                 placeholder="Search…"
-                className="pl-7 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white w-36"
+                className="pl-6 pr-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white w-28"
               />
             </div>
           )}
@@ -472,33 +472,38 @@ function ReportModalForm({ type, ledgerNames, loading, onClose, onSubmit }: Moda
             {errors.ledger && <p className="text-red-500 text-xs mt-1">{errors.ledger}</p>}
           </div>
 
-          {/* From / To — native date pickers */}
+          {/* From / To — custom date pickers */}
           <div className="grid grid-cols-2 gap-3">
-            {([
-              { label: 'From Date', key: 'from', val: fromDate, set: setFromDate },
-              { label: 'To Date',   key: 'to',   val: toDate,   set: setToDate  },
-            ] as const).map(({ label, key, val, set }) => (
-              <div key={key}>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5">
-                  {label} <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="date"
-                  value={val}
-                  onChange={e => (set as (v: string) => void)(e.target.value)}
-                  className={`w-full border rounded-xl px-3 py-2.5 text-sm bg-gray-50 focus:outline-none focus:ring-2 ${accentRing} cursor-pointer ${
-                    errors[key] ? 'border-red-400 bg-red-50' : 'border-gray-200'
-                  }`}
-                />
-                <div className="flex items-center gap-1 mt-1.5">
-                  <span className="text-gray-400 text-[10px]">Format sent to API:</span>
-                  <span className={`text-[10px] font-mono font-bold ${val ? 'text-blue-600' : 'text-gray-300'}`}>
-                    {val ? val.replace(/-/g, '') : 'YYYYMMDD'}
-                  </span>
-                </div>
-                {errors[key] && <p className="text-red-500 text-xs mt-0.5">{errors[key]}</p>}
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+                From Date <span className="text-red-500">*</span>
+              </label>
+              <div className={errors.from ? 'ring-2 ring-red-300 rounded-xl' : ''}>
+                <DateField label="" value={fromDate} onChange={setFromDate} />
               </div>
-            ))}
+              <div className="flex items-center gap-1 mt-1.5">
+                <span className="text-gray-400 text-[10px]">API format:</span>
+                <span className={`text-[10px] font-mono font-bold ${fromDate ? 'text-blue-600' : 'text-gray-300'}`}>
+                  {fromDate ? fromDate.replace(/-/g, '') : 'YYYYMMDD'}
+                </span>
+              </div>
+              {errors.from && <p className="text-red-500 text-xs mt-0.5">{errors.from}</p>}
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+                To Date <span className="text-red-500">*</span>
+              </label>
+              <div className={errors.to ? 'ring-2 ring-red-300 rounded-xl' : ''}>
+                <DateField label="" value={toDate} onChange={setToDate} />
+              </div>
+              <div className="flex items-center gap-1 mt-1.5">
+                <span className="text-gray-400 text-[10px]">API format:</span>
+                <span className={`text-[10px] font-mono font-bold ${toDate ? 'text-blue-600' : 'text-gray-300'}`}>
+                  {toDate ? toDate.replace(/-/g, '') : 'YYYYMMDD'}
+                </span>
+              </div>
+              {errors.to && <p className="text-red-500 text-xs mt-0.5">{errors.to}</p>}
+            </div>
           </div>
 
           {/* Period (monthly only) */}
@@ -642,6 +647,249 @@ function ResultModal({ type, rows, onBack, onClose }: ResultModalProps) {
 }
 
 // ══════════════════════════════════════════════════════════════
+// Filter types
+// ══════════════════════════════════════════════════════════════
+interface FilterState {
+  filterColumn: string;
+  filterValue:  string;
+  dateColumn:   string;
+  fromDate:     string;
+  toDate:       string;
+  groupBy:      string;
+  aggFunc:      string;
+}
+const EMPTY_FILTERS: FilterState = {
+  filterColumn: '', filterValue: '', dateColumn: '',
+  fromDate: '', toDate: '', groupBy: '', aggFunc: 'sum',
+};
+
+// ══════════════════════════════════════════════════════════════
+// Custom Date Picker — year grid → month grid → day grid
+// ══════════════════════════════════════════════════════════════
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const DAYS   = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+
+function DateField({
+  label, value, onChange, disabled,
+}: { label: string; value: string; onChange: (v: string) => void; disabled?: boolean }) {
+  const today = new Date();
+  const parsed = value ? new Date(value + 'T00:00:00') : null;
+
+  const [open,       setOpen]       = useState(false);
+  const [view,       setView]       = useState<'day'|'month'|'year'>('day');
+  const [dispY,      setDispY]      = useState(parsed?.getFullYear()  ?? today.getFullYear());
+  const [dispM,      setDispM]      = useState(parsed?.getMonth()     ?? today.getMonth());
+  const [yrBase,     setYrBase]     = useState(Math.floor((parsed?.getFullYear() ?? today.getFullYear()) / 12) * 12);
+  const [popupStyle, setPopupStyle] = useState<React.CSSProperties>({});
+
+  const wrapRef    = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => {
+      if (
+        wrapRef.current && !wrapRef.current.contains(e.target as Node) &&
+        triggerRef.current && !triggerRef.current.contains(e.target as Node)
+      ) setOpen(false);
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+
+  const openPicker = () => {
+    if (disabled) return;
+    const base = parsed?.getFullYear() ?? today.getFullYear();
+    setDispY(parsed?.getFullYear() ?? today.getFullYear());
+    setDispM(parsed?.getMonth()    ?? today.getMonth());
+    setYrBase(Math.floor(base / 12) * 12);
+    setView('day');
+    // Calculate fixed position from trigger element
+    if (triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      if (spaceBelow < 320) {
+        // Not enough space below → open upward
+        setPopupStyle({ position: 'fixed', bottom: window.innerHeight - rect.top + 4, left: rect.left, width: 256 });
+      } else {
+        setPopupStyle({ position: 'fixed', top: rect.bottom + 4, left: rect.left, width: 256 });
+      }
+    }
+    setOpen(true);
+  };
+
+  const selectDate = (y: number, m: number, d: number) => {
+    onChange(`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`);
+    setOpen(false);
+  };
+
+  // Day grid helpers
+  const daysInMonth  = (y: number, m: number) => new Date(y, m+1, 0).getDate();
+  const firstWeekday = (y: number, m: number) => new Date(y, m, 1).getDay();
+
+  const display = parsed
+    ? parsed.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })
+    : '';
+
+  return (
+    <div className="flex-1">
+      {label && <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">{label}</label>}
+
+      {/* Trigger */}
+      <div ref={triggerRef} onClick={openPicker}
+        className={`flex items-center rounded-lg border transition-all select-none ${
+          disabled
+            ? 'bg-gray-50 border-gray-200 opacity-50 cursor-not-allowed'
+            : 'bg-white border-gray-300 hover:border-blue-400 cursor-pointer' + (open ? ' border-blue-500 ring-2 ring-blue-100' : '')
+        }`}
+      >
+        <FaCalendarAlt size={11} className="ml-2.5 text-blue-400 flex-shrink-0" />
+        <div className="flex-1 px-2 py-2 min-w-0">
+          {display
+            ? <span className="text-xs font-medium text-gray-800">{display}</span>
+            : <span className="text-xs text-gray-400">Select date</span>
+          }
+        </div>
+        {value && !disabled && (
+          <button type="button" onClick={e => { e.stopPropagation(); onChange(''); }}
+            className="mr-2 text-gray-300 hover:text-red-400 flex-shrink-0">
+            <FaTimes size={9} />
+          </button>
+        )}
+      </div>
+
+      {/* Popup — fixed so it escapes any overflow-hidden parent */}
+      {open && (
+        <div ref={wrapRef} style={popupStyle} className="z-[9999] bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden">
+
+          {/* ─── YEAR VIEW ─── */}
+          {view === 'year' && (
+            <>
+              <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
+                <button onClick={() => setYrBase(b => b - 12)}
+                  className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500">
+                  <FaChevronLeft size={9} />
+                </button>
+                <span className="text-xs font-bold text-gray-700">{yrBase} – {yrBase+11}</span>
+                <button onClick={() => setYrBase(b => b + 12)}
+                  className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500">
+                  <FaChevronRight size={9} />
+                </button>
+              </div>
+              <div className="grid grid-cols-3 gap-1 p-2">
+                {Array.from({length:12},(_,i)=>yrBase+i).map(yr => (
+                  <button key={yr} onClick={() => { setDispY(yr); setView('month'); }}
+                    className={`py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      yr === (parsed?.getFullYear() ?? -1)
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : yr === today.getFullYear()
+                          ? 'bg-blue-50 text-blue-600 border border-blue-200'
+                          : yr > today.getFullYear() + 5
+                            ? 'text-gray-300 cursor-default'
+                            : 'text-gray-700 hover:bg-gray-100'
+                    }`}>
+                    {yr}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* ─── MONTH VIEW ─── */}
+          {view === 'month' && (
+            <>
+              <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
+                <button onClick={() => { setDispY(y => y-1); }}
+                  className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500">
+                  <FaChevronLeft size={9} />
+                </button>
+                <button onClick={() => setView('year')}
+                  className="text-xs font-bold text-gray-700 hover:text-blue-600 transition-colors px-2 py-0.5 rounded hover:bg-gray-50">
+                  {dispY}
+                </button>
+                <button onClick={() => { setDispY(y => y+1); }}
+                  className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500">
+                  <FaChevronRight size={9} />
+                </button>
+              </div>
+              <div className="grid grid-cols-3 gap-1 p-2">
+                {MONTHS.map((m, mi) => (
+                  <button key={m} onClick={() => { setDispM(mi); setView('day'); }}
+                    className={`py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      mi === (parsed?.getMonth() ?? -1) && dispY === (parsed?.getFullYear() ?? -1)
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : mi === today.getMonth() && dispY === today.getFullYear()
+                          ? 'bg-blue-50 text-blue-600 border border-blue-200'
+                          : 'text-gray-700 hover:bg-gray-100'
+                    }`}>
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* ─── DAY VIEW ─── */}
+          {view === 'day' && (
+            <>
+              <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
+                <button onClick={() => { if (dispM === 0) { setDispM(11); setDispY(y=>y-1); } else setDispM(m=>m-1); }}
+                  className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500">
+                  <FaChevronLeft size={9} />
+                </button>
+                <button onClick={() => setView('month')}
+                  className="text-xs font-bold text-gray-700 hover:text-blue-600 transition-colors px-2 py-0.5 rounded hover:bg-gray-50">
+                  {MONTHS[dispM]} {dispY}
+                </button>
+                <button onClick={() => { if (dispM === 11) { setDispM(0); setDispY(y=>y+1); } else setDispM(m=>m+1); }}
+                  className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500">
+                  <FaChevronRight size={9} />
+                </button>
+              </div>
+              {/* Day-of-week headers */}
+              <div className="grid grid-cols-7 px-1.5 pt-1.5">
+                {DAYS.map(d => (
+                  <div key={d} className="text-center text-[9px] font-bold text-gray-400 py-0.5">{d}</div>
+                ))}
+              </div>
+              {/* Day cells */}
+              <div className="grid grid-cols-7 px-1.5 pb-1.5 gap-y-0.5">
+                {Array.from({length: firstWeekday(dispY, dispM)}).map((_,i) => <div key={'e'+i} />)}
+                {Array.from({length: daysInMonth(dispY, dispM)},(_,i)=>i+1).map(d => {
+                  const isSelected = parsed?.getFullYear()===dispY && parsed?.getMonth()===dispM && parsed?.getDate()===d;
+                  const isToday    = today.getFullYear()===dispY && today.getMonth()===dispM && today.getDate()===d;
+                  return (
+                    <button key={d} onClick={() => selectDate(dispY, dispM, d)}
+                      className={`h-6 w-full rounded-full text-[11px] font-medium transition-all ${
+                        isSelected
+                          ? 'bg-blue-600 text-white font-bold shadow-sm'
+                          : isToday
+                            ? 'bg-blue-50 text-blue-600 border border-blue-300'
+                            : 'text-gray-700 hover:bg-blue-50 hover:text-blue-600'
+                      }`}>
+                      {d}
+                    </button>
+                  );
+                })}
+              </div>
+              {/* Today shortcut */}
+              <div className="pb-2 text-center border-t border-gray-100 pt-1.5">
+                <button onClick={() => selectDate(today.getFullYear(), today.getMonth(), today.getDate())}
+                  className="text-[10px] font-semibold text-blue-500 hover:text-blue-700 hover:underline">
+                  Today
+                </button>
+              </div>
+            </>
+          )}
+
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
 // Main Report Component
 // ══════════════════════════════════════════════════════════════
 export default function ReportComponent() {
@@ -653,11 +901,15 @@ export default function ReportComponent() {
 
   // Table data
   const [tableRows,    setTableRows]    = useState<Row[]>([]);
-  const [tableColumns, setTableColumns] = useState<string[]>([]); // explicit col order from API
+  const [tableColumns, setTableColumns] = useState<string[]>([]);
   const [tableLoading, setTableLoading] = useState(false);
   const [runTableName, setRunTableName] = useState('');
   const [limit,        setLimit]        = useState(100);
   const [ledgerNames,  setLedgerNames]  = useState<string[]>([]);
+
+  // Filters
+  const [filters,      setFilters]      = useState<FilterState>(EMPTY_FILTERS);
+  const [showFilters,  setShowFilters]  = useState(false);
 
   // Modal (form)
   const [activeModal,     setActiveModal]     = useState<'monthly' | 'outstanding' | null>(null);
@@ -688,8 +940,12 @@ export default function ReportComponent() {
 
   useEffect(() => { fetchTables(); }, [fetchTables]);
 
-  // ── API 2: fetch table data when user clicks a table ──────────
-  const fetchTableData = useCallback(async (tableName: string, rowLimit: number) => {
+  // ── API 2: fetch table data (with optional filters) ───────────
+  const fetchTableData = useCallback(async (
+    tableName: string,
+    rowLimit: number,
+    f: FilterState = EMPTY_FILTERS,
+  ) => {
     setTableLoading(true);
     setTableRows([]);
     setTableColumns([]);
@@ -697,14 +953,25 @@ export default function ReportComponent() {
     setOutstandingRows(null);
     setRunTableName(tableName);
     try {
+      const p = new URLSearchParams({ limit: String(rowLimit) });
+      if (f.filterColumn && f.filterValue) {
+        p.set('filter_column', f.filterColumn);
+        p.set('filter_value',  f.filterValue);
+      }
+      if (f.dateColumn)  p.set('date_column', f.dateColumn);
+      if (f.fromDate)    p.set('from_date',   f.fromDate);
+      if (f.toDate)      p.set('to_date',     f.toDate);
+      if (f.groupBy)     p.set('group_by',    f.groupBy);
+      if (f.groupBy)     p.set('agg_func',    f.aggFunc || 'sum');
+
       const res = await fetch(
-        `${API_BASE}/tables/${encodeURIComponent(tableName)}/data/?limit=${rowLimit}`
+        `${API_BASE}/tables/${encodeURIComponent(tableName)}/data/?${p}`
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
-      const { rows, columns } = extractData(json); // reads API's "columns" array first
+      const { rows, columns } = extractData(json);
       setTableRows(rows);
-      setTableColumns(columns);                     // store for DataTable colDef prop
+      setTableColumns(columns);
       setLedgerNames(extractLedgerNames(rows));
     } catch (err) {
       console.error('Table data fetch failed', err);
@@ -713,7 +980,7 @@ export default function ReportComponent() {
     }
   }, []);
 
-  // Click a table → immediately fetch its data; click again → deselect
+  // Click a table chip → show inline filter + data; click again → deselect
   const handleSelectTable = (table: string) => {
     if (selectedTable === table) {
       setSelectedTable(null);
@@ -722,11 +989,29 @@ export default function ReportComponent() {
       setMonthlyRows(null);
       setOutstandingRows(null);
       setLedgerNames([]);
+      setShowFilters(false);
       return;
     }
+    setFilters(EMPTY_FILTERS);
     setSelectedTable(table);
-    fetchTableData(table, limit);
+    setShowFilters(true);
+    fetchTableData(table, limit, EMPTY_FILTERS);
   };
+
+  const handleApplyFilters = () => {
+    if (selectedTable) fetchTableData(selectedTable, limit, filters);
+  };
+
+  const handleResetFilters = () => {
+    setFilters(EMPTY_FILTERS);
+    if (selectedTable) fetchTableData(selectedTable, limit, EMPTY_FILTERS);
+  };
+
+  const activeFilterCount = [
+    filters.filterColumn && filters.filterValue,
+    filters.dateColumn && (filters.fromDate || filters.toDate),
+    filters.groupBy,
+  ].filter(Boolean).length;
 
   // ── API 3: Monthly Provision ─────────────────────────────────
   const handleMonthlySubmit = async (params: Record<string, string>) => {
@@ -764,85 +1049,76 @@ export default function ReportComponent() {
 
   // ════════════════════════════════════════════════════════════
   return (
-    <div className="w-full min-h-screen bg-gradient-to-br from-gray-50 to-indigo-50/20">
+    <div className="w-full bg-gray-50">
 
       {/* ── Page Header ─────────────────────────────────────── */}
-      <div className="w-full bg-white border-b border-gray-200 shadow-sm">
-        <div className="max-w-[1400px] mx-auto px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center shadow-sm">
-              <FaFileAlt className="text-white" size={16} />
-            </div>
-            <div>
-              <h1 className="text-sm font-bold text-gray-800">Reports</h1>
-              <p className="text-xs text-gray-500 mt-0.5">
-                {tablesLoading
-                  ? 'Loading tables…'
-                  : tables.length > 0
-                    ? `${tables.length} tables · click any to load its data`
-                    : 'No tables available'
-                }
-              </p>
-            </div>
+      <div className="w-full bg-white border-b border-gray-200">
+        <div className="max-w-[1400px] mx-auto px-4 py-1.5 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <FaFileAlt className="text-indigo-600" size={13} />
+            <span className="text-xs font-bold text-gray-800">Reports</span>
+            <span className="text-xs text-gray-400">
+              {tablesLoading ? 'Loading…' : tables.length > 0 ? `${tables.length} tables · click any to load its data` : 'No tables available'}
+            </span>
           </div>
           <button
             onClick={fetchTables}
             disabled={tablesLoading}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-all disabled:opacity-60"
+            className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-60"
           >
-            <FaSync size={11} className={tablesLoading ? 'animate-spin' : ''} />
+            <FaSync size={9} className={tablesLoading ? 'animate-spin' : ''} />
             Refresh
           </button>
         </div>
       </div>
 
-      <div className="max-w-[1400px] mx-auto px-4 py-4 space-y-4">
+      <div className="max-w-[1400px] mx-auto px-4 py-2 space-y-2">
 
         {/* ── Card 1 : Table Selector ─────────────────────── */}
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
 
           {/* Card header */}
-          <div className="px-5 py-3.5 bg-gradient-to-r from-indigo-600 to-indigo-500 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <FaTable className="text-white/80" size={14} />
-              <h2 className="text-sm font-semibold text-white">Available Tables</h2>
+          <div className="px-3 py-2 bg-gradient-to-r from-indigo-600 to-indigo-500 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5">
+              <FaTable className="text-white/80" size={12} />
+              <h2 className="text-xs font-semibold text-white">Available Tables</h2>
               {!tablesLoading && tables.length > 0 && (
-                <span className="px-2 py-0.5 bg-white/20 text-white text-xs rounded-full font-medium">
+                <span className="px-1.5 py-0.5 bg-white/20 text-white text-[10px] rounded-full font-medium">
                   {tables.length}
                 </span>
               )}
             </div>
             {/* Row limit */}
-            <div className="flex items-center gap-1.5 bg-white/10 rounded-lg px-2.5 py-1.5">
-              <span className="text-white/70 text-xs">Rows limit:</span>
+            <div className="flex items-center gap-1 bg-white/10 rounded px-2 py-1">
+              <span className="text-white/70 text-[10px]">Rows limit:</span>
               <input
                 type="number"
                 value={limit}
                 min={1}
                 max={10000}
                 onChange={e => setLimit(Math.max(1, Number(e.target.value)))}
-                className="w-16 bg-transparent text-white text-xs focus:outline-none text-center font-medium"
+                className="w-14 bg-transparent text-white text-[10px] focus:outline-none text-center font-medium"
               />
             </div>
           </div>
 
           {/* Table checkbox buttons */}
-          <div className="p-4">
+          <div className="p-2.5">
             {tablesLoading ? (
-              <div className="flex items-center justify-center py-8 text-gray-400">
-                <FaSync className="animate-spin mr-2" size={14} />
-                <span className="text-sm">Loading tables…</span>
+              <div className="flex items-center justify-center py-4 text-gray-400">
+                <FaSync className="animate-spin mr-2" size={12} />
+                <span className="text-xs">Loading tables…</span>
               </div>
             ) : tablesError ? (
-              <div className="flex flex-col items-center py-8">
-                <p className="text-red-500 text-sm font-medium">{tablesError}</p>
-                <button onClick={fetchTables} className="mt-2 text-indigo-600 text-xs hover:underline">Retry</button>
+              <div className="flex flex-col items-center py-4">
+                <p className="text-red-500 text-xs font-medium">{tablesError}</p>
+                <button onClick={fetchTables} className="mt-1 text-indigo-600 text-xs hover:underline">Retry</button>
               </div>
             ) : tables.length === 0 ? (
-              <p className="text-center text-sm text-gray-400 py-6">No tables found</p>
+              <p className="text-center text-xs text-gray-400 py-3">No tables found</p>
             ) : (
               <>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1.5">
                   {tables.map(table => {
                     const isSel      = selectedTable === table;
                     const isSpinning = isSel && tableLoading;
@@ -851,17 +1127,17 @@ export default function ReportComponent() {
                         key={table}
                         onClick={() => handleSelectTable(table)}
                         disabled={tableLoading && !isSel}
-                        className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-xs font-medium transition-all select-none ${
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all select-none ${
                           isSel
                             ? 'border-indigo-500 bg-indigo-50 text-indigo-700 shadow-sm'
                             : 'border-gray-200 bg-gray-50 text-gray-600 hover:border-indigo-300 hover:bg-indigo-50/40 disabled:opacity-50'
                         }`}
                       >
                         {isSpinning
-                          ? <FaSync size={12} className="animate-spin text-indigo-500 flex-shrink-0" />
+                          ? <FaSync size={10} className="animate-spin text-indigo-500 flex-shrink-0" />
                           : isSel
-                            ? <FaCheckSquare size={13} className="text-indigo-600 flex-shrink-0" />
-                            : <FaRegSquare   size={13} className="text-gray-400 flex-shrink-0" />
+                            ? <FaCheckSquare size={11} className="text-indigo-600 flex-shrink-0" />
+                            : <FaRegSquare   size={11} className="text-gray-400 flex-shrink-0" />
                         }
                         {table}
                       </button>
@@ -869,9 +1145,8 @@ export default function ReportComponent() {
                   })}
                 </div>
 
-                {/* Hint when nothing selected */}
                 {!selectedTable && (
-                  <p className="text-xs text-gray-400 italic mt-3">
+                  <p className="text-[10px] text-gray-400 italic mt-2">
                     ☝ Click any table above to load and view its data.
                   </p>
                 )}
@@ -880,68 +1155,171 @@ export default function ReportComponent() {
           </div>
         </div>
 
-        {/* ── Card 2 : Table Data ───────────────────────────── */}
-        {hasData && (
+        {/* ── Inline Filter Panel ───────────────────────────── */}
+        {selectedTable && showFilters && (
+          <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+            {/* Header */}
+            <div className="px-3 py-2 bg-gradient-to-r from-violet-600 to-purple-500 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <FaSearch className="text-white/80" size={11} />
+                <span className="text-xs font-semibold text-white">Filters</span>
+                {activeFilterCount > 0 && (
+                  <span className="px-1.5 py-0.5 bg-white/25 text-white text-[10px] rounded-full font-bold">
+                    {activeFilterCount} active
+                  </span>
+                )}
+                <span className="text-white/60 text-[10px]">— {selectedTable}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button onClick={handleResetFilters}
+                  className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-white/80 hover:text-white bg-white/10 hover:bg-white/20 rounded transition-colors">
+                  <FaSync size={8} /> Reset
+                </button>
+                <button onClick={handleApplyFilters} disabled={tableLoading}
+                  className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-semibold text-purple-700 bg-white hover:bg-purple-50 rounded transition-colors disabled:opacity-60">
+                  <FaPlay size={8} /> Apply
+                </button>
+                <button onClick={() => setShowFilters(false)}
+                  className="p-1 text-white/60 hover:text-white rounded transition-colors">
+                  <FaTimes size={11} />
+                </button>
+              </div>
+            </div>
+
+            {/* Filter body */}
+            <div className="p-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
+
+              {/* Value Filter */}
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-violet-500 inline-block" />Value Filter
+                </p>
+                <div>
+                  <label className="text-[10px] text-gray-500 mb-0.5 block">Filter Column</label>
+                  <select value={filters.filterColumn}
+                    onChange={e => setFilters(f => ({ ...f, filterColumn: e.target.value, filterValue: '' }))}
+                    className="w-full border border-gray-200 rounded px-2 py-1 text-xs text-gray-700 bg-gray-50 focus:outline-none focus:ring-1 focus:ring-violet-400">
+                    <option value="">— none —</option>
+                    {tableColumns.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-500 mb-0.5 block">Filter Value</label>
+                  <input type="text" value={filters.filterValue}
+                    onChange={e => setFilters(f => ({ ...f, filterValue: e.target.value }))}
+                    placeholder="e.g. Advance" disabled={!filters.filterColumn}
+                    className="w-full border border-gray-200 rounded px-2 py-1 text-xs text-gray-700 bg-gray-50 focus:outline-none focus:ring-1 focus:ring-violet-400 disabled:opacity-40" />
+                </div>
+              </div>
+
+              {/* Date Range — new DateField design */}
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block" />Date Range
+                </p>
+                <div>
+                  <label className="text-[10px] text-gray-500 mb-0.5 block">Date Column</label>
+                  <select value={filters.dateColumn}
+                    onChange={e => setFilters(f => ({ ...f, dateColumn: e.target.value }))}
+                    className="w-full border border-gray-200 rounded px-2 py-1 text-xs text-gray-700 bg-gray-50 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                    <option value="">— none —</option>
+                    {tableColumns.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div className="flex gap-2">
+                  <DateField label="From" value={filters.fromDate}
+                    onChange={v => setFilters(f => ({ ...f, fromDate: v }))}
+                    disabled={!filters.dateColumn} />
+                  <DateField label="To" value={filters.toDate}
+                    onChange={v => setFilters(f => ({ ...f, toDate: v }))}
+                    disabled={!filters.dateColumn} />
+                </div>
+              </div>
+
+              {/* Grouping */}
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />Grouping
+                </p>
+                <div>
+                  <label className="text-[10px] text-gray-500 mb-0.5 block">Group By</label>
+                  <select value={filters.groupBy}
+                    onChange={e => setFilters(f => ({ ...f, groupBy: e.target.value }))}
+                    className="w-full border border-gray-200 rounded px-2 py-1 text-xs text-gray-700 bg-gray-50 focus:outline-none focus:ring-1 focus:ring-emerald-400">
+                    <option value="">— none —</option>
+                    {tableColumns.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-500 mb-0.5 block">Aggregation</label>
+                  <div className="flex gap-1 flex-wrap">
+                    {['sum','count','avg','min','max'].map(fn => (
+                      <button key={fn} disabled={!filters.groupBy}
+                        onClick={() => setFilters(f => ({ ...f, aggFunc: fn }))}
+                        className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition-all disabled:opacity-40 ${
+                          filters.aggFunc === fn && filters.groupBy
+                            ? 'bg-emerald-600 text-white border-emerald-600'
+                            : 'bg-gray-50 text-gray-600 border-gray-200 hover:border-emerald-300'
+                        }`}>{fn}</button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Active filter pills */}
+            {activeFilterCount > 0 && (
+              <div className="px-3 pb-2 flex flex-wrap gap-1.5">
+                {filters.filterColumn && filters.filterValue && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-violet-100 text-violet-700 text-[10px] rounded-full font-medium">
+                    {filters.filterColumn} = &ldquo;{filters.filterValue}&rdquo;
+                    <button onClick={() => setFilters(f => ({ ...f, filterColumn: '', filterValue: '' }))}><FaTimes size={8} /></button>
+                  </span>
+                )}
+                {filters.dateColumn && (filters.fromDate || filters.toDate) && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 text-[10px] rounded-full font-medium">
+                    {filters.dateColumn}: {filters.fromDate || '…'} → {filters.toDate || '…'}
+                    <button onClick={() => setFilters(f => ({ ...f, dateColumn: '', fromDate: '', toDate: '' }))}><FaTimes size={8} /></button>
+                  </span>
+                )}
+                {filters.groupBy && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] rounded-full font-medium">
+                    group by {filters.groupBy} ({filters.aggFunc})
+                    <button onClick={() => setFilters(f => ({ ...f, groupBy: '', aggFunc: 'sum' }))}><FaTimes size={8} /></button>
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Data Table ────────────────────────────────────── */}
+        {(tableRows.length > 0 || tableLoading) && (
           <DataTable
             title={runTableName}
-            subtitle={
-              tableLoading
-                ? 'Fetching rows…'
-                : `${tableRows.length} rows · ${tableColumns.length || Object.keys(tableRows[0] ?? {}).length} columns · click any column header to sort`
-            }
+            subtitle={tableLoading ? 'Fetching rows…' : `${tableRows.length} rows · ${tableColumns.length || Object.keys(tableRows[0] ?? {}).length} columns · click any column header to sort`}
             rows={tableRows}
             loading={tableLoading}
             accentClass="bg-gradient-to-r from-indigo-50 to-blue-50/50"
             colDef={tableColumns}
-            onClose={() => {
-              setTableRows([]);
-              setTableColumns([]);
-              setMonthlyRows(null);
-              setOutstandingRows(null);
-              setLedgerNames([]);
-              setSelectedTable(null);
-            }}
-            headerActions={
-              !tableLoading && tableRows.length > 0 ? (
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    onClick={() => downloadCSV(tableRows, `${runTableName}.csv`, tableColumns)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-600 text-white text-xs font-semibold rounded-lg hover:bg-gray-700 transition-colors shadow-sm whitespace-nowrap">
-                    <FaDownload size={10} />
-                    Excel
-                  </button>
-                  <button
-                    onClick={() => { setMonthlyRows(null); setShowResultModal(null); setActiveModal('monthly'); }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white text-xs font-semibold rounded-lg hover:bg-violet-700 transition-colors shadow-sm whitespace-nowrap">
-                    <FaCalendarAlt size={11} />
-                    Monthly Provision
-                  </button>
-                  <button
-                    onClick={() => { setOutstandingRows(null); setShowResultModal(null); setActiveModal('outstanding'); }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 transition-colors shadow-sm whitespace-nowrap">
-                    <FaChartBar size={11} />
-                    Outstanding Report
-                  </button>
-                </div>
-              ) : null
-            }
+            onClose={() => { setTableRows([]); setTableColumns([]); setMonthlyRows(null); setOutstandingRows(null); setLedgerNames([]); setSelectedTable(null); setShowFilters(false); }}
+            headerActions={!tableLoading && tableRows.length > 0 ? (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button onClick={() => downloadCSV(tableRows, `${runTableName}.csv`, tableColumns)}
+                  className="flex items-center gap-1 px-2 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-700 transition-colors whitespace-nowrap">
+                  <FaDownload size={9} /> Excel
+                </button>
+                <button onClick={() => { setMonthlyRows(null); setShowResultModal(null); setActiveModal('monthly'); }}
+                  className="flex items-center gap-1 px-2 py-1 bg-violet-600 text-white text-xs rounded hover:bg-violet-700 transition-colors whitespace-nowrap">
+                  <FaCalendarAlt size={9} /> Monthly Provision
+                </button>
+                <button onClick={() => { setOutstandingRows(null); setShowResultModal(null); setActiveModal('outstanding'); }}
+                  className="flex items-center gap-1 px-2 py-1 bg-emerald-600 text-white text-xs rounded hover:bg-emerald-700 transition-colors whitespace-nowrap">
+                  <FaChartBar size={9} /> Outstanding Report
+                </button>
+              </div>
+            ) : null}
           />
-        )}
-
-        {/* ── Empty state ───────────────────────────────────── */}
-        {!hasData && !tablesLoading && tables.length === 0 && tablesError && (
-          <div className="bg-white rounded-2xl border border-dashed border-gray-300 p-12 flex flex-col items-center text-center">
-            <div className="w-16 h-16 rounded-2xl bg-indigo-50 flex items-center justify-center mb-4">
-              <FaTable size={28} className="text-indigo-300" />
-            </div>
-            <h3 className="text-sm font-semibold text-gray-600 mb-1">No tables available</h3>
-            <p className="text-xs text-gray-400 mb-3">Could not load the table list from the server.</p>
-            <button
-              onClick={fetchTables}
-              className="px-4 py-2 bg-indigo-600 text-white text-xs font-semibold rounded-lg hover:bg-indigo-700 transition-colors">
-              Retry
-            </button>
-          </div>
         )}
       </div>
 
