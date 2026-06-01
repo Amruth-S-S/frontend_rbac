@@ -5,7 +5,7 @@ import {
   FaSync, FaTimes, FaSearch, FaChevronLeft, FaChevronRight,
   FaTable, FaChartBar, FaCalendarAlt, FaFileAlt,
   FaCheckSquare, FaRegSquare, FaPlay, FaDownload,
-  FaSort, FaSortUp, FaSortDown,
+  FaSort, FaSortUp, FaSortDown, FaChevronDown, FaSave, FaDatabase,
 } from 'react-icons/fa';
 import { MdArrowDropDown } from 'react-icons/md';
 
@@ -155,7 +155,7 @@ function PaginationBar({ page, total, count, filtered, onChange }: PaginationPro
 }
 
 // ══════════════════════════════════════════════════════════════
-// Data Table — sticky header · column sorting · bottom pagination
+// Data Table — column filters · hide/unhide · filtered Excel
 // ══════════════════════════════════════════════════════════════
 interface DataTableProps {
   title: string;
@@ -165,31 +165,45 @@ interface DataTableProps {
   accentClass: string;
   headerActions?: React.ReactNode;
   onClose?: () => void;
-  /** Controls the outer card's max-height so pagination is always visible */
   maxHeight?: string;
-  /** Explicit column list from the API (preserves order + shows all cols even if first row is null) */
   colDef?: string[];
 }
 function DataTable({
   title, subtitle, rows, loading, accentClass,
   headerActions, onClose, maxHeight, colDef,
 }: DataTableProps) {
-  const [search,  setSearch]  = useState('');
-  const [page,    setPage]    = useState(1);
-  const [sortCol, setSortCol] = useState<string | null>(null);
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-
+  const [search,      setSearch]      = useState('');
+  const [page,        setPage]        = useState(1);
+  const [sortCol,     setSortCol]     = useState<string | null>(null);
+  const [sortDir,     setSortDir]     = useState<'asc' | 'desc'>('asc');
+  const [colFilters,  setColFilters]  = useState<Record<string, string>>({});
+  const [hiddenCols,  setHiddenCols]  = useState<Set<string>>(new Set());
+  const [showColMenu, setShowColMenu] = useState(false);
+  const colMenuRef = useRef<HTMLDivElement>(null);
   const tableWrapRef = useRef<HTMLDivElement>(null);
 
-  // Use explicit column list if provided, otherwise infer from first row
-  const columns = colDef && colDef.length > 0
+  const allColumns = colDef && colDef.length > 0
     ? colDef
     : rows.length > 0 ? Object.keys(rows[0]) : [];
+  const columns = allColumns.filter(c => !hiddenCols.has(c));
 
-  // Filter
-  const filtered = search
-    ? rows.filter(r => columns.some(c => String(r[c] ?? '').toLowerCase().includes(search.toLowerCase())))
-    : rows;
+  // Close column menu on outside click
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (colMenuRef.current && !colMenuRef.current.contains(e.target as Node)) setShowColMenu(false);
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  // Global search + per-column filters
+  const filtered = rows.filter(r => {
+    if (search && !allColumns.some(c => String(r[c] ?? '').toLowerCase().includes(search.toLowerCase()))) return false;
+    for (const [col, val] of Object.entries(colFilters)) {
+      if (val && !String(r[col] ?? '').toLowerCase().includes(val.toLowerCase())) return false;
+    }
+    return true;
+  });
 
   // Sort
   const sorted = sortCol
@@ -203,6 +217,8 @@ function DataTable({
         return sortDir === 'asc' ? cmp : -cmp;
       })
     : filtered;
+
+  const activeColFilters = Object.values(colFilters).filter(Boolean).length;
 
   const total    = Math.max(1, Math.ceil(sorted.length / PER_PAGE));
   const safeP    = Math.min(page, total);
@@ -248,11 +264,56 @@ function DataTable({
               />
             </div>
           )}
+          {/* Columns toggle */}
+          {rows.length > 0 && (
+            <div className="relative" ref={colMenuRef}>
+              <button
+                onClick={() => setShowColMenu(v => !v)}
+                className={`flex items-center gap-1 px-2 py-1 text-xs border rounded transition-colors ${
+                  hiddenCols.size > 0
+                    ? 'border-indigo-400 text-indigo-600 bg-indigo-50'
+                    : 'border-gray-200 text-gray-600 bg-white hover:bg-gray-50'
+                }`}
+              >
+                <FaTable size={9} />
+                Cols {hiddenCols.size > 0 && <span className="bg-indigo-600 text-white text-[9px] rounded-full px-1">{allColumns.length - hiddenCols.size}/{allColumns.length}</span>}
+              </button>
+              {showColMenu && (
+                <div className="absolute right-0 top-8 z-50 bg-white border border-gray-200 rounded-lg shadow-xl w-52 max-h-64 overflow-y-auto">
+                  <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-gray-600 uppercase">Toggle Columns</span>
+                    <button onClick={() => setHiddenCols(new Set())} className="text-[10px] text-blue-500 hover:underline">Show All</button>
+                  </div>
+                  {allColumns.map(col => (
+                    <label key={col} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer">
+                      <input type="checkbox" checked={!hiddenCols.has(col)}
+                        onChange={() => setHiddenCols(prev => {
+                          const n = new Set(prev);
+                          n.has(col) ? n.delete(col) : n.add(col);
+                          return n;
+                        })}
+                        className="w-3 h-3 accent-indigo-600"
+                      />
+                      <span className="text-xs text-gray-700 truncate">{col}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {/* Excel — downloads only visible filtered rows */}
+          {rows.length > 0 && (
+            <button
+              onClick={() => downloadCSV(sorted, `${title}.csv`, columns)}
+              className="flex items-center gap-1 px-2 py-1 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-700 transition-colors"
+              title={`Download ${sorted.length} filtered rows`}
+            >
+              <FaDownload size={9} /> Excel ({sorted.length})
+            </button>
+          )}
           {headerActions}
           {onClose && (
-            <button
-              onClick={onClose}
-              className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-white/60 transition-colors">
+            <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-white/60 transition-colors">
               <FaTimes size={13} />
             </button>
           )}
@@ -269,27 +330,15 @@ function DataTable({
         <p className="text-center py-10 text-sm text-gray-400 flex-1">No data returned</p>
       ) : (
         <>
-          {/* ── Scrollable table — flex-1 + min-h-0 lets it shrink inside the flex parent ── */}
-          <div
-            ref={tableWrapRef}
-            className="flex-1 min-h-0 overflow-auto"
-          >
+          <div ref={tableWrapRef} className="flex-1 min-h-0 overflow-auto">
             <table className="w-full text-xs border-collapse" style={{ minWidth: 600 }}>
               <thead>
+                {/* ── Sort header ── */}
                 <tr className="bg-gray-50">
-                  {/* Sticky # column */}
-                  <th className="px-3 py-2.5 text-left font-semibold text-gray-400 w-10 border-b-2 border-gray-200
-                                  sticky top-0 left-0 z-30 bg-gray-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">
-                    #
-                  </th>
+                  <th className="px-3 py-2 text-left font-semibold text-gray-400 w-10 border-b border-gray-200 sticky top-0 left-0 z-30 bg-gray-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">#</th>
                   {columns.map(col => (
-                    <th
-                      key={col}
-                      onClick={() => toggleSort(col)}
-                      className="px-3 py-2.5 text-left font-semibold text-gray-600 whitespace-nowrap
-                                  border-b-2 border-gray-200 sticky top-0 z-20 bg-gray-50
-                                  cursor-pointer select-none hover:bg-indigo-50 transition-colors group"
-                    >
+                    <th key={col} onClick={() => toggleSort(col)}
+                      className="px-3 py-2 text-left font-semibold text-gray-600 whitespace-nowrap border-b border-gray-200 sticky top-0 z-20 bg-gray-50 cursor-pointer select-none hover:bg-indigo-50 transition-colors group">
                       <div className="flex items-center gap-0.5">
                         {col}
                         <SortIcon col={col} />
@@ -297,16 +346,31 @@ function DataTable({
                     </th>
                   ))}
                 </tr>
+                {/* ── Per-column filter row (always visible) ── */}
+                <tr className="bg-violet-50/60">
+                  <th className="px-2 py-1 sticky top-[33px] left-0 z-30 bg-violet-50/60">
+                    {activeColFilters > 0 && (
+                      <button onClick={() => setColFilters({})} title="Clear all column filters"
+                        className="text-[9px] text-violet-500 hover:text-violet-700">✕</button>
+                    )}
+                  </th>
+                  {columns.map(col => (
+                    <th key={col} className="px-1.5 py-1 sticky top-[33px] z-20 bg-violet-50/60">
+                      <input
+                        type="text"
+                        value={colFilters[col] || ''}
+                        onChange={e => { setColFilters(f => ({ ...f, [col]: e.target.value })); setPage(1); }}
+                        placeholder="Filter…"
+                        className="w-full px-1.5 py-0.5 text-[10px] border border-violet-200 rounded focus:outline-none focus:ring-1 focus:ring-violet-400 bg-white"
+                      />
+                    </th>
+                  ))}
+                </tr>
               </thead>
               <tbody>
                 {pageRows.map((row, i) => (
-                  <tr
-                    key={i}
-                    className={`hover:bg-indigo-50/40 transition-colors ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}
-                  >
-                    {/* Sticky row number */}
-                    <td className="px-3 py-2 text-gray-400 tabular-nums border-b border-gray-50
-                                    sticky left-0 z-10 bg-inherit shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
+                  <tr key={i} className={`hover:bg-indigo-50/40 transition-colors ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
+                    <td className="px-3 py-2 text-gray-400 tabular-nums border-b border-gray-50 sticky left-0 z-10 bg-inherit shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
                       {(safeP - 1) * PER_PAGE + i + 1}
                     </td>
                     {columns.map(col => (
@@ -319,15 +383,7 @@ function DataTable({
               </tbody>
             </table>
           </div>
-
-          {/* ── Bottom pagination — flex-shrink-0 → always visible ── */}
-          <PaginationBar
-            page={safeP}
-            total={total}
-            count={pageRows.length}
-            filtered={sorted.length}
-            onChange={changePage}
-          />
+          <PaginationBar page={safeP} total={total} count={pageRows.length} filtered={sorted.length} onChange={changePage} />
         </>
       )}
     </div>
@@ -647,21 +703,112 @@ function ResultModal({ type, rows, onBack, onClose }: ResultModalProps) {
 }
 
 // ══════════════════════════════════════════════════════════════
+// Multi-select dropdown for filter values
+// ══════════════════════════════════════════════════════════════
+function MultiSelectDropdown({
+  values, selected, onChange, loading, disabled,
+}: {
+  values: string[]; selected: string[];
+  onChange: (vals: string[]) => void;
+  loading?: boolean; disabled?: boolean;
+}) {
+  const [open,   setOpen]   = useState(false);
+  const [search, setSearch] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  const filtered = search ? values.filter(v => v.toLowerCase().includes(search.toLowerCase())) : values;
+  const toggle = (val: string) => onChange(selected.includes(val) ? selected.filter(v => v !== val) : [...selected, val]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button type="button" disabled={disabled || loading}
+        onClick={() => setOpen(v => !v)}
+        className={`w-full flex items-center justify-between border rounded px-2 py-1 text-xs bg-gray-50 focus:outline-none focus:ring-1 focus:ring-violet-400 disabled:opacity-40 ${
+          selected.length > 0 ? 'border-violet-400 text-violet-700' : 'border-gray-200 text-gray-500'
+        }`}>
+        <span className="truncate">
+          {loading ? 'Loading values…'
+            : disabled ? 'Select a column first'
+            : selected.length === 0 ? 'Select values…'
+            : `${selected.length} selected: ${selected.slice(0,2).join(', ')}${selected.length > 2 ? '…' : ''}`}
+        </span>
+        <FaChevronRight size={8} className={`text-gray-400 ml-1 transition-transform ${open ? 'rotate-90' : ''}`} />
+      </button>
+
+      {open && !disabled && (
+        <div
+          className="bg-white border border-gray-200 rounded-lg shadow-2xl flex flex-col"
+          style={{
+            position: 'fixed', zIndex: 9999, width: 280,
+            top: ref.current ? ref.current.getBoundingClientRect().bottom + 4 : 0,
+            left: ref.current ? ref.current.getBoundingClientRect().left : 0,
+          }}
+        >
+          <div className="p-1.5 border-b border-gray-100">
+            <input autoFocus type="text" value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Search values…"
+              className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-violet-400" />
+          </div>
+          {selected.length > 0 && (
+            <div className="px-2 py-1 border-b border-gray-100 flex items-center justify-between">
+              <span className="text-[10px] text-violet-600 font-semibold">{selected.length} selected</span>
+              <button onClick={() => onChange([])} className="text-[10px] text-red-500 hover:text-red-700 font-medium">Clear all</button>
+            </div>
+          )}
+          <div className="overflow-y-auto max-h-44">
+            {filtered.length === 0
+              ? <p className="text-xs text-gray-400 text-center py-3">No values found</p>
+              : filtered.map(val => (
+                  <label key={val} className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-violet-50 cursor-pointer">
+                    <input type="checkbox" checked={selected.includes(val)} onChange={() => toggle(val)}
+                      className="w-3 h-3 accent-violet-600 flex-shrink-0" />
+                    <span className="text-xs text-gray-700 truncate">{val}</span>
+                  </label>
+                ))
+            }
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
 // Filter types
 // ══════════════════════════════════════════════════════════════
 interface FilterState {
-  filterColumn: string;
-  filterValue:  string;
-  dateColumn:   string;
-  fromDate:     string;
-  toDate:       string;
-  groupBy:      string;
-  aggFunc:      string;
+  filterColumn:  string;
+  filterValues:  string[];   // multi-select → joined with comma for API
+  dateColumn:    string;
+  fromDate:      string;
+  toDate:        string;
+  groupBy:       string;
+  aggFunc:       string;
+  saveToDb:      boolean;
+  saveTableName: string;
 }
+// Default dates = first and last day of the current month
+const _now = new Date();
+const _y = _now.getFullYear();
+const _m = _now.getMonth() + 1;
+const _firstDay = `${_y}-${String(_m).padStart(2,'0')}-01`;
+const _lastDay  = new Date(_y, _m, 0);
+const _lastDayStr = `${_lastDay.getFullYear()}-${String(_lastDay.getMonth()+1).padStart(2,'0')}-${String(_lastDay.getDate()).padStart(2,'0')}`;
+
 const EMPTY_FILTERS: FilterState = {
-  filterColumn: '', filterValue: '', dateColumn: '',
-  fromDate: '', toDate: '', groupBy: '', aggFunc: 'sum',
+  filterColumn: '', filterValues: [], dateColumn: '',
+  fromDate: '', toDate: '',          // empty until a date column is chosen
+  groupBy: '', aggFunc: 'sum',
+  saveToDb: false, saveTableName: '',
 };
+
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
 // ══════════════════════════════════════════════════════════════
 // Custom Date Picker — year grid → month grid → day grid
@@ -908,8 +1055,10 @@ export default function ReportComponent() {
   const [ledgerNames,  setLedgerNames]  = useState<string[]>([]);
 
   // Filters
-  const [filters,      setFilters]      = useState<FilterState>(EMPTY_FILTERS);
-  const [showFilters,  setShowFilters]  = useState(false);
+  const [filters,       setFilters]       = useState<FilterState>(EMPTY_FILTERS);
+  const [showFilters,   setShowFilters]   = useState(false);
+  const [uniqueValues,  setUniqueValues]  = useState<string[]>([]);
+  const [uniqueLoading, setUniqueLoading] = useState(false);
 
   // Modal (form)
   const [activeModal,     setActiveModal]     = useState<'monthly' | 'outstanding' | null>(null);
@@ -940,6 +1089,17 @@ export default function ReportComponent() {
 
   useEffect(() => { fetchTables(); }, [fetchTables]);
 
+  // ── Fetch unique values when filter column changes ────────────
+  useEffect(() => {
+    if (!filters.filterColumn || !selectedTable) { setUniqueValues([]); return; }
+    setUniqueLoading(true);
+    fetch(`${API_BASE}/tables/${encodeURIComponent(selectedTable)}/unique-values/?column=${encodeURIComponent(filters.filterColumn)}`)
+      .then(r => r.ok ? r.json() : { values: [] })
+      .then(data => setUniqueValues((data.values ?? []).map(String).sort()))
+      .catch(() => setUniqueValues([]))
+      .finally(() => setUniqueLoading(false));
+  }, [filters.filterColumn, selectedTable]);
+
   // ── API 2: fetch table data (with optional filters) ───────────
   const fetchTableData = useCallback(async (
     tableName: string,
@@ -954,15 +1114,21 @@ export default function ReportComponent() {
     setRunTableName(tableName);
     try {
       const p = new URLSearchParams({ limit: String(rowLimit) });
-      if (f.filterColumn && f.filterValue) {
+      if (f.filterColumn && f.filterValues.length > 0) {
         p.set('filter_column', f.filterColumn);
-        p.set('filter_value',  f.filterValue);
+        p.set('filter_value',  f.filterValues.join(','));
       }
-      if (f.dateColumn)  p.set('date_column', f.dateColumn);
-      if (f.fromDate)    p.set('from_date',   f.fromDate);
-      if (f.toDate)      p.set('to_date',     f.toDate);
+      if (f.dateColumn) {
+        p.set('date_column', f.dateColumn);
+        if (f.fromDate) p.set('from_date', f.fromDate);
+        if (f.toDate)   p.set('to_date',   f.toDate);
+      }
       if (f.groupBy)     p.set('group_by',    f.groupBy);
       if (f.groupBy)     p.set('agg_func',    f.aggFunc || 'sum');
+      if (f.saveToDb) {
+        p.set('save_to_db', 'true');
+        if (f.saveTableName.trim()) p.set('save_table_name', f.saveTableName.trim());
+      }
 
       const res = await fetch(
         `${API_BASE}/tables/${encodeURIComponent(tableName)}/data/?${p}`
@@ -1008,9 +1174,9 @@ export default function ReportComponent() {
   };
 
   const activeFilterCount = [
-    filters.filterColumn && filters.filterValue,
+    filters.filterColumn && filters.filterValues.length > 0,
     filters.dateColumn && (filters.fromDate || filters.toDate),
-    filters.groupBy,
+    filters.saveToDb,
   ].filter(Boolean).length;
 
   // ── API 3: Monthly Provision ─────────────────────────────────
@@ -1197,22 +1363,36 @@ export default function ReportComponent() {
                 <div>
                   <label className="text-[10px] text-gray-500 mb-0.5 block">Filter Column</label>
                   <select value={filters.filterColumn}
-                    onChange={e => setFilters(f => ({ ...f, filterColumn: e.target.value, filterValue: '' }))}
+                    onChange={e => setFilters(f => ({ ...f, filterColumn: e.target.value, filterValues: [] }))}
                     className="w-full border border-gray-200 rounded px-2 py-1 text-xs text-gray-700 bg-gray-50 focus:outline-none focus:ring-1 focus:ring-violet-400">
                     <option value="">— none —</option>
                     {tableColumns.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] text-gray-500 mb-0.5 block">Filter Value</label>
-                  <input type="text" value={filters.filterValue}
-                    onChange={e => setFilters(f => ({ ...f, filterValue: e.target.value }))}
-                    placeholder="e.g. Advance" disabled={!filters.filterColumn}
-                    className="w-full border border-gray-200 rounded px-2 py-1 text-xs text-gray-700 bg-gray-50 focus:outline-none focus:ring-1 focus:ring-violet-400 disabled:opacity-40" />
+                  <label className="text-[10px] text-gray-500 mb-0.5 block flex items-center gap-1">
+                    Filter Values
+                    {uniqueLoading && <FaSync size={8} className="animate-spin text-violet-400" />}
+                    {filters.filterValues.length > 0 && (
+                      <span className="ml-auto text-[9px] bg-violet-100 text-violet-700 px-1 rounded-full font-bold">{filters.filterValues.length} selected</span>
+                    )}
+                  </label>
+                  <MultiSelectDropdown
+                    values={uniqueValues}
+                    selected={filters.filterValues}
+                    onChange={vals => setFilters(f => ({ ...f, filterValues: vals }))}
+                    loading={uniqueLoading}
+                    disabled={!filters.filterColumn}
+                  />
+                  {filters.filterValues.length > 0 && (
+                    <p className="text-[9px] text-violet-600 mt-0.5 truncate">
+                      API: {filters.filterValues.join(',')}
+                    </p>
+                  )}
                 </div>
               </div>
 
-              {/* Date Range — new DateField design */}
+              {/* Date Range + Month Quick-Select */}
               <div className="space-y-1.5">
                 <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block" />Date Range
@@ -1220,7 +1400,7 @@ export default function ReportComponent() {
                 <div>
                   <label className="text-[10px] text-gray-500 mb-0.5 block">Date Column</label>
                   <select value={filters.dateColumn}
-                    onChange={e => setFilters(f => ({ ...f, dateColumn: e.target.value }))}
+                    onChange={e => setFilters(f => ({ ...f, dateColumn: e.target.value, fromDate: '', toDate: '' }))}
                     className="w-full border border-gray-200 rounded px-2 py-1 text-xs text-gray-700 bg-gray-50 focus:outline-none focus:ring-1 focus:ring-blue-400">
                     <option value="">— none —</option>
                     {tableColumns.map(c => <option key={c} value={c}>{c}</option>)}
@@ -1236,33 +1416,41 @@ export default function ReportComponent() {
                 </div>
               </div>
 
-              {/* Grouping */}
+              {/* Save to DB */}
               <div className="space-y-1.5">
                 <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />Grouping
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />Save to DB
                 </p>
-                <div>
-                  <label className="text-[10px] text-gray-500 mb-0.5 block">Group By</label>
-                  <select value={filters.groupBy}
-                    onChange={e => setFilters(f => ({ ...f, groupBy: e.target.value }))}
-                    className="w-full border border-gray-200 rounded px-2 py-1 text-xs text-gray-700 bg-gray-50 focus:outline-none focus:ring-1 focus:ring-emerald-400">
-                    <option value="">— none —</option>
-                    {tableColumns.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[10px] text-gray-500 mb-0.5 block">Aggregation</label>
-                  <div className="flex gap-1 flex-wrap">
-                    {['sum','count','avg','min','max'].map(fn => (
-                      <button key={fn} disabled={!filters.groupBy}
-                        onClick={() => setFilters(f => ({ ...f, aggFunc: fn }))}
-                        className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition-all disabled:opacity-40 ${
-                          filters.aggFunc === fn && filters.groupBy
-                            ? 'bg-emerald-600 text-white border-emerald-600'
-                            : 'bg-gray-50 text-gray-600 border-gray-200 hover:border-emerald-300'
-                        }`}>{fn}</button>
-                    ))}
-                  </div>
+                {/* Save to DB */}
+                <div className="pt-1 border-t border-gray-100">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <div
+                      onClick={() => setFilters(f => ({ ...f, saveToDb: !f.saveToDb }))}
+                      className={`w-8 h-4 rounded-full transition-colors relative flex-shrink-0 cursor-pointer ${filters.saveToDb ? 'bg-emerald-500' : 'bg-gray-300'}`}
+                    >
+                      <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${filters.saveToDb ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <FaDatabase size={9} className={filters.saveToDb ? 'text-emerald-600' : 'text-gray-400'} />
+                      <span className="text-[10px] font-semibold text-gray-600">Save result to DB</span>
+                    </div>
+                  </label>
+                  {filters.saveToDb && (
+                    <div className="mt-1.5">
+                      <label className="text-[10px] text-gray-500 mb-0.5 block">Save as table name</label>
+                      <div className="flex gap-1">
+                        <input
+                          type="text"
+                          value={filters.saveTableName}
+                          onChange={e => setFilters(f => ({ ...f, saveTableName: e.target.value }))}
+                          placeholder="e.g. filtered_advance_2026"
+                          className="flex-1 border border-emerald-300 rounded px-2 py-1 text-xs text-gray-700 bg-emerald-50 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                        />
+                        <FaSave size={12} className="self-center text-emerald-500 flex-shrink-0" />
+                      </div>
+                      <p className="text-[9px] text-gray-400 mt-0.5">Applied on next Apply click</p>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1270,10 +1458,10 @@ export default function ReportComponent() {
             {/* Active filter pills */}
             {activeFilterCount > 0 && (
               <div className="px-3 pb-2 flex flex-wrap gap-1.5">
-                {filters.filterColumn && filters.filterValue && (
+                {filters.filterColumn && filters.filterValues.length > 0 && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-violet-100 text-violet-700 text-[10px] rounded-full font-medium">
-                    {filters.filterColumn} = &ldquo;{filters.filterValue}&rdquo;
-                    <button onClick={() => setFilters(f => ({ ...f, filterColumn: '', filterValue: '' }))}><FaTimes size={8} /></button>
+                    {filters.filterColumn} = {filters.filterValues.length === 1 ? `"${filters.filterValues[0]}"` : `${filters.filterValues.length} values`}
+                    <button onClick={() => setFilters(f => ({ ...f, filterColumn: '', filterValues: [] }))}><FaTimes size={8} /></button>
                   </span>
                 )}
                 {filters.dateColumn && (filters.fromDate || filters.toDate) && (
@@ -1282,10 +1470,10 @@ export default function ReportComponent() {
                     <button onClick={() => setFilters(f => ({ ...f, dateColumn: '', fromDate: '', toDate: '' }))}><FaTimes size={8} /></button>
                   </span>
                 )}
-                {filters.groupBy && (
+                {filters.saveToDb && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] rounded-full font-medium">
-                    group by {filters.groupBy} ({filters.aggFunc})
-                    <button onClick={() => setFilters(f => ({ ...f, groupBy: '', aggFunc: 'sum' }))}><FaTimes size={8} /></button>
+                    <FaDatabase size={8} /> save → {filters.saveTableName || '(no name)'}
+                    <button onClick={() => setFilters(f => ({ ...f, saveToDb: false, saveTableName: '' }))}><FaTimes size={8} /></button>
                   </span>
                 )}
               </div>
@@ -1304,11 +1492,7 @@ export default function ReportComponent() {
             colDef={tableColumns}
             onClose={() => { setTableRows([]); setTableColumns([]); setMonthlyRows(null); setOutstandingRows(null); setLedgerNames([]); setSelectedTable(null); setShowFilters(false); }}
             headerActions={!tableLoading && tableRows.length > 0 ? (
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <button onClick={() => downloadCSV(tableRows, `${runTableName}.csv`, tableColumns)}
-                  className="flex items-center gap-1 px-2 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-700 transition-colors whitespace-nowrap">
-                  <FaDownload size={9} /> Excel
-                </button>
+              <div className="flex items-center gap-1.5">
                 <button onClick={() => { setMonthlyRows(null); setShowResultModal(null); setActiveModal('monthly'); }}
                   className="flex items-center gap-1 px-2 py-1 bg-violet-600 text-white text-xs rounded hover:bg-violet-700 transition-colors whitespace-nowrap">
                   <FaCalendarAlt size={9} /> Monthly Provision
