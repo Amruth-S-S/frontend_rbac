@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useRouter, usePathname } from 'next/navigation';
-import LanguageSelector from './LanguageSelector';
 import { useLanguage } from '../context/LanguageContext';
 import { translateBatch } from '../utils/translateService';
 import useSWR from "swr";
@@ -1105,12 +1104,9 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
               </div>
             )}
             {!isMobile && (
-              <div className="flex items-center gap-1 flex-shrink-0">
-                {(isSidebarOpen || isMobile) && <LanguageSelector />}
-                <button onClick={toggleSidebar} className="p-2 text-black hover:bg-blue-700/50 focus:outline-none rounded-lg transition-all duration-200 hover:scale-105">
-                  {isSidebarOpen ? <ChevronLeft className="w-4 h-4 text-black" /> : <ChevronRight className="w-4 h-4" />}
-                </button>
-              </div>
+              <button onClick={toggleSidebar} className="p-2 text-black hover:bg-blue-700/50 focus:outline-none rounded-lg transition-all duration-200 hover:scale-105 flex-shrink-0">
+                {isSidebarOpen ? <ChevronLeft className="w-4 h-4 text-black" /> : <ChevronRight className="w-4 h-4" />}
+              </button>
             )}
           </div>
         </div>
