@@ -1603,20 +1603,10 @@ export default function ReportComponent() {
                 )}
                 <span className="text-white/60 text-[10px]">— {selectedTable}</span>
               </div>
-              <div className="flex items-center gap-1.5">
-                <button onClick={handleResetFilters}
-                  className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-white/80 hover:text-white bg-white/10 hover:bg-white/20 rounded transition-colors">
-                  <FaSync size={8} /> Reset
-                </button>
-                <button onClick={handleApplyFilters} disabled={tableLoading}
-                  className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-semibold text-purple-700 bg-white hover:bg-purple-50 rounded transition-colors disabled:opacity-60">
-                  <FaPlay size={8} /> Apply
-                </button>
-                <button onClick={() => setShowFilters(false)}
-                  className="p-1 text-white/60 hover:text-white rounded transition-colors">
-                  <FaTimes size={11} />
-                </button>
-              </div>
+              <button onClick={() => setShowFilters(false)}
+                className="p-1 text-white/60 hover:text-white rounded transition-colors">
+                <FaTimes size={11} />
+              </button>
             </div>
 
             {/* Filter body */}
@@ -1778,6 +1768,23 @@ export default function ReportComponent() {
                 )}
               </div>
             )}
+
+            {/* ── Bottom action bar ── */}
+            <div className="px-3 py-2.5 border-t border-gray-100 bg-gray-50 flex items-center justify-center gap-3">
+              <button
+                onClick={handleResetFilters}
+                className="flex items-center gap-1.5 px-5 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                <FaSync size={9} /> Reset
+              </button>
+              <button
+                onClick={handleApplyFilters}
+                disabled={tableLoading}
+                className="flex items-center gap-1.5 px-6 py-1.5 text-xs font-semibold text-white bg-violet-600 hover:bg-violet-700 rounded-lg transition-colors disabled:opacity-60 shadow-sm"
+              >
+                <FaPlay size={9} /> Apply
+              </button>
+            </div>
           </div>
         )}
 
