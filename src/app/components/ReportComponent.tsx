@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   FaSync, FaTimes, FaSearch, FaChevronLeft, FaChevronRight,
   FaTable, FaChartBar, FaCalendarAlt, FaFileAlt,
@@ -154,6 +154,130 @@ function PaginationBar({ page, total, count, filtered, onChange }: PaginationPro
   );
 }
 
+// Parses date strings in ISO (2024-04-02T…) and YYYYMMDD (20240402) formats
+function parseRowDate(v: unknown): Date | null {
+  if (v == null) return null;
+  let s = String(v).trim();
+  if (!s) return null;
+  if (/^\d{8}$/.test(s)) s = `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`;
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+// ══════════════════════════════════════════════════════════════
+// Quick-Select Dropdown — always opens downward (fixed position)
+// ══════════════════════════════════════════════════════════════
+function QuickSelectDropdown({
+  value, options, onChange, placeholder, active,
+}: {
+  value: string;
+  options: { label: string; value: string }[];
+  onChange: (v: string) => void;
+  placeholder: string;
+  active?: boolean;
+}) {
+  const [open,   setOpen]   = useState(false);
+  const [search, setSearch] = useState('');
+  const btnRef   = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (
+        panelRef.current && !panelRef.current.contains(e.target as Node) &&
+        btnRef.current  && !btnRef.current.contains(e.target as Node)
+      ) setOpen(false);
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  // Compute panel position fresh at render time — avoids stale-state upward opening
+  const getPanelStyle = (): React.CSSProperties => {
+    if (!btnRef.current) return { position: 'fixed', top: 0, left: 0, zIndex: 9999 };
+    const r = btnRef.current.getBoundingClientRect();
+    return {
+      position: 'fixed',
+      top:      r.bottom + 4,
+      left:     r.left,
+      minWidth: Math.max(r.width, 160),
+      zIndex:   9999,
+    };
+  };
+
+  const filtered = search
+    ? options.filter(o => o.label.toLowerCase().includes(search.toLowerCase()))
+    : options;
+
+  const selected = options.find(o => o.value === value);
+
+  return (
+    <div className="relative flex-shrink-0">
+      {/* Trigger */}
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={() => { setSearch(''); setOpen(v => !v); }}
+        className={`flex items-center justify-between gap-1.5 px-2.5 py-1 text-xs border rounded focus:outline-none bg-white transition-colors ${
+          active
+            ? 'border-violet-400 text-violet-700 font-medium'
+            : 'border-gray-200 text-gray-500 hover:border-gray-300'
+        }`}
+        style={{ minWidth: 110 }}
+      >
+        <span className="truncate">{selected?.label ?? placeholder}</span>
+        <FaChevronDown size={8} className={`text-gray-400 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {/* Panel — position computed inline so it always opens downward */}
+      {open && (
+        <div ref={panelRef} style={getPanelStyle()}
+          className="bg-white border border-gray-200 rounded-lg shadow-2xl flex flex-col overflow-hidden">
+          {/* Search */}
+          <div className="p-1.5 border-b border-gray-100">
+            <div className="relative">
+              <FaSearch size={9} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                autoFocus
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search…"
+                className="w-full pl-6 pr-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-violet-400"
+              />
+            </div>
+          </div>
+          {/* Scrollable list */}
+          <div className="overflow-y-auto" style={{ maxHeight: 200 }}>
+            {filtered.length === 0
+              ? <p className="text-xs text-gray-400 text-center py-3">No results</p>
+              : filtered.map(o => (
+                  <button
+                    key={o.value}
+                    type="button"
+                    onClick={() => { onChange(o.value); setOpen(false); }}
+                    className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors whitespace-nowrap ${
+                      o.value === value
+                        ? 'bg-indigo-50 text-indigo-700 font-semibold'
+                        : 'text-gray-700 hover:bg-indigo-50/60'
+                    }`}
+                  >
+                    {o.value === value
+                      ? <FaCheckSquare size={10} className="text-indigo-500 flex-shrink-0" />
+                      : <FaRegSquare   size={10} className="text-gray-300 flex-shrink-0" />
+                    }
+                    {o.label}
+                  </button>
+                ))
+            }
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ══════════════════════════════════════════════════════════════
 // Data Table — column filters · hide/unhide · filtered Excel
 // ══════════════════════════════════════════════════════════════
@@ -179,6 +303,8 @@ function DataTable({
   const [colFilters,  setColFilters]  = useState<Record<string, string>>({});
   const [hiddenCols,  setHiddenCols]  = useState<Set<string>>(new Set());
   const [showColMenu, setShowColMenu] = useState(false);
+  const [filterMonth, setFilterMonth] = useState(0);   // 0 = all months
+  const [filterYear,  setFilterYear]  = useState('');  // '' = all years
   const colMenuRef = useRef<HTMLDivElement>(null);
   const tableWrapRef = useRef<HTMLDivElement>(null);
 
@@ -186,6 +312,30 @@ function DataTable({
     ? colDef
     : rows.length > 0 ? Object.keys(rows[0]) : [];
   const columns = allColumns.filter(c => !hiddenCols.has(c));
+
+  // Pick the date-named column with the MOST parseable values (best coverage)
+  const dateColForFilter = useMemo(() => {
+    if (rows.length === 0) return null;
+    const pool = allColumns.filter(c => /date|time/i.test(c));
+    const search = pool.length > 0 ? pool : allColumns;
+    let best: string | null = null;
+    let bestCount = 0;
+    for (const c of search) {
+      const count = rows.reduce((n, r) => n + (parseRowDate(r[c]) !== null ? 1 : 0), 0);
+      if (count > bestCount) { bestCount = count; best = c; }
+    }
+    return bestCount > 0 ? best : null;
+  }, [allColumns, rows]);
+
+  const uniqueYears = useMemo(() => {
+    if (!dateColForFilter) return [];
+    const ys = new Set<string>();
+    rows.forEach(r => {
+      const d = parseRowDate(r[dateColForFilter]);
+      if (d) ys.add(String(d.getFullYear()));
+    });
+    return Array.from(ys).sort();
+  }, [rows, dateColForFilter]);
 
   // Close column menu on outside click
   useEffect(() => {
@@ -196,11 +346,17 @@ function DataTable({
     return () => document.removeEventListener('mousedown', h);
   }, []);
 
-  // Global search + per-column filters
+  // Global search + per-column filters + month / year quick-filter
   const filtered = rows.filter(r => {
     if (search && !allColumns.some(c => String(r[c] ?? '').toLowerCase().includes(search.toLowerCase()))) return false;
     for (const [col, val] of Object.entries(colFilters)) {
       if (val && !String(r[col] ?? '').toLowerCase().includes(val.toLowerCase())) return false;
+    }
+    if (dateColForFilter && (filterMonth > 0 || filterYear)) {
+      const d = parseRowDate(r[dateColForFilter]);
+      if (!d) return false;                                              // no date → exclude
+      if (filterMonth > 0 && d.getMonth() + 1 !== filterMonth) return false;
+      if (filterYear && String(d.getFullYear()) !== filterYear) return false;
     }
     return true;
   });
@@ -263,6 +419,36 @@ function DataTable({
                 className="pl-6 pr-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white w-28"
               />
             </div>
+          )}
+          {/* Month quick-filter */}
+          {rows.length > 0 && dateColForFilter && (
+            <select
+              value={filterMonth}
+              onChange={e => { setFilterMonth(Number(e.target.value)); setPage(1); }}
+              className={`px-2 py-1 text-xs border rounded focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white ${
+                filterMonth > 0 ? 'border-indigo-400 text-indigo-700 font-medium' : 'border-gray-200 text-gray-500'
+              }`}
+            >
+              <option value={0}>All Months</option>
+              {MONTH_NAMES.map((m, i) => (
+                <option key={i + 1} value={i + 1}>{m}</option>
+              ))}
+            </select>
+          )}
+          {/* Period / Year quick-filter */}
+          {rows.length > 0 && dateColForFilter && uniqueYears.length > 0 && (
+            <select
+              value={filterYear}
+              onChange={e => { setFilterYear(e.target.value); setPage(1); }}
+              className={`px-2 py-1 text-xs border rounded focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white ${
+                filterYear ? 'border-indigo-400 text-indigo-700 font-medium' : 'border-gray-200 text-gray-500'
+              }`}
+            >
+              <option value="">All Periods</option>
+              {uniqueYears.map(y => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
           )}
           {/* Columns toggle */}
           {rows.length > 0 && (
@@ -783,15 +969,16 @@ function MultiSelectDropdown({
 // Filter types
 // ══════════════════════════════════════════════════════════════
 interface FilterState {
-  filterColumn:  string;
-  filterValues:  string[];   // multi-select → joined with comma for API
-  dateColumn:    string;
-  fromDate:      string;
-  toDate:        string;
-  groupBy:       string;
-  aggFunc:       string;
-  saveToDb:      boolean;
-  saveTableName: string;
+  selectedColumns: string[];   // which columns to fetch (empty = all)
+  filterColumn:    string;
+  filterValues:    string[];   // multi-select → joined with comma for API
+  dateColumn:      string;
+  fromDate:        string;
+  toDate:          string;
+  groupBy:         string;
+  aggFunc:         string;
+  saveToDb:        boolean;
+  saveTableName:   string;
 }
 // Default dates = first and last day of the current month
 const _now = new Date();
@@ -802,8 +989,9 @@ const _lastDay  = new Date(_y, _m, 0);
 const _lastDayStr = `${_lastDay.getFullYear()}-${String(_lastDay.getMonth()+1).padStart(2,'0')}-${String(_lastDay.getDate()).padStart(2,'0')}`;
 
 const EMPTY_FILTERS: FilterState = {
+  selectedColumns: [],
   filterColumn: '', filterValues: [], dateColumn: '',
-  fromDate: '', toDate: '',          // empty until a date column is chosen
+  fromDate: '', toDate: '',
   groupBy: '', aggFunc: 'sum',
   saveToDb: false, saveTableName: '',
 };
@@ -1037,6 +1225,111 @@ function DateField({
 }
 
 // ══════════════════════════════════════════════════════════════
+// ── Table selector dropdown — custom, always opens downward ──
+function TableDropdown({
+  tables, selected, loading, error, disabled, onSelect, onRetry,
+}: {
+  tables: string[]; selected: string | null;
+  loading: boolean; error: string; disabled: boolean;
+  onSelect: (t: string) => void; onRetry: () => void;
+}) {
+  const [open,   setOpen]   = useState(false);
+  const [search, setSearch] = useState('');
+  const ref    = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [style, setStyle]   = useState<React.CSSProperties>({});
+
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node) &&
+          btnRef.current && !btnRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  const openDropdown = () => {
+    if (disabled || loading || error) return;
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      setStyle({ position: 'fixed', top: r.bottom + 2, left: r.left, width: r.width, zIndex: 9999 });
+    }
+    setSearch('');
+    setOpen(v => !v);
+  };
+
+  const filtered = search ? tables.filter(t => t.toLowerCase().includes(search.toLowerCase())) : tables;
+
+  if (loading) return (
+    <div className="flex items-center gap-1.5 text-gray-400 text-xs">
+      <FaSync className="animate-spin" size={11} /> Loading tables…
+    </div>
+  );
+  if (error) return (
+    <div className="flex items-center gap-2">
+      <span className="text-red-500 text-xs">{error}</span>
+      <button onClick={onRetry} className="text-indigo-600 text-xs hover:underline">Retry</button>
+    </div>
+  );
+
+  return (
+    <div className="flex-1 min-w-[200px] max-w-xs">
+      {/* Trigger */}
+      <button ref={btnRef} type="button" onClick={openDropdown}
+        className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 border rounded-lg text-xs transition-all ${
+          open ? 'border-indigo-500 ring-2 ring-indigo-100' : 'border-gray-300 hover:border-indigo-400'
+        } bg-white`}
+      >
+        <div className="flex items-center gap-1.5 min-w-0">
+          <FaTable size={10} className="text-indigo-500 flex-shrink-0" />
+          <span className={`truncate ${selected ? 'text-gray-800 font-medium' : 'text-gray-400'}`}>
+            {selected || '— Select a table —'}
+          </span>
+        </div>
+        <FaChevronDown size={9} className={`text-gray-400 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {/* Dropdown panel — fixed position, always below */}
+      {open && (
+        <div ref={ref} style={style}
+          className="bg-white border border-gray-200 rounded-lg shadow-2xl overflow-hidden">
+          {/* Search */}
+          <div className="p-1.5 border-b border-gray-100">
+            <div className="relative">
+              <FaSearch size={9} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input autoFocus type="text" value={search} onChange={e => setSearch(e.target.value)}
+                placeholder="Search tables…"
+                className="w-full pl-6 pr-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-indigo-400" />
+            </div>
+          </div>
+          {/* List */}
+          <div className="max-h-56 overflow-y-auto">
+            {filtered.length === 0
+              ? <p className="text-xs text-gray-400 text-center py-3">No tables found</p>
+              : filtered.map(t => (
+                  <button key={t} type="button"
+                    onClick={() => { onSelect(t); setOpen(false); }}
+                    className={`w-full flex items-center gap-2 px-3 py-2 text-left text-xs transition-colors ${
+                      t === selected
+                        ? 'bg-indigo-50 text-indigo-700 font-semibold'
+                        : 'text-gray-700 hover:bg-indigo-50/60'
+                    }`}
+                  >
+                    <FaTable size={9} className={t === selected ? 'text-indigo-500' : 'text-gray-400'} />
+                    {t}
+                    {t === selected && <FaCheckSquare size={10} className="ml-auto text-indigo-500" />}
+                  </button>
+                ))
+            }
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Main Report Component
 // ══════════════════════════════════════════════════════════════
 export default function ReportComponent() {
@@ -1114,6 +1407,7 @@ export default function ReportComponent() {
     setRunTableName(tableName);
     try {
       const p = new URLSearchParams({ limit: String(rowLimit) });
+      if (f.selectedColumns.length > 0) p.set('columns', f.selectedColumns.join(','));
       if (f.filterColumn && f.filterValues.length > 0) {
         p.set('filter_column', f.filterColumn);
         p.set('filter_value',  f.filterValues.join(','));
@@ -1174,6 +1468,7 @@ export default function ReportComponent() {
   };
 
   const activeFilterCount = [
+    filters.selectedColumns.length > 0,
     filters.filterColumn && filters.filterValues.length > 0,
     filters.dateColumn && (filters.fromDate || filters.toDate),
     filters.saveToDb,
@@ -1240,85 +1535,57 @@ export default function ReportComponent() {
 
       <div className="max-w-[1400px] mx-auto px-4 py-2 space-y-2">
 
-        {/* ── Card 1 : Table Selector ─────────────────────── */}
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-
-          {/* Card header */}
-          <div className="px-3 py-2 bg-gradient-to-r from-indigo-600 to-indigo-500 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5">
-              <FaTable className="text-white/80" size={12} />
-              <h2 className="text-xs font-semibold text-white">Available Tables</h2>
-              {!tablesLoading && tables.length > 0 && (
-                <span className="px-1.5 py-0.5 bg-white/20 text-white text-[10px] rounded-full font-medium">
-                  {tables.length}
-                </span>
-              )}
-            </div>
-            {/* Row limit */}
-            <div className="flex items-center gap-1 bg-white/10 rounded px-2 py-1">
-              <span className="text-white/70 text-[10px]">Rows limit:</span>
-              <input
-                type="number"
-                value={limit}
-                min={1}
-                max={10000}
-                onChange={e => setLimit(Math.max(1, Number(e.target.value)))}
-                className="w-14 bg-transparent text-white text-[10px] focus:outline-none text-center font-medium"
-              />
-            </div>
-          </div>
-
-          {/* Table checkbox buttons */}
-          <div className="p-2.5">
-            {tablesLoading ? (
-              <div className="flex items-center justify-center py-4 text-gray-400">
-                <FaSync className="animate-spin mr-2" size={12} />
-                <span className="text-xs">Loading tables…</span>
-              </div>
-            ) : tablesError ? (
-              <div className="flex flex-col items-center py-4">
-                <p className="text-red-500 text-xs font-medium">{tablesError}</p>
-                <button onClick={fetchTables} className="mt-1 text-indigo-600 text-xs hover:underline">Retry</button>
-              </div>
-            ) : tables.length === 0 ? (
-              <p className="text-center text-xs text-gray-400 py-3">No tables found</p>
-            ) : (
-              <>
-                <div className="flex flex-wrap gap-1.5">
-                  {tables.map(table => {
-                    const isSel      = selectedTable === table;
-                    const isSpinning = isSel && tableLoading;
-                    return (
-                      <button
-                        key={table}
-                        onClick={() => handleSelectTable(table)}
-                        disabled={tableLoading && !isSel}
-                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all select-none ${
-                          isSel
-                            ? 'border-indigo-500 bg-indigo-50 text-indigo-700 shadow-sm'
-                            : 'border-gray-200 bg-gray-50 text-gray-600 hover:border-indigo-300 hover:bg-indigo-50/40 disabled:opacity-50'
-                        }`}
-                      >
-                        {isSpinning
-                          ? <FaSync size={10} className="animate-spin text-indigo-500 flex-shrink-0" />
-                          : isSel
-                            ? <FaCheckSquare size={11} className="text-indigo-600 flex-shrink-0" />
-                            : <FaRegSquare   size={11} className="text-gray-400 flex-shrink-0" />
-                        }
-                        {table}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {!selectedTable && (
-                  <p className="text-[10px] text-gray-400 italic mt-2">
-                    ☝ Click any table above to load and view its data.
-                  </p>
-                )}
-              </>
+        {/* ── Table Selector — compact single row ─────────── */}
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm px-3 py-2 flex items-center gap-3 flex-wrap">
+          {/* Label */}
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <FaTable className="text-indigo-600" size={12} />
+            <span className="text-xs font-semibold text-gray-700">Available Tables</span>
+            {!tablesLoading && tables.length > 0 && (
+              <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 text-[10px] rounded-full font-medium">
+                {tables.length}
+              </span>
             )}
           </div>
+
+          {/* Custom dropdown — always opens downward */}
+          <TableDropdown
+            tables={tables}
+            selected={selectedTable}
+            loading={tablesLoading}
+            error={tablesError}
+            disabled={tableLoading}
+            onSelect={handleSelectTable}
+            onRetry={fetchTables}
+          />
+
+          {/* Rows limit */}
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <span className="text-[10px] text-gray-500 whitespace-nowrap">Rows limit:</span>
+            <input
+              type="number" value={limit} min={1} max={10000}
+              onChange={e => setLimit(Math.max(1, Number(e.target.value)))}
+              className="w-16 border border-gray-300 rounded px-2 py-1 text-xs text-center focus:outline-none focus:ring-1 focus:ring-indigo-400"
+            />
+          </div>
+
+          {/* Currently loaded indicator */}
+          {selectedTable && (
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              {tableLoading
+                ? <FaSync size={10} className="animate-spin text-indigo-500" />
+                : <FaCheckSquare size={11} className="text-indigo-600" />
+              }
+              <span className="text-xs font-medium text-indigo-700">{selectedTable}</span>
+              <button onClick={() => {
+                setSelectedTable(null); setTableRows([]); setTableColumns([]);
+                setMonthlyRows(null); setOutstandingRows(null); setLedgerNames([]);
+                setShowFilters(false);
+              }} className="text-gray-400 hover:text-red-400 transition-colors">
+                <FaTimes size={10} />
+              </button>
+            </div>
+          )}
         </div>
 
         {/* ── Inline Filter Panel ───────────────────────────── */}
@@ -1353,7 +1620,34 @@ export default function ReportComponent() {
             </div>
 
             {/* Filter body */}
-            <div className="p-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="p-3 grid grid-cols-1 sm:grid-cols-4 gap-3">
+
+              {/* ── Columns selector — shown first ── */}
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 inline-block" />Columns
+                  {filters.selectedColumns.length > 0 && (
+                    <span className="ml-auto text-[9px] bg-indigo-100 text-indigo-700 px-1 rounded-full font-bold">{filters.selectedColumns.length} selected</span>
+                  )}
+                </p>
+                <div>
+                  <label className="text-[10px] text-gray-500 mb-0.5 block">
+                    Select columns to fetch
+                    <span className="ml-1 text-gray-400">(empty = all)</span>
+                  </label>
+                  <MultiSelectDropdown
+                    values={tableColumns}
+                    selected={filters.selectedColumns}
+                    onChange={vals => setFilters(f => ({ ...f, selectedColumns: vals }))}
+                    disabled={tableColumns.length === 0}
+                  />
+                  {filters.selectedColumns.length > 0 && (
+                    <p className="text-[9px] text-indigo-600 mt-0.5 truncate">
+                      {filters.selectedColumns.join(', ')}
+                    </p>
+                  )}
+                </div>
+              </div>
 
               {/* Value Filter */}
               <div className="space-y-1.5">
@@ -1458,6 +1752,12 @@ export default function ReportComponent() {
             {/* Active filter pills */}
             {activeFilterCount > 0 && (
               <div className="px-3 pb-2 flex flex-wrap gap-1.5">
+                {filters.selectedColumns.length > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-100 text-indigo-700 text-[10px] rounded-full font-medium">
+                    cols: {filters.selectedColumns.length === 1 ? filters.selectedColumns[0] : `${filters.selectedColumns.length} columns`}
+                    <button onClick={() => setFilters(f => ({ ...f, selectedColumns: [] }))}><FaTimes size={8} /></button>
+                  </span>
+                )}
                 {filters.filterColumn && filters.filterValues.length > 0 && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-violet-100 text-violet-700 text-[10px] rounded-full font-medium">
                     {filters.filterColumn} = {filters.filterValues.length === 1 ? `"${filters.filterValues[0]}"` : `${filters.filterValues.length} values`}

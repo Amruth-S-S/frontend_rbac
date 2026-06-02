@@ -46,7 +46,8 @@ import { usePathname, useRouter } from 'next/navigation';
 import TallySetting from "../components/TallySetting";
 import ManageParameterSetting from "../components/Manageparametersetting";
 import KpiUpdates from "../components/KpiUpdates";
-import ReportComponent from "../components/ReportComponent";
+import dynamic from "next/dynamic";
+const ReportComponent = dynamic(() => import("../components/ReportComponent"), { ssr: false });
 
 ChartJS.register(
   ArcElement,
