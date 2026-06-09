@@ -5959,7 +5959,7 @@ const SpeechRecognition =
                                       setAddDataSourceForm({
                                         source_name: table.table_name,
                                         description: "",
-                                        row_limit: 100000,
+                                        row_limit: 10000000,
                                       });
                                       setShowAddDataSourceModal(true);
                                     }}
