@@ -4254,9 +4254,10 @@ const SpeechRecognition =
                   { key: "prompts",       label: t("tabs.managePrompts") },
                   { key: "repository",    label: t("tabs.promptsRepository") },
 
-                  // { key: "tally",      label: "Manage ETL" },
+
 
                   { key: "master",        label: t("tabs.masterData") },
+                                    { key: "parameter",      label: "Manage ETL" },
                   // { key: "parameter",  label: t("tabs.parameterSettings") },
                   // { key: "timeline",   label: t("tabs.timelineSettings") },
                   { key: "kpi",           label: t("tabs.kpiUpdates") },
@@ -5959,7 +5960,7 @@ const SpeechRecognition =
                                       setAddDataSourceForm({
                                         source_name: table.table_name,
                                         description: "",
-                                        row_limit: 10000000,
+                                        row_limit: 500000,
                                       });
                                       setShowAddDataSourceModal(true);
                                     }}
