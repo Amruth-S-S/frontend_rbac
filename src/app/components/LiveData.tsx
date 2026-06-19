@@ -13,11 +13,10 @@ import { toast } from 'react-toastify';
 
 const LIVE_API_BASE = 'https://tuneeelin-g-tally.vercel.app';
 const API_HEADERS = { 'x-api-key': '7904685929' };
-const PER_PAGE = 10;
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const DAYS   = ['Su','Mo','Tu','We','Th','Fr','Sa'];
 const REPORT_NAMES = ['Sales Register', 'Purchase Register', 'Funds Flow', 'Cash Flow'];
-const PERIOD_OPTIONS = ['Monthly', 'Quarterly', 'Half-Yearly', 'Yearly'];
+const PERIOD_OPTIONS = ['Day', 'Week', 'Monthly', 'Yearly'];
 const LEDGER_PERIOD_OPTIONS = ['Day', 'Week', 'Monthly', 'Yearly'];
 
 type Row = Record<string, string | number | null | undefined>;
@@ -352,17 +351,14 @@ function SearchableSelect({
 }
 
 // ══════════════════════════════════════════════════════════════
-// Result table — sticky header, zebra rows, pagination, Excel export
+// Result table — sticky header, zebra rows, scrollable body, Excel export
 // ══════════════════════════════════════════════════════════════
 function ResultTable({
   rows, columns, loading, onDownload,
 }: { rows: Row[]; columns: string[]; loading: boolean; onDownload: () => void }) {
-  const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-
-  useEffect(() => { setPage(1); }, [rows, search]);
 
   const filteredRows = useMemo(() => {
     if (!search.trim()) return rows;
@@ -395,10 +391,6 @@ function ResultTable({
       setSortDir('asc');
     }
   };
-
-  const totalPages = Math.max(1, Math.ceil(sortedRows.length / PER_PAGE));
-  const start = (page - 1) * PER_PAGE;
-  const pageRows = sortedRows.slice(start, start + PER_PAGE);
 
   if (loading) {
     return (
@@ -455,8 +447,8 @@ function ResultTable({
             </tr>
           </thead>
           <tbody>
-            {pageRows.map((r, i) => (
-              <tr key={start + i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/60'}>
+            {sortedRows.map((r, i) => (
+              <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/60'}>
                 {columns.map(c => (
                   <td key={c} className="px-3 py-1.5 text-gray-700 border-b border-gray-50 whitespace-nowrap">
                     {r[c] == null ? '' : String(r[c])}
@@ -470,21 +462,6 @@ function ResultTable({
       {sortedRows.length === 0 && (
         <div className="flex-1 flex items-center justify-center text-gray-400 text-xs py-6">
           No rows match your filter.
-        </div>
-      )}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between px-3 py-2 border-t border-gray-100 bg-gray-50 flex-shrink-0">
-          <span className="text-[11px] text-gray-500">Page {page} of {totalPages}</span>
-          <div className="flex gap-1">
-            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-              className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-white disabled:opacity-40">
-              <FaChevronLeft size={9} />
-            </button>
-            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-              className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-white disabled:opacity-40">
-              <FaChevronRight size={9} />
-            </button>
-          </div>
         </div>
       )}
     </div>
@@ -569,6 +546,7 @@ function ApiTabPanel({ apis }: { apis: ApiDef[] }) {
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
   const [hasRun, setHasRun]   = useState(false);
+  const [runLocked, setRunLocked] = useState(false);
 
   const api = apis.find(a => a.key === activeApi)!;
 
@@ -639,10 +617,21 @@ function ApiTabPanel({ apis }: { apis: ApiDef[] }) {
     setRows([]);
     setColumns([]);
     setHasRun(false);
+    setRunLocked(false);
     setError('');
     const nextApi = apis.find(a => a.key === key)!;
     setPeriod((nextApi.periodOptions ?? PERIOD_OPTIONS)[0]);
     setReportName((nextApi.reportNameOptions ?? REPORT_NAMES)[0]);
+  };
+
+  const handleFromDateChange = (v: string) => {
+    setFromDate(v);
+    setRunLocked(false);
+  };
+
+  const handleToDateChange = (v: string) => {
+    setToDate(v);
+    setRunLocked(false);
   };
 
   const abortRef = useRef<AbortController | null>(null);
@@ -669,6 +658,7 @@ function ApiTabPanel({ apis }: { apis: ApiDef[] }) {
       const { rows: r, columns: c } = extractData(json);
       setRows(r);
       setColumns(c.length > 0 ? c : (r.length > 0 ? Object.keys(r[0]) : []));
+      setRunLocked(true);
       if (isSave) toast.success(`Saved as "${fileName.trim()}".`);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
@@ -735,10 +725,10 @@ function ApiTabPanel({ apis }: { apis: ApiDef[] }) {
           )}
 
           <div className="w-40">
-            <DateField label="From Date" value={fromDate} onChange={setFromDate} />
+            <DateField label="From Date" value={fromDate} onChange={handleFromDateChange} />
           </div>
           <div className="w-40">
-            <DateField label="To Date" value={toDate} onChange={setToDate} />
+            <DateField label="To Date" value={toDate} onChange={handleToDateChange} />
           </div>
 
           {api.hasPeriod && (
@@ -780,7 +770,7 @@ function ApiTabPanel({ apis }: { apis: ApiDef[] }) {
               className="w-full px-2.5 py-2 text-xs border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400" />
           </div>
 
-          <button onClick={() => handleRun()} disabled={loading}
+          <button onClick={() => handleRun()} disabled={loading || runLocked}
             className="flex items-center gap-1.5 px-5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-60 shadow-sm">
             {loading ? <FaSpinner className="animate-spin" size={11} /> : <FaPlay size={10} />}
             {loading ? 'Running…' : 'Run'}

@@ -20,7 +20,7 @@ import React from "react";
 import { saveAs } from 'file-saver';
 import * as XLSX from 'xlsx';
 // import { useDropzone } from "react-dropzone";
-import { PencilIcon, TrashIcon, PlusIcon, CheckIcon, ChevronUpIcon, ChevronDownIcon, Edit } from 'lucide-react';
+import { PencilIcon, TrashIcon, PlusIcon, CheckIcon, ChevronUpIcon, ChevronDownIcon, Edit, Sparkles, LayoutGrid, MousePointerClick } from 'lucide-react';
 import { Pie, Bar, Line } from "react-chartjs-2";
 import { MdArrowDropDown, MdArrowDropUp } from 'react-icons/md';
 import {
@@ -4164,6 +4164,44 @@ const SpeechRecognition =
 
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  if (!boardId) {
+    return (
+      <div className="flex-1 overflow-y-auto bg-gray-200 rounded-2xl shadow-lg border border-gray-200 min-h-screen flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-md border border-gray-100 p-8 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-blue-50 flex items-center justify-center mx-auto mb-5">
+            <Sparkles className="w-8 h-8 text-blue-500" />
+          </div>
+          <h1 className="text-xl font-bold text-gray-800 mb-2">Welcome to GBusiness AI Solution</h1>
+          <p className="text-sm text-gray-500 mb-6">
+            To get started, create a mainboard or pick one from the sidebar.
+          </p>
+
+          <div className="space-y-3 text-left">
+            <div className="flex items-start gap-3 p-3 rounded-xl bg-blue-50/60 border border-blue-100">
+              <div className="w-8 h-8 rounded-lg bg-blue-500 text-white flex items-center justify-center flex-shrink-0">
+                <LayoutGrid className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-gray-800">No mainboard yet?</p>
+                <p className="text-xs text-gray-500">Click <span className="font-semibold text-blue-600">+ Create Main Board</span> in the sidebar to set one up.</p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
+              <div className="w-8 h-8 rounded-lg bg-gray-400 text-white flex items-center justify-center flex-shrink-0">
+                <MousePointerClick className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-gray-800">Already have one?</p>
+                <p className="text-xs text-gray-500">Select a mainboard from the sidebar to continue.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
 
