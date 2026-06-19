@@ -48,6 +48,7 @@ import ManageParameterSetting from "../components/Manageparametersetting";
 import KpiUpdates from "../components/KpiUpdates";
 import dynamic from "next/dynamic";
 const ReportComponent = dynamic(() => import("../components/ReportComponent"), { ssr: false });
+const LiveData = dynamic(() => import("../components/LiveData"), { ssr: false });
 
 ChartJS.register(
   ArcElement,
@@ -4274,6 +4275,7 @@ const SpeechRecognition =
                     {tab.label}
                   </button>
                 ))}
+                <LiveData />
               </div>
 
               {/* Mobile: dropdown */}
