@@ -22,6 +22,12 @@ import Spinner from '../components/Spinner';
 import { useRouter } from 'next/navigation';
 import { Menu, X, Settings, BarChart2, FileText, PieChart, TrendingUp, Database, Users, LayoutDashboard, BookOpen, Play, ChevronRight } from 'lucide-react';
 import KPIDashboard from '../Dashboard/page';
+import dynamic from 'next/dynamic';
+
+const LiveDataModal = dynamic(
+  () => import('../components/LiveData').then(mod => ({ default: mod.LiveDataModal })),
+  { ssr: false }
+);
 import Image from 'next/image';
 import loginImage from '../assets/logo.jpg';
 import { FiMic } from "react-icons/fi";
@@ -94,7 +100,7 @@ export default function CXO() {
   const [newPromptName, setNewPromptName] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [activeTab, setActiveTab] = useState("prompts");
-  const [cxoView, setCxoView] = useState<"home" | "dashboard">("home");
+  const [cxoView, setCxoView] = useState<"home" | "dashboard" | "livedata">("home");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [, setShowCharts] = useState(false);
   const [isRunClicked, setIsRunClicked] = useState(false);
@@ -895,6 +901,7 @@ export default function CXO() {
 
             // compute visible items based on search
             const dashboardVisible = !q || 'dashboard'.includes(q);
+            const liveDataVisible = !q || 'live data'.includes(q);
             const demoMbFiltered = demoMainBoards.filter(mb => {
               if (!q) return true;
               if (mb.name.toLowerCase().includes(q)) return true;
@@ -919,6 +926,19 @@ export default function CXO() {
                     <span className="w-3 h-3 flex-shrink-0" />
                     <LayoutDashboard className="w-4 h-4 flex-shrink-0" />
                     {!isSidebarCollapsed && <span className="ml-0.5">{hl("Dashboard")}</span>}
+                  </button>
+                )}
+
+                {/* ── Live Data ── */}
+                {liveDataVisible && (
+                  <button
+                    onClick={() => setCxoView("livedata")}
+                    title="Live Data"
+                    className={`w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors ${cxoView === "livedata" ? "bg-blue-500 text-white" : "text-gray-700 hover:bg-blue-100"}`}
+                  >
+                    <span className="w-3 h-3 flex-shrink-0" />
+                    <Database className="w-4 h-4 flex-shrink-0" />
+                    {!isSidebarCollapsed && <span className="ml-0.5">{hl("Live Data")}</span>}
                   </button>
                 )}
 
@@ -1128,6 +1148,8 @@ export default function CXO() {
               </div>
               <KPIDashboard />
             </>
+          ) : cxoView === "livedata" ? (
+            <LiveDataModal onClose={() => setCxoView("home")} />
           ) : (
             <div className="p-6">
 
@@ -1209,6 +1231,25 @@ export default function CXO() {
                           <LayoutDashboard className="w-8 h-8 text-teal-400" />
                         </div>
                         <span className="text-sm font-semibold text-center text-teal-500">Dashboard</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Divider */}
+                  <div className="w-px bg-gray-200 flex-shrink-0 self-stretch" />
+
+                  {/* Live Data tile */}
+                  <div className="flex-shrink-0">
+                    <h2 className="text-sm font-bold text-gray-700 mb-4">Live Data</h2>
+                    <div className="flex flex-row gap-4">
+                      <button
+                        onClick={() => setCxoView("livedata")}
+                        className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col items-center gap-3 hover:shadow-md hover:border-blue-200 transition-all flex-shrink-0 w-44"
+                      >
+                        <div className="w-16 h-16 rounded-full bg-blue-50 flex items-center justify-center">
+                          <Database className="w-8 h-8 text-blue-400" />
+                        </div>
+                        <span className="text-sm font-semibold text-center text-blue-500">Live Data</span>
                       </button>
                     </div>
                   </div>

@@ -860,7 +860,7 @@ const SIDEBAR_MENU: { key: 'finance' | 'stock' | 'ledger' | 'outstanding' | 'sum
   { key: 'summary',     label: 'Summary',     icon: <FaChartPie size={13} /> },
 ];
 
-function LiveDataModal({ onClose }: { onClose: () => void }) {
+export function LiveDataModal({ onClose }: { onClose: () => void }) {
   const [activeMenu, setActiveMenu] = useState<'finance' | 'stock' | 'ledger' | 'outstanding' | 'summary'>('finance');
   const selectMenu = (key: 'finance' | 'stock' | 'ledger' | 'outstanding' | 'summary') => {
     setActiveMenu(key);
