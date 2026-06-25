@@ -4390,10 +4390,10 @@ const SpeechRecognition =
             {/* Header */}
             <div className="w-full bg-white border-b">
               <div className="max-w-[1400px] mx-auto px-3 py-2">
-                <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+                <div className="flex flex-row flex-nowrap gap-2 items-center overflow-x-auto">
 
                   {/* Search */}
-                  <div className="relative flex-1">
+                  <div className="relative flex-1 min-w-[120px]">
                     <input
                       type="text"
                       placeholder={t("prompts.search")}
@@ -4421,7 +4421,7 @@ const SpeechRecognition =
 
                   {/* Buttons */}
                   <button
-                    className="py-1.5 px-3 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors text-xs font-medium whitespace-nowrap"
+                    className="flex-shrink-0 py-1.5 px-3 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors text-xs font-medium whitespace-nowrap"
                     onClick={() => {
                       setIsRunClicked(false);
                       setRunResult(null);
@@ -4435,7 +4435,7 @@ const SpeechRecognition =
                   </button>
 
                   <button
-                    className={`py-1.5 px-3 rounded-md text-xs font-medium whitespace-nowrap flex items-center gap-1 transition-colors ${
+                    className={`flex-shrink-0 py-1.5 px-3 rounded-md text-xs font-medium whitespace-nowrap flex items-center gap-1 transition-colors ${
                       generateDone
                         ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                         : 'bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-60'
@@ -4455,14 +4455,14 @@ const SpeechRecognition =
 
                   {prompts.length === 0 ? (
                     <button
-                      className="py-1.5 px-3 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-xs font-medium whitespace-nowrap"
+                      className="flex-shrink-0 py-1.5 px-3 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-xs font-medium whitespace-nowrap"
                       onClick={() => { setImportFile(null); setShowImportModal(true); }}
                     >
                       Import Prompts
                     </button>
                   ) : (
                     <button
-                      className="py-1.5 px-3 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-xs font-medium whitespace-nowrap"
+                      className="flex-shrink-0 py-1.5 px-3 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-xs font-medium whitespace-nowrap"
                       onClick={() => setShowExportModal(true)}
                     >
                       Export Prompts
@@ -4734,24 +4734,24 @@ const SpeechRecognition =
                 Choose the format to export {searchTerm ? filteredPrompts.length : prompts.length} prompt{(searchTerm ? filteredPrompts.length : prompts.length) > 1 ? 's' : ''}:
               </p>
 
-              <div className="space-y-3">
+              <div className="flex gap-3">
                 <button
                   onClick={downloadPromptsAsTXT}
-                  className="w-full py-3 px-4 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors font-medium"
+                  className="flex-1 py-3 px-4 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors font-medium"
                 >
                   Export as TXT
                 </button>
 
                 <button
                   onClick={downloadPromptsAsCSV}
-                  className="w-full py-3 px-4 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors font-medium"
+                  className="flex-1 py-3 px-4 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors font-medium"
                 >
                   Export as CSV
                 </button>
 
                 <button
                   onClick={() => setShowExportModal(false)}
-                  className="w-full py-3 px-4 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors font-medium"
+                  className="flex-1 py-3 px-4 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors font-medium"
                 >
                   Cancel
                 </button>
