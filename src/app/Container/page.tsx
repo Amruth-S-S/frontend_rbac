@@ -255,6 +255,14 @@ export default function Page() {
   const promptEnRef = useRef(''); // English original — always sent to API
   const [translatedPromptInput, setTranslatedPromptInput] = useState('');
   const isApplyingTranslation = useRef(false);
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (el && isModalOpen) {
+      el.style.height = 'auto';
+      el.style.height = `${el.scrollHeight}px`;
+    }
+  }, [translatedPromptInput, newPromptName, isModalOpen]);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [formData, setFormData] = useState({
     tableName: "",
@@ -6625,7 +6633,7 @@ const SpeechRecognition =
               {/* Textarea */}
               <div className="relative">
                 <textarea
-                  className="w-full p-2 pb-8 border-2 border-blue-400 rounded text-xs bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  className="w-full p-2 pb-8 border-2 border-blue-400 rounded text-xs bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none overflow-hidden"
                   placeholder={t('runPrompt.placeholder')}
                   value={translatedPromptInput || newPromptName}
                   rows={4}
@@ -6635,6 +6643,9 @@ const SpeechRecognition =
                     promptEnRef.current = text;
                     setNewPromptName(text);
                     setTranslatedPromptInput('');
+                    const el = e.target;
+                    el.style.height = 'auto';
+                    el.style.height = `${el.scrollHeight}px`;
                   }}
                 />
                 {/* <button
