@@ -4453,7 +4453,7 @@ const SpeechRecognition =
                     )}
                   </button>
 
-                  {/* {prompts.length === 0 ? (
+                  {prompts.length === 0 ? (
                     <button
                       className="py-1.5 px-3 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-xs font-medium whitespace-nowrap"
                       onClick={() => { setImportFile(null); setShowImportModal(true); }}
@@ -4467,7 +4467,7 @@ const SpeechRecognition =
                     >
                       Export Prompts
                     </button>
-                  )} */}
+                  )}
                 </div>
               </div>
             </div>
@@ -4661,7 +4661,7 @@ const SpeechRecognition =
         )}
 
         {/* Import Modal */}
-        {/* {showImportModal && (
+        {showImportModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 p-6">
               <div className="flex items-center justify-between mb-4">
@@ -4714,10 +4714,10 @@ const SpeechRecognition =
               </div>
             </div>
           </div>
-        )} */}
+        )}
 
         {/* Export Modal */}
-        {/* {showExportModal && (
+        {showExportModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
               <div className="flex justify-between items-center mb-4">
@@ -4758,7 +4758,7 @@ const SpeechRecognition =
               </div>
             </div>
           </div>
-        )} */}
+        )}
 
         {activeTab === "repository" && (
           <div className="w-full">
