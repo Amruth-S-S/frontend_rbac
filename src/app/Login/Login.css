@@ -87,6 +87,14 @@ body, html {
     -ms-overflow-style: none;  */
 }
 
+.form-container.signup-mode {
+    max-width: min(480px, 92vw);
+    max-height: none;
+    overflow: visible;
+    padding: 22px 26px;
+    text-align: left;
+}
+
 /* Custom Scrollbar for form container */
 .form-container::-webkit-scrollbar {
     width: 8px;

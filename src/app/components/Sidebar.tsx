@@ -5,7 +5,6 @@ import { useTranslation } from 'react-i18next';
 import { useRouter, usePathname } from 'next/navigation';
 import { useLanguage } from '../context/LanguageContext';
 import { translateBatch } from '../utils/translateService';
-import useSWR from "swr";
 import Link from 'next/link';
 import {
   LayoutDashboard,
@@ -26,7 +25,9 @@ import {
   ChartColumnDecreasing,
   Search,
   Eye,
-  EyeOff
+  EyeOff,
+  Building2,
+  Users
 } from 'lucide-react';
 import './Toast.css';
 import { toast, ToastContainer } from 'react-toastify';
@@ -65,6 +66,10 @@ interface DemoBoard {
   is_active?: boolean;
   customer_db_key?: string;
 }
+
+// Always offered in the Customer Database Key dropdown, even if the org's
+// available-customer-dbs list doesn't (yet) include it.
+const FALLBACK_CUSTOMER_DB_KEY = "customer_db_hospital_a";
 
 interface SidebarProps {
   clientUserId?: string | number;
@@ -162,10 +167,9 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
   const [customerDbKey, setCustomerDbKey] = useState('');
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingBoardId, setEditingBoardId] = useState<string | null>(null);
+  const [editingBoardActive, setEditingBoardActive] = useState(true);
 
   const [selectedBoard, setSelectedBoard] = useState<SelectedBoard>(null);
-  const [navItems, setNavItems] = useState<MainBoard[]>([]);
-  const [activeMainBoard, setActiveMainBoard] = useState<string | null>(null);
   const router = useRouter();
   const pathname = usePathname();
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -187,6 +191,16 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
   const [deletingBoards, setDeletingBoards] = useState<{ [key: string]: boolean }>({});
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
   const [showUserDropdown, setShowUserDropdown] = useState(false);
+
+  // Org id — resolved once for the OWNER, needed for the /rbac/main-boards and
+  // /rbac/boards endpoints which require org_id on every call.
+  const [orgId, setOrgId] = useState<number | null>(null);
+
+  // Group Reference — mirrors the main nav tree but sourced from /rbac/main-boards/info-tree
+  const [isGroupRefOpen, setIsGroupRefOpen] = useState(false);
+  const [groupRefItems, setGroupRefItems] = useState<MainBoard[]>([]);
+  const [groupRefLoading, setGroupRefLoading] = useState(false);
+  const [activeGroupRefMainBoard, setActiveGroupRefMainBoard] = useState<string | null>(null);
 
   // Demo Reference
   const [isDemoRefOpen, setIsDemoRefOpen] = useState(false);
@@ -246,12 +260,14 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
 
     if (res.ok) {
       const data = await res.json();
-      setCustomerDbOptions(data); // <-- important
+      setCustomerDbOptions(Array.from(new Set([...(Array.isArray(data) ? data : []), FALLBACK_CUSTOMER_DB_KEY])));
     } else {
       console.error("Failed to fetch DB keys");
+      setCustomerDbOptions([FALLBACK_CUSTOMER_DB_KEY]);
     }
   } catch (err) {
     console.error("Error:", err);
+    setCustomerDbOptions([FALLBACK_CUSTOMER_DB_KEY]);
   }
 };
 
@@ -481,18 +497,21 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
   const closeMobileMenu = () => { if (isMobile) setIsMobileMenuOpen(false); };
 
   // ─── Admin nav items ──────────────────────────────────────────────────────────
+  // `roles` controls which logged-in role sees the item — Organization and
+  // org-groups are OWNER/SUPER_ADMIN-only, the rest stay admin-only.
   const adminNavigationItems = [
-    { id: 'users', label: 'User', href: '/UserList' },
-    { id: 'organization', label: 'Organization', href: '/create-org-list' },
-    { id: 'members', label: 'Members', href: '/member-list' },
-     { id: 'groups', label: 'Groups', href: '/user-groups' },
+    { id: 'users', label: 'User', href: '/UserList', roles: ['admin'] },
+    { id: 'organization', label: 'Organization', href: '/Organization', roles: ['owner'] },
+    { id: 'members', label: 'Members', href: '/member-list', roles: ['admin'] },
+    { id: 'groups', label: 'Groups', href: '/user-groups', roles: ['admin'] },
+    { id: 'org-groups', label: 'Groups', href: '/Groups', roles: ['owner', 'super_admin'] },
     // { id: 'board-assignment', label: 'Assign Boards to Roles', href: '/BoardRoleAssignment' },
     // { id: 'user-assignment', label: 'Assign User to Roles', href: '/UserRoleAssignment' }
   ];
 
   // ─── Search filtering ─────────────────────────────────────────────────────────
   const filteredNavItems = useMemo(() => {
-    const sorted = [...navItems].sort((a, b) => a.name.localeCompare(b.name));
+    const sorted = [...groupRefItems].sort((a, b) => a.name.localeCompare(b.name));
     if (!searchQuery.trim()) return sorted;
     const query = searchQuery.toLowerCase();
     const matchingMainBoards = new Set<string>();
@@ -514,15 +533,20 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
       }
       return null;
     }).filter(Boolean) as MainBoard[];
-  }, [navItems, searchQuery]);
+  }, [groupRefItems, searchQuery]);
 
   const filteredAdminItems = useMemo(() => {
-    if (!searchQuery.trim()) return adminNavigationItems;
-    return adminNavigationItems.filter(item => item.label.toLowerCase().includes(searchQuery.toLowerCase()));
-  }, [searchQuery]);
+    const role = userRole?.toLowerCase() || '';
+    const visible = adminNavigationItems.filter(item => item.roles.includes(role));
+    if (!searchQuery.trim()) return visible;
+    return visible.filter(item => item.label.toLowerCase().includes(searchQuery.toLowerCase()));
+  }, [searchQuery, userRole]);
 
   useEffect(() => {
-    if (searchQuery.trim() && filteredNavItems.length > 0) setActiveMainBoard(filteredNavItems[0].main_board_id);
+    if (searchQuery.trim() && filteredNavItems.length > 0) {
+      setActiveGroupRefMainBoard(filteredNavItems[0].main_board_id);
+      setIsGroupRefOpen(true);
+    }
   }, [filteredNavItems, searchQuery]);
 
   useEffect(() => { if (isSearchOpen && searchInputRef.current) searchInputRef.current.focus(); }, [isSearchOpen]);
@@ -752,6 +776,43 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
     loadStoredLogo();
   }, []);
 
+  // ─── Resolve org_id (required by /rbac/main-boards and /rbac/boards) ─────────
+  // Prefer the org_id captured at login (works for every role). Fall back to
+  // /organizations/my-org only for sessions from before that fix — it only
+  // resolves for the org OWNER, so non-owners logged in before this change
+  // will need to log out/in once to pick up their org_id.
+  useEffect(() => {
+    if (!clientUserId) return;
+    try {
+      const s = sessionStorage.getItem('currentUserData');
+      const stored = s ? JSON.parse(s).orgId : null;
+      if (stored) { setOrgId(Number(stored)); return; }
+    } catch { /* ignore */ }
+    fetch(`${API_BASE_URL}/organizations/my-org?owner_user_id=${clientUserId}`, {
+      headers: { Accept: 'application/json', 'X-API-Key': EXCEL_API_KEY },
+    })
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => setOrgId(data?.id ?? null))
+      .catch(() => setOrgId(null));
+  }, [clientUserId]);
+
+  // ─── Group Reference tree (now the main board/board nav tree) ───────────────
+  const fetchGroupRefItems = () => {
+    if (!clientUserId || !orgId) return;
+    setGroupRefLoading(true);
+    fetch(`${API_BASE_URL}/rbac/main-boards/info-tree?user_id=${clientUserId}&org_id=${orgId}`, {
+      headers: { Accept: 'application/json', 'X-API-Key': EXCEL_API_KEY },
+    })
+      .then(res => (res.ok ? res.json() : []))
+      .then(data => setGroupRefItems(Array.isArray(data) ? data : []))
+      .catch(() => setGroupRefItems([]))
+      .finally(() => setGroupRefLoading(false));
+  };
+
+  useEffect(() => {
+    fetchGroupRefItems();
+  }, [clientUserId, orgId]);
+
   // ── Once userId is confirmed in state, fetch real blob from server ────────────
   useEffect(() => {
     if (userData.userId) fetchCurrentLogo();
@@ -767,20 +828,21 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
     }
     const userId = currentUserData.userId;
     if (!userId) { toast.error("User not found. Please log in again."); return; }
+    if (!orgId) { toast.error("Could not determine your organization. Please reload and try again."); return; }
 
     showGlobalLoader("Creating Main Board...");
     try {
-      const response = await fetch(`${API_BASE_URL}/main-boards/?user_id=${userId}`, {
+      const response = await fetch(`${API_BASE_URL}/rbac/main-boards/?user_id=${userId}&org_id=${orgId}`, {
         method: "POST",
         headers: { accept: "application/json", "Content-Type": "application/json", "X-API-Key": EXCEL_API_KEY },
-        body: JSON.stringify({ user_id: parseInt(userId), main_board_type: "ANALYSIS", name: mainBoardName }),
+        body: JSON.stringify({ client_user_id: parseInt(userId), main_board_type: "ANALYSIS", name: mainBoardName }),
       });
       const data = await response.json();
       if (!response.ok) { toast.error(`Failed to save: ${JSON.stringify(data)}`); return; }
       toast.success("Main board saved successfully!");
       setMainBoardName(""); setMainBoardId(data.id); setIsModalOpen(false);
       router.push("/Container");
-      mutateNavItems();
+      fetchGroupRefItems();
     } catch { toast.error("An error occurred. Please try again."); }
     finally { hideGlobalLoader(); }
   };
@@ -799,14 +861,18 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
       if (!userId) userId = sessionStorage.getItem("loggedInUserId") || localStorage.getItem('loggedInUserId');
     }
     if (!userId) { toast.error("User ID not found. Please log in again."); return; }
+    if (!orgId) { toast.error("Could not determine your organization. Please reload and try again."); return; }
 
     showGlobalLoader(isEditMode ? "Updating Board..." : "Creating Board...");
     try {
       if (isEditMode) {
-        const response = await fetch(`${API_BASE_URL}/main-boards/boards/${editingBoardId}?user_id=${userId}`, {
+        const response = await fetch(`${API_BASE_URL}/rbac/boards/${editingBoardId}?user_id=${userId}&org_id=${orgId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json", "X-API-Key": EXCEL_API_KEY },
-          body: JSON.stringify({ main_board_id: parseInt(selectedBoard!.mainBoardId), name: newBoardName.trim(), customer_db_key: customerDbKey.trim() }),
+          body: JSON.stringify({
+            main_board_id: parseInt(selectedBoard!.mainBoardId), name: newBoardName.trim(),
+            is_active: editingBoardActive, customer_db_key: customerDbKey.trim(),
+          }),
         });
         if (!response.ok) {
           const errorBody = await response.text();
@@ -817,9 +883,9 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
         toast.success("Board updated successfully!");
         closeModal();
         router.push(`/Container?main_board_id=${selectedBoard?.mainBoardId}&board_id=${editingBoardId}`);
-        mutateNavItems();
+        fetchGroupRefItems();
       } else {
-        const response = await fetch(`${API_BASE_URL}/main-boards/boards/?user_id=${userId}`, {
+        const response = await fetch(`${API_BASE_URL}/rbac/boards/?user_id=${userId}&org_id=${orgId}`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-API-Key": EXCEL_API_KEY },
           body: JSON.stringify({ main_board_id: parseInt(selectedBoard!.mainBoardId), name: newBoardName.trim(), customer_db_key: customerDbKey.trim() }),
@@ -834,7 +900,7 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
         toast.success("Board created successfully!");
         closeModal();
         router.push(`/Container?main_board_id=${selectedBoard!.mainBoardId}&board_id=${newBoard.id}`);
-        mutateNavItems();
+        fetchGroupRefItems();
       }
     } catch { toast.error("An unexpected error occurred"); }
     finally { hideGlobalLoader(); }
@@ -865,15 +931,16 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
         if (!userId) userId = sessionStorage.getItem("loggedInUserId") || localStorage.getItem('loggedInUserId') || '';
       }
       if (!userId) { toast.error("User not found. Please log in again."); return; }
+      if (!orgId) { toast.error("Could not determine your organization. Please reload and try again."); return; }
 
-      const response = await fetch(`${API_BASE_URL}/main-boards/${mainBoardId}?user_id=${userId}`, {
+      const response = await fetch(`${API_BASE_URL}/rbac/main-boards/${mainBoardId}?user_id=${userId}&org_id=${orgId}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-API-Key': EXCEL_API_KEY },
       });
       if (response.ok) {
         toast.success("Main board deleted successfully");
-        mutateNavItems();
-        if (activeMainBoard === mainBoardId) setActiveMainBoard('');
+        fetchGroupRefItems();
+        if (activeGroupRefMainBoard === mainBoardId) setActiveGroupRefMainBoard(null);
       } else {
         const errorData = await response.json();
         toast.error(errorData.message || "Failed to delete main board");
@@ -901,7 +968,8 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
                 }
                 const userId = currentUserData.userId;
                 if (!userId) { toast.error("User not found. Please log in again."); return; }
-                const response = await fetch(`${API_BASE_URL}/main-boards/boards/${boardId}?user_id=${userId}`, {
+                if (!orgId) { toast.error("Could not determine your organization. Please reload and try again."); return; }
+                const response = await fetch(`${API_BASE_URL}/rbac/boards/${boardId}?user_id=${userId}&org_id=${orgId}`, {
                   method: 'DELETE',
                   headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-API-Key': EXCEL_API_KEY },
                 });
@@ -909,7 +977,7 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
                   const errorData = await response.json();
                   throw new Error(errorData.message || "Failed to delete board");
                 }
-                setNavItems(prev => prev.map(item =>
+                setGroupRefItems(prev => prev.map(item =>
                   item.main_board_id === mainBoardId
                     ? { ...item, boards: Object.fromEntries(Object.entries(item.boards).filter(([key]) => key !== boardId)) }
                     : item
@@ -941,8 +1009,8 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
 
   // ─── Edit board click ────────────────────────────────────────────────────────
   const handleEditClick = async (boardId: string, mainBoardId: string) => {
-    if (!Array.isArray(navItems)) return;
-    const mainBoard = navItems.find(item => item.main_board_id === mainBoardId);
+    if (!Array.isArray(groupRefItems)) return;
+    const mainBoard = groupRefItems.find(item => item.main_board_id === mainBoardId);
     if (!mainBoard) return;
     const boardData = mainBoard.boards[boardId];
     if (!boardData) return;
@@ -968,6 +1036,7 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
         setSelectedBoard({ mainBoardId, boardId, boardName: boardData.name });
         setNewBoardName(boardData.name);
         setCustomerDbKey(boardDetails.customer_db_key || '');
+        setEditingBoardActive(boardData.is_active);
       } else {
         toast.error('Failed to load board details'); return;
       }
@@ -985,34 +1054,18 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
     setIsEditMode(false); setEditingBoardId(null);
   };
 
-  // ─── SWR nav fetching ─────────────────────────────────────────────────────────
-  const fetcher = (url: string) =>
-    fetch(url, { headers: { Accept: "application/json", "X-API-Key": EXCEL_API_KEY } })
-      .then(res => { if (!res.ok) throw new Error("Failed to fetch"); return res.json(); });
+  useEffect(() => { if (refreshTrigger) fetchGroupRefItems(); }, [refreshTrigger]);
+  const forceRefresh = () => fetchGroupRefItems();
 
-  const { mutate: mutateNavItems } = useSWR(
-    clientUserId ? `${API_BASE_URL}/main-boards/get_all_info_tree?user_id=${clientUserId}` : null,
-    fetcher,
-    {
-      revalidateOnFocus: false,
-      dedupingInterval: 60000,
-      onSuccess: data => setNavItems(data),
-      onError: () => toast.error("Error loading navigation data"),
-    }
-  );
-
-  useEffect(() => { if (refreshTrigger) mutateNavItems(); }, [refreshTrigger]);
-  const forceRefresh = () => mutateNavItems();
-
-  // Auto-translate all board names when language or navItems changes
+  // Auto-translate all board names when language or groupRefItems changes
   useEffect(() => {
-    if (language === 'en' || navItems.length === 0) {
+    if (language === 'en' || groupRefItems.length === 0) {
       setBoardNameMap({});
       return;
     }
     // Collect all unique names: main boards + sub-boards
     const allNames: string[] = [];
-    navItems.forEach(item => {
+    groupRefItems.forEach(item => {
       allNames.push(item.name);
       Object.values(item.boards).forEach(board => {
         if (board.is_active) allNames.push(board.name);
@@ -1024,10 +1077,10 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
       unique.forEach((name, i) => { map[name] = translated[i] || name; });
       setBoardNameMap(map);
     });
-  }, [language, navItems]);
+  }, [language, groupRefItems]);
 
   const toggleMainBoard = (mainBoardId: string) => {
-    setActiveMainBoard(prev => prev === mainBoardId ? null : mainBoardId);
+    setActiveGroupRefMainBoard(prev => prev === mainBoardId ? null : mainBoardId);
     setShowSubMenu(false);
   };
 
@@ -1184,6 +1237,118 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
               )}
             </div> */}
 
+            {/* Group Reference dropdown — sourced from /rbac/main-boards/info-tree */}
+            {(!searchQuery.trim() || "group reference".includes(searchQuery.toLowerCase())) && (
+              <div className="space-y-0.5 mb-4">
+                <div
+                  className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all duration-200 group ${isGroupRefOpen ? 'bg-blue-700/60 shadow-md border border-blue-500/30' : 'hover:bg-blue-700/30'}`}
+                  onClick={() => setIsGroupRefOpen(prev => !prev)}
+                  onMouseEnter={() => setHoveredItem('group-ref')}
+                  onMouseLeave={() => setHoveredItem(null)}
+                >
+                  <div className="flex items-center min-w-0 flex-1">
+                    {isGroupRefOpen
+                      ? <ChevronDown className="w-3.5 h-3.5 mr-1.5 text-gray-700 flex-shrink-0" />
+                      : <ChevronRight className="w-3.5 h-3.5 mr-1.5 text-gray-700 flex-shrink-0" />
+                    }
+                    {(isSidebarOpen || isMobile) && (
+                      <span className="font-medium text-xs truncate">Group Reference</span>
+                    )}
+                  </div>
+                </div>
+
+                {isGroupRefOpen && (isSidebarOpen || isMobile) && (
+                  <div className="ml-5 space-y-0.5 pb-1">
+                    {groupRefLoading ? (
+                      <div className="text-xs text-gray-400 px-2 py-1">{t('sidebar.loading')}</div>
+                    ) : filteredNavItems.length === 0 ? (
+                      <div className="text-xs text-gray-400 px-2 py-1">No main boards found.</div>
+                    ) : (
+                      filteredNavItems.map(item => {
+                        const mbId = String(item.main_board_id);
+                        const isExpanded = searchQuery.trim() ? true : activeGroupRefMainBoard === mbId;
+                        return (
+                          <div key={mbId} className="space-y-0.5">
+                            <div
+                              className={`flex items-center justify-between p-2 rounded-md cursor-pointer transition-all duration-200 group ${isExpanded ? 'bg-blue-600/50 shadow-sm border border-blue-400/30' : 'hover:bg-blue-700/25'}`}
+                              onClick={() => toggleMainBoard(mbId)}
+                              onMouseEnter={() => setHoveredItem(item.main_board_id)}
+                              onMouseLeave={() => setHoveredItem(null)}
+                            >
+                              <div className="flex items-center min-w-0 flex-1">
+                                {isExpanded
+                                  ? <ChevronDown className="w-3 h-3 mr-1.5 text-gray-600 flex-shrink-0" />
+                                  : <ChevronRight className="w-3 h-3 mr-1.5 text-gray-600 flex-shrink-0" />
+                                }
+                                <span className="text-xs font-medium truncate">
+                                  {searchQuery
+                                    ? <span dangerouslySetInnerHTML={{ __html: highlight(item.name, searchQuery) }} />
+                                    : (boardNameMap[item.name] || item.name)}
+                                </span>
+                              </div>
+                              {!searchQuery.trim() && (
+                                <div className="flex space-x-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                                  <Plus className="p-1 hover:bg-blue-600 rounded transition-colors duration-200 w-5 h-5" onClick={e => handlePlusClick(e, mbId)} />
+                                  <button onClick={e => handleDeleteMainBoard(e, mbId, item.name)} className="p-1 hover:bg-red-600 rounded transition-colors duration-200" title="Delete Main Board">
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+
+                            {isExpanded && (
+                              <div className="ml-4 space-y-0.5">
+                                {Object.keys(item.boards).filter(bId => item.boards[bId].is_active).length === 0 ? (
+                                  <div className="text-xs text-gray-400 px-2 py-1">No boards</div>
+                                ) : (
+                                  Object.keys(item.boards).filter(bId => item.boards[bId].is_active).map(boardId => {
+                                    const board = item.boards[boardId];
+                                    return (
+                                      <div
+                                        key={boardId}
+                                        className={`flex items-center justify-between p-2 rounded-md cursor-pointer transition-all duration-200 group ${activeBoardId === boardId ? 'bg-blue-600/50 shadow-sm border border-blue-400/30' : 'hover:bg-blue-700/25'}`}
+                                        onClick={() => handleBoardClick(boardId)}
+                                      >
+                                        <Link
+                                          href={{ pathname: '/GroupContainer', query: { main_board_id: item.main_board_id, board_id: boardId } }}
+                                          onClick={closeMobileMenu}
+                                          className="flex-1 text-black text-xs font-medium truncate"
+                                        >
+                                          {searchQuery
+                                            ? <span dangerouslySetInnerHTML={{ __html: highlight(board.name, searchQuery) }} />
+                                            : (boardNameMap[board.name] || board.name)}
+                                        </Link>
+                                        {!searchQuery.trim() && (
+                                          <div className="flex space-x-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                                            <button
+                                              onClick={e => { e.stopPropagation(); handleEditClick(boardId, item.main_board_id); }}
+                                              className="p-1 hover:bg-blue-600 rounded transition-colors duration-200" title="Edit Board"
+                                            >
+                                              <Edit2 className="w-3 h-3" />
+                                            </button>
+                                            <button
+                                              onClick={e => { e.stopPropagation(); handleDelete(boardId, item.main_board_id, board.name); }}
+                                              className="p-1 hover:bg-red-600 rounded transition-colors duration-200" title="Delete Board"
+                                            >
+                                              <Trash2 className="w-3 h-3" />
+                                            </button>
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Demo Reference dropdown */}
             {(!searchQuery.trim() || "demo reference".includes(searchQuery.toLowerCase())) && (
               <div className="space-y-0.5 mb-4">
@@ -1286,102 +1451,18 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
               </div>
             )}
 
-            {/* Main boards */}
-            <div className="space-y-1 mb-4">
-              {filteredNavItems.map(item => {
-                const mbId = String(item.main_board_id);
-                const isExpanded = searchQuery.trim() ? true : activeMainBoard === mbId;
-                return (
-                  <div key={mbId} className="space-y-0.5">
-                    <div
-                      className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all duration-200 group ${isExpanded ? 'bg-blue-700/60 shadow-md border border-blue-500/30' : 'hover:bg-blue-700/30'}`}
-                      onClick={() => toggleMainBoard(mbId)}
-                      onMouseEnter={() => setHoveredItem(item.main_board_id)}
-                      onMouseLeave={() => setHoveredItem(null)}
-                    >
-                      <div className="flex items-center min-w-0 flex-1 group">
-                        {!(item.boards && Object.keys(item.boards).length > 0 && isExpanded) && (
-                          <ChartColumnDecreasing className="w-3.5 h-3.5 mr-1.5 text-gray-700 flex-shrink-0 group-hover:hidden" />
-                        )}
-                        {item.boards && Object.keys(item.boards).length > 0 && (
-                          <div className={`flex-shrink-0 ${isExpanded ? "block" : "hidden group-hover:block"}`}>
-                            {isExpanded ? <ChevronDown className="w-3.5 h-3.5 mr-1.5 text-gray-700" /> : <ChevronRight className="w-3.5 h-3.5 mr-1.5 text-gray-700" />}
-                          </div>
-                        )}
-                        {(isSidebarOpen || isMobile) && (
-                          <span className="font-medium text-xs group-hover:text-black truncate">
-                            {searchQuery
-                              ? <span dangerouslySetInnerHTML={{ __html: highlight(item.name, searchQuery) }} />
-                              : (boardNameMap[item.name] || item.name)}
-                          </span>
-                        )}
-                      </div>
-
-                      {(isSidebarOpen || isMobile) && !searchQuery.trim() && (
-                        <div className="flex space-x-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                          <Plus className="p-1 hover:bg-blue-600 rounded transition-colors duration-200 w-5 h-5" onClick={e => handlePlusClick(e, mbId)} />
-                          <button onClick={e => handleDeleteMainBoard(e, mbId, item.name)} className="p-1 hover:bg-red-600 rounded transition-colors duration-200" title="Delete Main Board">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    {isExpanded && (isSidebarOpen || isMobile) && (
-                      <div className="ml-5 space-y-0.5 pb-1">
-                        {Object.keys(item.boards).filter(bId => item.boards[bId].is_active).map(boardId => {
-                          const board = item.boards[boardId];
-                          return (
-                            <div
-                              key={boardId}
-                              className={`flex items-center justify-between p-2 rounded-md cursor-pointer transition-all duration-200 group ${activeBoardId === boardId ? 'bg-blue-600/50 shadow-sm border border-blue-400/30' : 'hover:bg-blue-700/25'}`}
-                              onClick={() => handleBoardClick(boardId)}
-                            >
-                              <Link
-                                href={{ pathname: '/Container', query: { main_board_id: item.main_board_id, board_id: boardId } }}
-                                onClick={closeMobileMenu}
-                                className="flex-1 text-black text-xs font-medium truncate"
-                              >
-                                {searchQuery
-                                  ? <span dangerouslySetInnerHTML={{ __html: highlight(board.name, searchQuery) }} />
-                                  : (boardNameMap[board.name] || board.name)}
-                              </Link>
-                              {!searchQuery.trim() && (
-                                <div className="flex space-x-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                                  <button
-                                    onClick={e => { e.stopPropagation(); handleEditClick(boardId, item.main_board_id); }}
-                                    className="p-1 hover:bg-blue-600 rounded transition-colors duration-200" title="Edit Board"
-                                  >
-                                    <Edit2 className="w-3 h-3" />
-                                  </button>
-                                  <button
-                                    onClick={e => { e.stopPropagation(); handleDelete(boardId, item.main_board_id, board.name); }}
-                                    className="p-1 hover:bg-red-600 rounded transition-colors duration-200" title="Delete Board"
-                                  >
-                                    <Trash2 className="w-3 h-3" />
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Admin items */}
-            {userRole?.toLowerCase() === "admin" && (
+            {/* Admin / Owner items */}
+            {filteredAdminItems.length > 0 && (
               <div className="space-y-0.5">
-                {(searchQuery.trim() ? filteredAdminItems : adminNavigationItems).map(item => (
+                {filteredAdminItems.map(item => (
                   <Link key={item.id} href={item.href} onClick={closeMobileMenu}
                     className={`flex items-center p-2 rounded-lg cursor-pointer transition-all duration-200 group ${pathname.startsWith(item.href) ? 'bg-blue-700 text-white shadow-md' : 'hover:bg-blue-700/40 hover:shadow-sm'}`}
                     onMouseEnter={() => setHoveredItem(item.id)} onMouseLeave={() => setHoveredItem(null)}
                   >
                     {item.id === 'users' && <User className="w-4 h-4 flex-shrink-0" />}
-                    {(item.id !== 'users') && <NotebookText className="w-4 h-4 flex-shrink-0" />}
+                    {item.id === 'organization' && <Building2 className="w-4 h-4 flex-shrink-0" />}
+                    {item.id === 'org-groups' && <Users className="w-4 h-4 flex-shrink-0" />}
+                    {!['users', 'organization', 'org-groups'].includes(item.id) && <NotebookText className="w-4 h-4 flex-shrink-0" />}
                     {(isSidebarOpen || isMobile) && (
                       <span className="ml-2 font-medium text-xs">
                         {searchQuery ? <span dangerouslySetInnerHTML={{ __html: highlight(item.label, searchQuery) }} /> : item.label}

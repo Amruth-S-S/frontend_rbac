@@ -39,6 +39,21 @@ async function postFetcher<T = unknown>(
   return data as T;
 }
 
+// AuthResponse includes an `organization` object for any org member (not just
+// the OWNER) — this is the only way non-owner roles (ADMIN/EDITOR/ANALYST/VIEWER)
+// can learn their org_id, since /organizations/my-org only resolves for OWNERs.
+function extractOrgId(data: any): number | null {
+  const org = data?.organization ?? data?.access?.organization;
+  const id = org?.id ?? org?.org_id ?? data?.access?.org_id ?? data?.org_id;
+  const resolved = typeof id === 'number' ? id : (id ? Number(id) || null : null);
+  if (!resolved) {
+    // Surfaced so the actual `organization`/`access` shape can be checked against
+    // extractOrgId()'s assumptions if non-owner roles still can't see their boards.
+    console.warn('[Login] Could not find org_id in AuthResponse — check the organization/access shape:', data);
+  }
+  return resolved;
+}
+
 // ─── Sub-components (unchanged) ─────────────────────────────────────────────
 
 const CountdownTimer: React.FC<{
@@ -224,6 +239,9 @@ export default function Login() {
   const { trigger: triggerSignup, isMutating: signupLoading } =
     useSWRMutation(`${API_BASE_URL}/client-users/register-with-otp`, postFetcher);
 
+  const { trigger: triggerResendSignupOtp, isMutating: resendSignupOtpLoading } =
+    useSWRMutation(`${API_BASE_URL}/client-users/resend-registration-otp`, postFetcher);
+
   const { trigger: triggerVerifySignup, isMutating: verifySignupLoading } =
     useSWRMutation(`${API_BASE_URL}/auth/verify-registration`, postFetcher);
 
@@ -236,7 +254,7 @@ export default function Login() {
   // Derive a single global loading flag for the spinner overlay
   const loading =
     loginLoading || sendOtpLoading || verifyOtpLoading ||
-    signupLoading || verifySignupLoading || forgotLoading || resetLoading;
+    signupLoading || resendSignupOtpLoading || verifySignupLoading || forgotLoading || resetLoading;
 
   // ── UI State ─────────────────────────────────────────────────────────────
   const [currentForm, setCurrentForm] = useState<FormState>('email-login');
@@ -256,10 +274,11 @@ export default function Login() {
   const [resetOtpCooldown, setResetOtpCooldown] = useState(0);
   const [resetOtpError, setResetOtpError] = useState('');
 
-  const [signupName, setSignupName] = useState('');
-  const [signupUserName, setSignupUserName] = useState('');
+  const [signupFirstName, setSignupFirstName] = useState('');
+  const [signupLastName, setSignupLastName] = useState('');
   const [signupEmail, setSignupEmail] = useState('');
   const [signupPhone, setSignupPhone] = useState('');
+  const [signupCountry, setSignupCountry] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
   const [signupConfirmPassword, setSignupConfirmPassword] = useState('');
   const [showSignupPassword, setShowSignupPassword] = useState(false);
@@ -323,25 +342,23 @@ export default function Login() {
     e.preventDefault();
     if (!email || !password) { toast.error('Please enter both email and password.'); return; }
 
-    // Step 1: verify password
+    // OTP verification step is disabled for now — /auth/login already returns the
+    // same AuthResponse shape as /auth/verify-login-otp, so we log in directly here.
+    // To re-enable OTP: after a successful triggerLogin, call triggerSendOtp and
+    // setCurrentForm('phone-verify') instead of writing sessionStorage below.
     try {
-      await triggerLogin({ email, password });
+      const data: any = await triggerLogin({ email, password });
+      const userName = data.user_name ? data.user_name.trim() : 'Unknown User';
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('currentUserData', JSON.stringify({
+          email: data.email, name: data.name, userId: data.user_id, userRole: data.role, userName,
+          orgId: extractOrgId(data),
+        }));
+      }
+      toast.success('Login successful!');
+      setTimeout(() => router.push('/Consultant'), 1000);
     } catch (err: any) {
       toast.error(`Login failed: ${err.data?.message || 'Invalid credentials.'}`);
-      return;
-    }
-
-    // Step 2: send OTP to the same email
-    try {
-      await triggerSendOtp({ email: email.trim().toLowerCase() });
-      setVerifyLoginEmail(email);
-      setOtpSuccess('OTP sent to your email. Please verify to continue.');
-      setCurrentForm('phone-verify');
-      setOtpExpiryTime(Date.now() + 10 * 60 * 1000);
-      setResendCooldown(60);
-      setOtp('');
-    } catch (err: any) {
-      toast.error(`Failed to send OTP: ${err.data?.message || 'Please try again.'}`);
     }
   };
 
@@ -380,6 +397,7 @@ export default function Login() {
       if (typeof window !== 'undefined') {
         sessionStorage.setItem('currentUserData', JSON.stringify({
           email: data.email, name: data.name, userId: data.user_id, userRole: data.role, userName,
+          orgId: extractOrgId(data),
         }));
       }
       toast.success('OTP verified successfully!');
@@ -404,14 +422,20 @@ export default function Login() {
     if (signupPassword.length < 6) { toast.error('Password must be at least 6 characters long'); return; }
     try {
       const data: any = await triggerSignup({
-        username: signupUserName.trim(), name: signupName.trim(),
-        email: signupEmail.trim().toLowerCase(), phone_number: signupPhone.trim(),
-        password: signupPassword, confirm_password: signupConfirmPassword,
+        first_name: signupFirstName.trim(),
+        last_name: signupLastName.trim(),
+        email: signupEmail.trim().toLowerCase(),
+        mobile_number: signupPhone.trim() || null,
+        password: signupPassword,
+        confirm_password: signupConfirmPassword,
+        country: signupCountry.trim(),
+        timezone: null,
+        department: null,
+        designation: null,
       });
       toast.success('Registration successful! Please check your email for OTP.');
       setRegisteredUserId(data.user_id);
       setVerifyEmail(signupEmail);
-      setSignupUserName('');
       setSignupOtpExpiryTime(Date.now() + 10 * 60 * 1000);
       setSignupOtpCooldown(60);
       setCurrentForm('signup-verify');
@@ -434,8 +458,8 @@ export default function Login() {
     try {
       await triggerVerifySignup({ email: verifyEmail.trim().toLowerCase(), otp_code: signupOtp });
       toast.success('User registered successfully! Please login to continue.', { autoClose: 4000 });
-      setSignupName(''); setSignupEmail(''); setSignupPhone(''); setSignupPassword('');
-      setSignupConfirmPassword(''); setSignupOtp(''); setVerifyEmail('');
+      setSignupFirstName(''); setSignupLastName(''); setSignupEmail(''); setSignupPhone(''); setSignupCountry('');
+      setSignupPassword(''); setSignupConfirmPassword(''); setSignupOtp(''); setVerifyEmail('');
       setSignupOtpExpiryTime(null); setRegisteredUserId(null);
       setTimeout(() => setCurrentForm('email-login'), 1000);
     } catch (err: any) {
@@ -448,10 +472,7 @@ export default function Login() {
     if (signupOtpCooldown > 0) { setSignupOtpError(`Please wait ${signupOtpCooldown}s before requesting a new OTP.`); return; }
     if (!verifyEmail) { setSignupOtpError('Please enter your email address.'); return; }
     try {
-      await triggerSignup({
-        name: signupName.trim(), email: verifyEmail.trim().toLowerCase(),
-        phone_number: signupPhone.trim(), password: signupPassword, confirm_password: signupConfirmPassword,
-      });
+      await triggerResendSignupOtp({ email: verifyEmail.trim().toLowerCase() });
       toast.success('New OTP sent to your email!');
       setSignupOtpExpiryTime(Date.now() + 10 * 60 * 1000);
       setSignupOtpCooldown(60);
@@ -618,51 +639,63 @@ export default function Login() {
 
       case 'signup':
         return (
-          <form onSubmit={handleSignup} className="compact-form">
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
-              {/* Row 1: Name | Email */}
+          <form onSubmit={handleSignup} className="compact-form" style={{ width: '100%', maxWidth: '100%', textAlign: 'left' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px', textAlign: 'left' }}>
+              {/* Row 1: First Name | Last Name */}
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '4px' }}>Name</label>
-                <input type="text" placeholder="Full Name" value={signupName} onChange={e => setSignupName(e.target.value)} required
-                  style={{ width: '100%', padding: '8px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }} />
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#374151', marginBottom: '3px', textAlign: 'left' }}>First Name</label>
+                <input type="text" placeholder="First Name" value={signupFirstName} onChange={e => setSignupFirstName(e.target.value)} required
+                  style={{ width: '100%', padding: '6px 8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '12px', boxSizing: 'border-box' }} />
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '4px' }}>Email Address</label>
-                <input type="email" placeholder="Email" value={signupEmail} onChange={e => setSignupEmail(e.target.value)} required
-                  style={{ width: '100%', padding: '8px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }} />
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#374151', marginBottom: '3px', textAlign: 'left' }}>Last Name</label>
+                <input type="text" placeholder="Last Name" value={signupLastName} onChange={e => setSignupLastName(e.target.value)} required
+                  style={{ width: '100%', padding: '6px 8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '12px', boxSizing: 'border-box' }} />
               </div>
 
-              {/* Row 2: Password | Confirm Password */}
+              {/* Row 2: Email | Country */}
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '4px' }}>Password</label>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#374151', marginBottom: '3px', textAlign: 'left' }}>Email Address</label>
+                <input type="email" placeholder="Email" value={signupEmail} onChange={e => setSignupEmail(e.target.value)} required
+                  style={{ width: '100%', padding: '6px 8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '12px', boxSizing: 'border-box' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#374151', marginBottom: '3px', textAlign: 'left' }}>Country</label>
+                <input type="text" placeholder="Country" value={signupCountry} onChange={e => setSignupCountry(e.target.value)} required
+                  style={{ width: '100%', padding: '6px 8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '12px', boxSizing: 'border-box' }} />
+              </div>
+
+              {/* Row 3: Password | Confirm Password */}
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#374151', marginBottom: '3px', textAlign: 'left' }}>Password</label>
                 <div style={{ position: 'relative' }}>
                   <input type={showSignupPassword ? 'text' : 'password'} placeholder="Password" value={signupPassword} onChange={e => setSignupPassword(e.target.value)} required
-                    style={{ width: '100%', padding: '8px 32px 8px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }} />
+                    style={{ width: '100%', padding: '6px 28px 6px 8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '12px', boxSizing: 'border-box' }} />
                   <span onClick={() => setShowSignupPassword(!showSignupPassword)}
                     style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', cursor: 'pointer', color: '#313b96', display: 'flex', alignItems: 'center' }}>
-                    {showSignupPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                    {showSignupPassword ? <EyeOff size={13} /> : <Eye size={13} />}
                   </span>
                 </div>
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '4px' }}>Confirm Password</label>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#374151', marginBottom: '3px', textAlign: 'left' }}>Confirm Password</label>
                 <div style={{ position: 'relative' }}>
                   <input type={showSignupConfirmPassword ? 'text' : 'password'} placeholder="Confirm Password" value={signupConfirmPassword} onChange={e => setSignupConfirmPassword(e.target.value)} required
-                    style={{ width: '100%', padding: '8px 32px 8px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }} />
+                    style={{ width: '100%', padding: '6px 28px 6px 8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '12px', boxSizing: 'border-box' }} />
                   <span onClick={() => setShowSignupConfirmPassword(!showSignupConfirmPassword)}
                     style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', cursor: 'pointer', color: '#313b96', display: 'flex', alignItems: 'center' }}>
-                    {showSignupConfirmPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                    {showSignupConfirmPassword ? <EyeOff size={13} /> : <Eye size={13} />}
                   </span>
                 </div>
               </div>
 
-              {/* Row 3: Mobile Number (full width) */}
+              {/* Row 4: Mobile Number (full width) */}
               <div style={{ gridColumn: 'span 2' }}>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '4px', textAlign: 'left' }}>
-                  Mobile Number <span style={{ color: '#9ca3af', fontWeight: 400, fontSize: '11px' }}>(Optional)</span>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#374151', marginBottom: '3px', textAlign: 'left' }}>
+                  Mobile Number <span style={{ color: '#9ca3af', fontWeight: 400, fontSize: '10px' }}>(Optional)</span>
                 </label>
                 <input type="tel" placeholder="Mobile Number" value={signupPhone} onChange={e => setSignupPhone(e.target.value)}
-                  style={{ width: '100%', padding: '8px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }} />
+                  style={{ width: '100%', padding: '6px 8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '12px', boxSizing: 'border-box' }} />
               </div>
             </div>
             <button type="submit" className="submit-btn" disabled={signupLoading}>Create Account</button>
@@ -699,7 +732,7 @@ export default function Login() {
             {signupOtpCooldown === 0 ? (
               <div style={{ marginTop: '25px', textAlign: 'center' }}>
                 <span style={{ color: '#6b7280', fontSize: '14px', display: 'block', marginBottom: '12px' }}>Didn't receive the code?</span>
-                <HoverButton onClick={handleResendSignupOtp} disabled={signupLoading || !verifyEmail} variant="secondary">Resend OTP</HoverButton>
+                <HoverButton onClick={handleResendSignupOtp} disabled={resendSignupOtpLoading || !verifyEmail} variant="secondary">Resend OTP</HoverButton>
               </div>
             ) : (
               <div style={{ marginTop: '25px', color: '#6b7280', fontSize: '14px', padding: '12px 20px', background: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
@@ -805,7 +838,7 @@ export default function Login() {
       <div className="image-section">
         <div className="overlay">
           <h1>Global Business Solutions <br />with <span>AI Agent</span></h1>
-          <div className="form-container">
+          <div className={`form-container ${['signup', 'signup-verify'].includes(currentForm) ? 'signup-mode' : ''}`}>
             <Image src={loginImage} alt="Login" className="logo" />
             {(['email-login', 'phone-entry', 'phone-verify', 'signup', 'signup-verify'] as FormState[]).includes(currentForm) && (
               <div className="tab-navigation">

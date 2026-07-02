@@ -119,6 +119,7 @@ export default function CXO() {
     userName: "",
   });
   const [isMounted, setIsMounted] = useState(false);
+  const [orgId, setOrgId] = useState<number | null>(null);
 
   interface ChartData {
     chart_type: string;
@@ -270,10 +271,25 @@ export default function CXO() {
 
   useEffect(() => {
     if (!isMounted || !userData.userId) return;
+    try {
+      const s = sessionStorage.getItem('currentUserData');
+      const stored = s ? JSON.parse(s).orgId : null;
+      if (stored) { setOrgId(Number(stored)); return; }
+    } catch { /* ignore */ }
+    fetch(`${API_BASE_URL}/organizations/my-org?owner_user_id=${userData.userId}`, {
+      headers: { Accept: 'application/json', 'X-API-Key': EXCEL_API_KEY },
+    })
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => setOrgId(data?.id ?? null))
+      .catch(() => setOrgId(null));
+  }, [isMounted, userData.userId]);
+
+  useEffect(() => {
+    if (!isMounted || !userData.userId || !orgId) return;
     const fetchNavItems = async () => {
       try {
         setLoading(true);
-        const res = await fetch(`${API_BASE_URL}/main-boards/get_all_info_tree?user_id=${userData.userId}`, {
+        const res = await fetch(`${API_BASE_URL}/rbac/main-boards/info-tree?user_id=${userData.userId}&org_id=${orgId}`, {
           method: 'GET',
           headers: { Accept: 'application/json', "X-API-Key": EXCEL_API_KEY },
         });
@@ -284,7 +300,7 @@ export default function CXO() {
       } finally { setLoading(false); }
     };
     fetchNavItems();
-  }, [isMounted, userData.userId]);
+  }, [isMounted, userData.userId, orgId]);
 
   useEffect(() => {
     if (!isMounted) return;
