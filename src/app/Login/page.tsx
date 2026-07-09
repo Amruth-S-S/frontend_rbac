@@ -43,12 +43,17 @@ async function postFetcher<T = unknown>(
 // the OWNER) — this is the only way non-owner roles (ADMIN/EDITOR/ANALYST/VIEWER)
 // can learn their org_id, since /organizations/my-org only resolves for OWNERs.
 function extractOrgId(data: any): number | null {
-  const org = data?.organization ?? data?.access?.organization;
-  const id = org?.id ?? org?.org_id ?? data?.access?.org_id ?? data?.org_id;
+  const org = data?.organization ?? data?.access?.organization ?? data?.org ?? data?.user?.organization;
+  const id =
+    org?.id ??
+    org?.org_id ??
+    data?.access?.org_id ??
+    data?.org_id ??
+    data?.organization_id ??
+    data?.user?.org_id ??
+    data?.user?.organization_id;
   const resolved = typeof id === 'number' ? id : (id ? Number(id) || null : null);
   if (!resolved) {
-    // Surfaced so the actual `organization`/`access` shape can be checked against
-    // extractOrgId()'s assumptions if non-owner roles still can't see their boards.
     console.warn('[Login] Could not find org_id in AuthResponse — check the organization/access shape:', data);
   }
   return resolved;
@@ -353,6 +358,8 @@ export default function Login() {
         sessionStorage.setItem('currentUserData', JSON.stringify({
           email: data.email, name: data.name, userId: data.user_id, userRole: data.role, userName,
           orgId: extractOrgId(data),
+          orgRole: data.access?.org_role || data.org_role || data.role || '',
+          orgData: data.organization || null,
         }));
       }
       toast.success('Login successful!');
@@ -398,6 +405,8 @@ export default function Login() {
         sessionStorage.setItem('currentUserData', JSON.stringify({
           email: data.email, name: data.name, userId: data.user_id, userRole: data.role, userName,
           orgId: extractOrgId(data),
+          orgRole: data.access?.org_role || data.org_role || data.role || '',
+          orgData: data.organization || null,
         }));
       }
       toast.success('OTP verified successfully!');

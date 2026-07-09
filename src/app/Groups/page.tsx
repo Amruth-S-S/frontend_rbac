@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import { Search, Edit2, Trash2, ChevronUp, ChevronDown, ArrowUpDown, Users, X, RefreshCw, UserPlus, Lock } from "lucide-react";
+import { Search, Edit2, Trash2, ChevronUp, ChevronDown, ArrowUpDown, Users, X, RefreshCw, UserPlus, Lock, Share2, Database, Plus } from "lucide-react";
 import Spinner from "../components/Spinner";
 import LanguageSelector from "../components/LanguageSelector";
 
@@ -106,6 +106,31 @@ function getOwnerUserId(): string {
     if (!raw) return "";
     const parsed = JSON.parse(raw);
     return parsed.userId ? String(parsed.userId) : "";
+  } catch {
+    return "";
+  }
+}
+
+function getStoredOrgId(): number | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem("currentUserData");
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    const id = p.orgId ?? p.org_id;
+    return id ? Number(id) : null;
+  } catch {
+    return null;
+  }
+}
+
+function getOrgRole(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    const raw = sessionStorage.getItem("currentUserData");
+    if (!raw) return "";
+    const parsed = JSON.parse(raw);
+    return (parsed.orgRole || "").toUpperCase();
   } catch {
     return "";
   }
@@ -263,11 +288,32 @@ function AddGroupMemberModal({
     const fetchCandidates = async () => {
       setLoadingCandidates(true);
       try {
+        // Try non-members endpoint first (OWNER gets a pre-filtered list)
         const res = await fetch(`${API_BASE_URL}/organizations/${orgId}/groups/${groupId}/non-members?requester_user_id=${userId}`, {
           headers: { Accept: "application/json", "X-API-Key": API_KEY },
         });
-        if (res.ok) setCandidates(await res.json());
-        else setCandidates([]);
+        if (res.ok) {
+          const data = await res.json();
+          // If the endpoint returned results, use them
+          if (Array.isArray(data) && data.length > 0) { setCandidates(data); return; }
+        }
+        // Fallback: directory API works for all roles (ADMIN, SUPER_ADMIN, OWNER with full group)
+        const dirRes = await fetch(`${API_BASE_URL}/client-users/directory?requester_user_id=${userId}&org_id=${orgId}`, {
+          headers: { Accept: "application/json", "X-API-Key": API_KEY },
+        });
+        if (dirRes.ok) {
+          const data = await dirRes.json();
+          const list: any[] = Array.isArray(data) ? data : (data.users ?? data.data ?? data.members ?? []);
+          setCandidates(list.map((u: any): NonGroupUser => ({
+            user_id: Number(u.id || u.user_id || 0),
+            full_name: u.full_name || u.name || `${u.first_name || ""} ${u.last_name || ""}`.trim() || u.email || "",
+            email: u.email || u.user_email || "",
+            department: u.department || null,
+            designation: u.designation || null,
+          })));
+        } else {
+          setCandidates([]);
+        }
       } catch {
         setCandidates([]);
       } finally {
@@ -453,57 +499,10 @@ function ShareMainBoardModal({
   onShared: (mainBoardId: number) => void;
 }) {
   const [mainBoardId, setMainBoardId] = useState<number | null>(defaultMainBoardId);
-  const [shareType, setShareType] = useState<"GROUP" | "USER">("GROUP");
-
-  const [orgMembers, setOrgMembers] = useState<OrgMemberLite[]>([]);
-  const [loadingOrgMembers, setLoadingOrgMembers] = useState(false);
-  const [query, setQuery] = useState("");
-  const [showOptions, setShowOptions] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<OrgMemberLite | null>(null);
   const [sharing, setSharing] = useState(false);
-  const boxRef = useRef<HTMLDivElement>(null);
-
-  // Autofetch this group's members the first time "Specific User" is picked —
-  // sharing to a user only makes sense for someone already in this group.
-  useEffect(() => {
-    if (shareType !== "USER" || orgMembers.length > 0) return;
-    const fetchGroupMembers = async () => {
-      setLoadingOrgMembers(true);
-      try {
-        const res = await fetch(`${API_BASE_URL}/organizations/${orgId}/groups/${groupId}/members?requester_user_id=${userId}`, {
-          headers: { Accept: "application/json", "X-API-Key": API_KEY },
-        });
-        if (res.ok) setOrgMembers(await res.json());
-        else setOrgMembers([]);
-      } catch {
-        setOrgMembers([]);
-      } finally {
-        setLoadingOrgMembers(false);
-      }
-    };
-    fetchGroupMembers();
-  }, [shareType, orgId, groupId, userId, orgMembers.length]);
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setShowOptions(false);
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  const filteredMembers = orgMembers.filter(u => {
-    const q = query.trim().toLowerCase();
-    if (!q) return true;
-    return (u.user_name || "").toLowerCase().includes(q) || (u.user_email || "").toLowerCase().includes(q);
-  });
-
-  const initials = (name: string) =>
-    name.split(" ").filter(Boolean).slice(0, 2).map(p => p[0]?.toUpperCase()).join("") || "?";
 
   const handleShare = async () => {
     if (!mainBoardId) { toast.error("Please select a main board."); return; }
-    if (shareType === "USER" && !selectedUser) { toast.error("Please select a user to share with."); return; }
     setSharing(true);
     try {
       const res = await fetch(`${API_BASE_URL}/shared-main-boards/?shared_by_user_id=${userId}`, {
@@ -512,9 +511,8 @@ function ShareMainBoardModal({
         body: JSON.stringify({
           org_id: orgId,
           main_board_id: mainBoardId,
-          shared_with_type: shareType,
-          shared_with_group_id: shareType === "GROUP" ? groupId : null,
-          shared_with_user_id: shareType === "USER" ? selectedUser!.user_id : null,
+          shared_with_type: "GROUP",
+          shared_with_group_id: groupId,
         }),
       });
       const data = await res.json();
@@ -532,13 +530,14 @@ function ShareMainBoardModal({
 
   return (
     <div style={{ ...m.overlay, zIndex: 1100 }} onClick={onClose}>
-      <div style={{ ...m.box, maxWidth: 480, minHeight: 440, overflow: "visible", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
+      <div style={{ ...m.box, maxWidth: 480, overflow: "visible", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
         <div style={m.header}>
           <h3 style={m.title}>Share Main Board</h3>
           <button style={m.closeBtn} onClick={onClose}><X size={18} /></button>
         </div>
 
         <div style={{ flex: 1 }}>
+          {/* Main Board dropdown */}
           <div style={{ marginBottom: 16 }}>
             <label style={m.label}>Main Board <span style={{ color: "#ef4444" }}>*</span></label>
             <select
@@ -554,88 +553,35 @@ function ShareMainBoardModal({
             </select>
           </div>
 
+          {/* Share With — fixed Group */}
           <div style={{ marginBottom: 16 }}>
             <label style={m.label}>Share With</label>
-            <select
-              style={{ ...m.input, cursor: "pointer" }}
-              value={shareType}
-              onChange={e => { setShareType(e.target.value as "GROUP" | "USER"); setSelectedUser(null); setQuery(""); }}
-            >
-              <option value="GROUP">Group</option>
-              <option value="USER">Specific User</option>
-            </select>
+            <div style={{ padding: "10px 14px", borderRadius: 9, border: "1.5px solid #c7d2fe", background: "#eef2ff", display: "flex", alignItems: "center", gap: 8 }}>
+              <Users size={15} style={{ color: "#4338ca" }} />
+              <span style={{ fontSize: 14, fontWeight: 600, color: "#4338ca" }}>Group</span>
+            </div>
           </div>
 
-          {shareType === "GROUP" ? (
-            <div style={gm.selectedCard}>
-              <div style={gm.avatar}><Users size={16} /></div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>{groupName}</div>
-                <div style={{ fontSize: 12, color: "#64748b" }}>All members of this group</div>
-              </div>
+          {/* Group card */}
+          <div style={gm.selectedCard}>
+            <div style={gm.avatar}><Users size={16} /></div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>{groupName}</div>
+              <div style={{ fontSize: 12, color: "#64748b" }}>All members of this group</div>
             </div>
-          ) : (
-            <div ref={boxRef} style={{ marginBottom: 4 }}>
-              <label style={m.label}>User <span style={{ color: "#ef4444" }}>*</span></label>
-              {selectedUser ? (
-                <div style={gm.selectedCard}>
-                  <div style={gm.avatar}>{initials(selectedUser.user_name || selectedUser.user_email || "?")}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>{selectedUser.user_name || "—"}</div>
-                    <div style={{ fontSize: 12, color: "#64748b" }}>{selectedUser.user_email}</div>
-                  </div>
-                  <button style={gm.changeBtn} onClick={() => setSelectedUser(null)}>Change</button>
-                </div>
-              ) : (
-                <div style={{ position: "relative" }}>
-                  <input
-                    style={m.input}
-                    placeholder={`Search ${groupName}'s members by name or email…`}
-                    value={query}
-                    onFocus={() => setShowOptions(true)}
-                    onChange={e => { setQuery(e.target.value); setShowOptions(true); }}
-                  />
-                  {showOptions && (
-                    <div style={gm.dropdown}>
-                      {loadingOrgMembers ? (
-                        <div style={gm.dropdownEmpty}>Loading group members…</div>
-                      ) : filteredMembers.length === 0 ? (
-                        <div style={gm.dropdownEmpty}>No matching members in this group.</div>
-                      ) : (
-                        filteredMembers.map(u => (
-                          <div
-                            key={u.user_id}
-                            style={gm.dropdownItem}
-                            onClick={() => { setSelectedUser(u); setShowOptions(false); setQuery(""); }}
-                            onMouseDown={e => e.preventDefault()}
-                          >
-                            <div style={gm.avatarSm}>{initials(u.user_name || u.user_email || "?")}</div>
-                            <div style={{ minWidth: 0 }}>
-                              <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>{u.user_name || "—"}</div>
-                              <div style={{ fontSize: 12, color: "#64748b" }}>{u.user_email}</div>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+          </div>
 
           <div style={gm.infoNote}>
             <Lock size={14} style={{ flexShrink: 0, marginTop: 1 }} />
             <span>
               Sharing with a <strong>Group</strong> gives every member access to this Main Board and all its Boards.
-              To give just one <strong>Board</strong> to a single user, use the Board tab instead.
             </span>
           </div>
         </div>
 
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 18 }}>
           <button style={m.cancelBtn} onClick={onClose} disabled={sharing}>Cancel</button>
-          <button style={m.saveBtn} onClick={handleShare} disabled={sharing || !mainBoardId || (shareType === "USER" && !selectedUser)}>
+          <button style={m.saveBtn} onClick={handleShare} disabled={sharing || !mainBoardId}>
             {sharing ? "Sharing…" : "Share"}
           </button>
         </div>
@@ -767,75 +713,20 @@ function ShareBoardModal({
 
           <div style={{ marginBottom: 16 }}>
             <label style={m.label}>Share With</label>
-            <select
-              style={{ ...m.input, cursor: "pointer" }}
-              value={shareType}
-              onChange={e => { setShareType(e.target.value as "GROUP" | "USER"); setSelectedUser(null); setQuery(""); }}
-            >
-              <option value="GROUP">Group</option>
-              <option value="USER">Specific User</option>
-            </select>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 12px", borderRadius: 20, background: "#eef2ff", border: "1.5px solid #c7d2fe", color: "#4338ca", fontSize: 12, fontWeight: 700 }}>
+              <Users size={13} /> Group
+            </div>
           </div>
 
-          {shareType === "GROUP" ? (
-            <div style={gm.selectedCard}>
-              <div style={gm.avatar}><Users size={16} /></div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>{groupName}</div>
-                <div style={{ fontSize: 12, color: "#64748b" }}>All members of this group</div>
-              </div>
+          <div style={gm.selectedCard}>
+            <div style={gm.avatar}><Users size={16} /></div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>{groupName}</div>
+              <div style={{ fontSize: 12, color: "#64748b" }}>All members of this group</div>
             </div>
-          ) : (
-            <div ref={boxRef} style={{ marginBottom: 4 }}>
-              <label style={m.label}>User <span style={{ color: "#ef4444" }}>*</span></label>
-              {selectedUser ? (
-                <div style={gm.selectedCard}>
-                  <div style={gm.avatar}>{initials(selectedUser.user_name || selectedUser.user_email || "?")}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>{selectedUser.user_name || "—"}</div>
-                    <div style={{ fontSize: 12, color: "#64748b" }}>{selectedUser.user_email}</div>
-                  </div>
-                  <button style={gm.changeBtn} onClick={() => setSelectedUser(null)}>Change</button>
-                </div>
-              ) : (
-                <div style={{ position: "relative" }}>
-                  <input
-                    style={m.input}
-                    placeholder={`Search ${groupName}'s members by name or email…`}
-                    value={query}
-                    onFocus={() => setShowOptions(true)}
-                    onChange={e => { setQuery(e.target.value); setShowOptions(true); }}
-                  />
-                  {showOptions && (
-                    <div style={gm.dropdown}>
-                      {loadingGroupMembers ? (
-                        <div style={gm.dropdownEmpty}>Loading group members…</div>
-                      ) : filteredMembers.length === 0 ? (
-                        <div style={gm.dropdownEmpty}>No matching members in this group.</div>
-                      ) : (
-                        filteredMembers.map(u => (
-                          <div
-                            key={u.user_id}
-                            style={gm.dropdownItem}
-                            onClick={() => { setSelectedUser(u); setShowOptions(false); setQuery(""); }}
-                            onMouseDown={e => e.preventDefault()}
-                          >
-                            <div style={gm.avatarSm}>{initials(u.user_name || u.user_email || "?")}</div>
-                            <div style={{ minWidth: 0 }}>
-                              <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>{u.user_name || "—"}</div>
-                              <div style={{ fontSize: 12, color: "#64748b" }}>{u.user_email}</div>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+          </div>
 
-          <div style={gm.infoNote}>
+          <div style={{ ...gm.infoNote, marginTop: 16 }}>
             <Lock size={14} style={{ flexShrink: 0, marginTop: 1 }} />
             <span>
               Sharing a single <strong>Board</strong> only gives access to that board — other boards under the same Main Board are unaffected.
@@ -845,13 +736,800 @@ function ShareBoardModal({
 
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 18 }}>
           <button style={m.cancelBtn} onClick={onClose} disabled={sharing}>Cancel</button>
-          <button style={m.saveBtn} onClick={handleShare} disabled={sharing || !boardId || (shareType === "USER" && !selectedUser)}>
+          <button style={m.saveBtn} onClick={handleShare} disabled={sharing || !boardId}>
             {sharing ? "Sharing…" : "Share"}
           </button>
         </div>
       </div>
     </div>
   );
+}
+
+interface GroupShareMainBoard {
+  share_id?: number;
+  main_board_id: number;
+  main_board_name: string | null;
+  user_name?: string | null;
+  shared_by_name?: string | null;
+  is_active?: boolean;
+}
+interface GroupShareBoard {
+  share_id?: number;
+  board_id: number;
+  board_name: string | null;
+  main_board_id?: number;
+  main_board_name?: string | null;
+  user_name?: string | null;
+  shared_by_name?: string | null;
+  is_active?: boolean;
+}
+
+/* ── Share Main Board To User Modal ──────────────────────────────────────── */
+function ShareMainBoardToUserModal({
+  orgId, userId, onClose, onShared,
+}: {
+  orgId: number;
+  userId: string;
+  onClose: () => void;
+  onShared?: () => void;
+}) {
+  const [mainBoards, setMainBoards] = useState<{ main_board_id: number; main_board_name: string }[]>([]);
+  const [loadingBoards, setLoadingBoards] = useState(true);
+  const [orgMembers, setOrgMembers] = useState<OrgMemberLite[]>([]);
+  const [loadingMembers, setLoadingMembers] = useState(true);
+  const [selectedMainBoardId, setSelectedMainBoardId] = useState<number | null>(null);
+  const [selectedUser, setSelectedUser] = useState<OrgMemberLite | null>(null);
+  const [query, setQuery] = useState("");
+  const [showOptions, setShowOptions] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const fetchBoards = async () => {
+      setLoadingBoards(true);
+      try {
+        const res = await fetch(`${API_BASE_URL}/rbac/main-boards/info-tree?user_id=${userId}&org_id=${orgId}`, {
+          headers: { Accept: "application/json", "X-API-Key": API_KEY },
+        });
+        if (res.ok) {
+          const raw = await res.json();
+          const items: any[] = Array.isArray(raw) ? raw : (raw?.items ?? raw?.main_boards ?? raw?.data ?? []);
+          setMainBoards(items.map((mb: any) => ({
+            main_board_id: Number(mb.main_board_id ?? mb.id ?? 0),
+            main_board_name: mb.name ?? mb.main_board_name ?? "",
+          })));
+        } else { setMainBoards([]); }
+      } catch { setMainBoards([]); }
+      finally { setLoadingBoards(false); }
+    };
+    fetchBoards();
+  }, [userId, orgId]);
+
+  useEffect(() => {
+    const fetchMembers = async () => {
+      setLoadingMembers(true);
+      try {
+        const res = await fetch(`${API_BASE_URL}/organizations/${orgId}/members?requester_user_id=${userId}`, {
+          headers: { Accept: "application/json", "X-API-Key": API_KEY },
+        });
+        if (res.ok) {
+          const raw = await res.json();
+          const list: any[] = Array.isArray(raw) ? raw : (raw?.members ?? raw?.data ?? raw?.users ?? []);
+          setOrgMembers(list.map((u: any) => ({
+            user_id: Number(u.user_id ?? u.id ?? 0),
+            user_name: u.full_name ?? u.user_name ?? u.name ?? `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim() ?? "",
+            user_email: u.email ?? u.user_email ?? "",
+            org_role: u.org_role ?? u.role ?? "",
+          })));
+        } else { setOrgMembers([]); }
+      } catch { setOrgMembers([]); }
+      finally { setLoadingMembers(false); }
+    };
+    fetchMembers();
+  }, [orgId, userId]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setShowOptions(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const filteredMembers = orgMembers.filter(u => {
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    return (u.user_name || "").toLowerCase().includes(q) || (u.user_email || "").toLowerCase().includes(q);
+  });
+
+  const initials = (name: string) =>
+    name.split(" ").filter(Boolean).slice(0, 2).map(p => p[0]?.toUpperCase()).join("") || "?";
+
+  const handleShare = async () => {
+    if (!selectedMainBoardId) { toast.error("Please select a main board."); return; }
+    if (!selectedUser) { toast.error("Please select a user."); return; }
+    setSharing(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/shared-main-boards/?shared_by_user_id=${userId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json", "X-API-Key": API_KEY },
+        body: JSON.stringify({
+          org_id: orgId,
+          main_board_id: selectedMainBoardId,
+          shared_with_type: "USER",
+          shared_with_user_id: selectedUser.user_id,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success("Main board shared successfully!");
+        onShared?.();
+        onClose();
+      } else {
+        toast.error(typeof data.detail === "string" ? data.detail : `Error ${res.status}`);
+      }
+    } catch (e: any) {
+      toast.error(`Network error: ${e.message}`);
+    } finally {
+      setSharing(false);
+    }
+  };
+
+  return (
+    <div style={{ ...m.overlay, zIndex: 1200 }} onClick={onClose}>
+      <div style={{ ...m.box, maxWidth: 480, overflow: "visible", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
+        <div style={m.header}>
+          <h3 style={m.title}>Share Main Board</h3>
+          <button style={m.closeBtn} onClick={onClose}><X size={18} /></button>
+        </div>
+
+        <div style={{ flex: 1 }}>
+          {/* Main Board dropdown */}
+          <div style={{ marginBottom: 16 }}>
+            <label style={m.label}>Main Board <span style={{ color: "#ef4444" }}>*</span></label>
+            <select
+              style={{ ...m.input, cursor: "pointer" }}
+              value={selectedMainBoardId ?? ""}
+              onChange={e => setSelectedMainBoardId(e.target.value ? Number(e.target.value) : null)}
+              disabled={loadingBoards}
+            >
+              <option value="">{loadingBoards ? "Loading…" : "Select a main board"}</option>
+              {mainBoards.map(mb => (
+                <option key={mb.main_board_id} value={mb.main_board_id}>{mb.main_board_name}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Share With — fixed "Specific User" */}
+          <div style={{ marginBottom: 16 }}>
+            <label style={m.label}>Share With</label>
+            <div style={{ padding: "10px 14px", borderRadius: 9, border: "1.5px solid #bbf7d0", background: "#f0fdf4", display: "flex", alignItems: "center", gap: 8 }}>
+              <UserPlus size={15} style={{ color: "#16a34a" }} />
+              <span style={{ fontSize: 14, fontWeight: 600, color: "#16a34a" }}>Specific User</span>
+            </div>
+          </div>
+
+          {/* User search */}
+          <div style={{ marginBottom: 4 }} ref={boxRef}>
+            <label style={m.label}>User <span style={{ color: "#ef4444" }}>*</span></label>
+            {selectedUser ? (
+              <div style={gm.selectedCard}>
+                <div style={gm.avatar}>{initials(selectedUser.user_name || selectedUser.user_email || "?")}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>{selectedUser.user_name || "—"}</div>
+                  <div style={{ fontSize: 12, color: "#64748b" }}>{selectedUser.user_email}</div>
+                </div>
+                <button style={gm.changeBtn} onClick={() => setSelectedUser(null)}>Change</button>
+              </div>
+            ) : (
+              <div style={{ position: "relative" }}>
+                <input
+                  style={m.input}
+                  placeholder="Search org members by name or email…"
+                  value={query}
+                  onFocus={() => setShowOptions(true)}
+                  onChange={e => { setQuery(e.target.value); setShowOptions(true); }}
+                />
+                {showOptions && (
+                  <div style={gm.dropdown}>
+                    {loadingMembers ? (
+                      <div style={gm.dropdownEmpty}>Loading members…</div>
+                    ) : filteredMembers.length === 0 ? (
+                      <div style={gm.dropdownEmpty}>No matching members found.</div>
+                    ) : (
+                      filteredMembers.map(u => (
+                        <div
+                          key={u.user_id}
+                          style={gm.dropdownItem}
+                          onClick={() => { setSelectedUser(u); setShowOptions(false); setQuery(""); }}
+                          onMouseDown={e => e.preventDefault()}
+                        >
+                          <div style={gm.avatarSm}>{initials(u.user_name || u.user_email || "?")}</div>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>{u.user_name || "—"}</div>
+                            <div style={{ fontSize: 12, color: "#64748b" }}>{u.user_email}</div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div style={gm.infoNote}>
+            <Lock size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>
+              Sharing a <strong>Main Board</strong> gives the user access to that main board and all its Boards.
+            </span>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 18 }}>
+          <button style={m.cancelBtn} onClick={onClose} disabled={sharing}>Cancel</button>
+          <button style={m.saveBtn} onClick={handleShare} disabled={sharing || !selectedMainBoardId || !selectedUser}>
+            {sharing ? "Sharing…" : "Share"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Share To User Panel (drawer) ────────────────────────────────────────── */
+function SharedBoardsPanel({
+  orgId, userId, onShareNew, onClose,
+}: {
+  orgId: number;
+  userId: string;
+  onShareNew: () => void;
+  onClose: () => void;
+}) {
+  const [activeTab, setActiveTab] = useState<"mainboard" | "board">("mainboard");
+  const [sharedMainBoards, setSharedMainBoards] = useState<any[]>([]);
+  const [sharedBoards, setSharedBoards] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showShareMainModal, setShowShareMainModal] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  const loadShares = async () => {
+    setLoading(true);
+    try {
+      // Fetch all org members first, then collect each member's shares
+      const membersRes = await fetch(
+        `${API_BASE_URL}/organizations/${orgId}/members?requester_user_id=${userId}`,
+        { headers: { Accept: "application/json", "X-API-Key": API_KEY } }
+      );
+      const membersRaw = membersRes.ok ? await membersRes.json() : [];
+      const members: any[] = Array.isArray(membersRaw)
+        ? membersRaw
+        : (membersRaw?.members ?? membersRaw?.data ?? membersRaw?.users ?? []);
+
+      const allMainBoards: any[] = [];
+      const allBoards: any[] = [];
+
+      await Promise.all(members.map(async (member: any) => {
+        const memberId = member.user_id ?? member.id;
+        if (!memberId) return;
+        const memberName = member.full_name ?? member.user_name ?? member.name
+          ?? `${member.first_name ?? ""} ${member.last_name ?? ""}`.trim() || member.email || `User #${memberId}`;
+        const memberEmail = member.email ?? member.user_email ?? "";
+
+        try {
+          const res = await fetch(
+            `${API_BASE_URL}/board-access/shares?type=USER&id=${memberId}`,
+            { headers: { Accept: "application/json", "X-API-Key": API_KEY } }
+          );
+          if (!res.ok) return;
+          const raw = await res.json();
+          const mainBoards: any[] = Array.isArray(raw)
+            ? raw.filter((d: any) => !d.board_id)
+            : (Array.isArray(raw.shared_main_boards) ? raw.shared_main_boards : []);
+          const boards: any[] = Array.isArray(raw)
+            ? raw.filter((d: any) => !!d.board_id)
+            : (Array.isArray(raw.shared_boards) ? raw.shared_boards : []);
+          // Inject member info so every row knows who it was shared with
+          mainBoards.forEach((e: any) => allMainBoards.push({
+            ...e,
+            shared_with_name: e.shared_with_name || memberName,
+            shared_with_email: e.shared_with_email || memberEmail,
+          }));
+          boards.forEach((e: any) => allBoards.push({
+            ...e,
+            shared_with_name: e.shared_with_name || memberName,
+            shared_with_email: e.shared_with_email || memberEmail,
+          }));
+        } catch { /* skip member on error */ }
+      }));
+
+      setSharedMainBoards(allMainBoards);
+      setSharedBoards(allBoards);
+    } catch { /* ignore */ }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { loadShares(); }, [userId, orgId]);
+
+  const getUserName = (e: any) =>
+    e.shared_with_name || e.user_name || e.full_name || `User #${e.shared_with_id ?? "—"}`;
+  const getUserEmail = (e: any) => e.shared_with_email || e.email || e.user_email || "";
+
+  const confirmDelete = (shareId: number, label: string, kind: "mainboard" | "board") => {
+    const doDelete = async () => {
+      setDeletingId(shareId);
+      try {
+        const endpoint = kind === "mainboard"
+          ? `${API_BASE_URL}/shared-main-boards/${shareId}?deleted_by_user_id=${userId}&org_id=${orgId}`
+          : `${API_BASE_URL}/shared-boards/${shareId}?deleted_by_user_id=${userId}&org_id=${orgId}`;
+        const res = await fetch(endpoint, {
+          method: "DELETE",
+          headers: { Accept: "application/json", "X-API-Key": API_KEY },
+        });
+        if (res.ok) {
+          if (kind === "mainboard") setSharedMainBoards(prev => prev.filter(e => e.share_id !== shareId));
+          else setSharedBoards(prev => prev.filter(e => e.share_id !== shareId));
+          toast.success("Share removed successfully.");
+        } else {
+          const err = await res.json().catch(() => ({}));
+          toast.error(typeof err.detail === "string" ? err.detail : `Failed to remove share (${res.status}).`);
+        }
+      } catch (e: any) {
+        toast.error(`Network error: ${e.message}`);
+      } finally {
+        setDeletingId(null);
+      }
+    };
+
+    toast(
+      ({ closeToast }: { closeToast: () => void }) => (
+        <div style={{ padding: "4px 0" }}>
+          <p style={{ margin: "0 0 10px", fontSize: 13, color: "#1e293b" }}>
+            Remove share for <strong>{label}</strong>?
+          </p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={() => { closeToast(); doDelete(); }}
+              style={{ flex: 1, padding: "6px 0", background: "#dc2626", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+            >Yes, Remove</button>
+            <button
+              onClick={closeToast}
+              style={{ flex: 1, padding: "6px 0", background: "#f1f5f9", color: "#475569", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+            >Cancel</button>
+          </div>
+        </div>
+      ),
+      { autoClose: false, closeOnClick: false, closeButton: false }
+    );
+  };
+
+  return (
+    <>
+      {showShareMainModal && (
+        <ShareMainBoardToUserModal
+          orgId={orgId}
+          userId={userId}
+          onClose={() => setShowShareMainModal(false)}
+          onShared={loadShares}
+        />
+      )}
+
+    <div style={sb.overlay} onClick={onClose}>
+      <div style={sb.panel} onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div style={sb.header}>
+          <div style={sb.headerLeft}>
+            <div style={sb.iconBox}>
+              <Share2 size={20} style={{ color: "#16a34a" }} />
+            </div>
+            <div>
+              <h2 style={sb.title}>Share To User</h2>
+              <p style={sb.sub}>Boards shared directly with users in your organization</p>
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button style={sb.closeBtn} onClick={onClose}><X size={18} /></button>
+          </div>
+        </div>
+
+        {/* Sub-tabs */}
+        <div style={sb.subTabs}>
+          <button
+            style={{ ...sb.subTab, ...(activeTab === "mainboard" ? sb.subTabActive : {}) }}
+            onClick={() => setActiveTab("mainboard")}
+          >
+            Main Board
+          </button>
+          <button
+            style={{ ...sb.subTab, ...(activeTab === "board" ? sb.subTabActive : {}) }}
+            onClick={() => setActiveTab("board")}
+          >
+            Board
+          </button>
+        </div>
+
+        {/* Body */}
+        <div style={sb.body}>
+          {/* Action button row */}
+          {!loading && (
+            <div style={{ padding: "16px 20px 0", display: "flex", justifyContent: "flex-end" }}>
+              {activeTab === "mainboard" ? (
+                <button style={sb.shareNewBtn} onClick={() => setShowShareMainModal(true)}>
+                  <Share2 size={14} style={{ marginRight: 6 }} /> Share Main Board
+                </button>
+              ) : (
+                <button style={sb.shareNewBtn} onClick={onShareNew}>
+                  <Share2 size={14} style={{ marginRight: 6 }} /> Share Board
+                </button>
+              )}
+            </div>
+          )}
+
+          {loading ? (
+            <div style={sb.empty}><Spinner /></div>
+          ) : activeTab === "mainboard" ? (
+            sharedMainBoards.length === 0 ? (
+              <div style={sb.empty}>
+                <span style={{ fontSize: 36 }}>📋</span>
+                <p style={{ color: "#94a3b8", fontSize: 14, marginTop: 10 }}>No main boards have been shared with users yet.</p>
+                <button style={sb.shareNewBtn} onClick={() => setShowShareMainModal(true)}>
+                  <Share2 size={14} style={{ marginRight: 6 }} /> Share Main Board
+                </button>
+              </div>
+            ) : (
+              <table style={sb.table}>
+                <thead>
+                  <tr>
+                    <th style={sb.th}>Main Board</th>
+                    <th style={sb.th}>Shared With</th>
+                    <th style={sb.th}>Status</th>
+                    <th style={sb.th}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sharedMainBoards.map((e, i) => (
+                    <tr key={i}>
+                      <td style={sb.td}>
+                        <span style={sb.boardBadge}>{e.main_board_name || `Main Board #${e.main_board_id ?? "—"}`}</span>
+                      </td>
+                      <td style={sb.td}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={sb.avatar}>{getUserName(e).charAt(0).toUpperCase()}</div>
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>{getUserName(e)}</div>
+                            {getUserEmail(e) && <div style={{ fontSize: 12, color: "#94a3b8" }}>{getUserEmail(e)}</div>}
+                          </div>
+                        </div>
+                      </td>
+                      <td style={sb.td}>
+                        <span style={{ display: "inline-flex", padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, background: e.is_active !== false ? "#dcfce7" : "#f1f5f9", color: e.is_active !== false ? "#16a34a" : "#64748b" }}>
+                          {e.is_active !== false ? "Active" : "Suspended"}
+                        </span>
+                      </td>
+                      <td style={sb.td}>
+                        <button
+                          style={sb.deleteBtn}
+                          onClick={() => e.share_id != null && confirmDelete(e.share_id, e.main_board_name || "this main board", "mainboard")}
+                          disabled={deletingId === e.share_id || e.share_id == null}
+                          title="Remove share"
+                        >
+                          {deletingId === e.share_id ? "…" : <Trash2 size={14} />}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )
+          ) : (
+            sharedBoards.length === 0 ? (
+              <div style={sb.empty}>
+                <span style={{ fontSize: 36 }}>📋</span>
+                <p style={{ color: "#94a3b8", fontSize: 14, marginTop: 10 }}>No boards have been shared with users yet.</p>
+                <button style={sb.shareNewBtn} onClick={onShareNew}>
+                  <Share2 size={14} style={{ marginRight: 6 }} /> Share a Board
+                </button>
+              </div>
+            ) : (
+              <table style={sb.table}>
+                <thead>
+                  <tr>
+                    <th style={sb.th}>Main Board</th>
+                    <th style={sb.th}>Board</th>
+                    <th style={sb.th}>Shared With</th>
+                    <th style={sb.th}>Status</th>
+                    <th style={sb.th}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sharedBoards.map((e, i) => (
+                    <tr key={i}>
+                      <td style={sb.td}><span style={{ color: "#64748b", fontSize: 13 }}>{e.main_board_name || "—"}</span></td>
+                      <td style={sb.td}><span style={sb.boardBadge}>{e.board_name || `Board #${e.board_id ?? "—"}`}</span></td>
+                      <td style={sb.td}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={sb.avatar}>{getUserName(e).charAt(0).toUpperCase()}</div>
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>{getUserName(e)}</div>
+                            {getUserEmail(e) && <div style={{ fontSize: 12, color: "#94a3b8" }}>{getUserEmail(e)}</div>}
+                          </div>
+                        </div>
+                      </td>
+                      <td style={sb.td}>
+                        <span style={{ display: "inline-flex", padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, background: e.is_active !== false ? "#dcfce7" : "#f1f5f9", color: e.is_active !== false ? "#16a34a" : "#64748b" }}>
+                          {e.is_active !== false ? "Active" : "Suspended"}
+                        </span>
+                      </td>
+                      <td style={sb.td}>
+                        <button
+                          style={sb.deleteBtn}
+                          onClick={() => e.share_id != null && confirmDelete(e.share_id, e.board_name || "this board", "board")}
+                          disabled={deletingId === e.share_id || e.share_id == null}
+                          title="Remove share"
+                        >
+                          {deletingId === e.share_id ? "…" : <Trash2 size={14} />}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )
+          )}
+        </div>
+      </div>
+    </div>
+    </>
+  );
+}
+
+const sb: Record<string, React.CSSProperties> = {
+  overlay: { position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", backdropFilter: "blur(1px)", zIndex: 1000 },
+  panel: { position: "fixed", top: 0, right: 0, height: "100vh", width: "clamp(500px, 54vw, 900px)", background: "#fff", boxShadow: "-16px 0 48px rgba(0,0,0,0.18)", display: "flex", flexDirection: "column", animation: "groupDrawerSlideIn 0.22s ease-out" },
+  header: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "24px 28px", borderBottom: "1.5px solid #e2e8f0", flexShrink: 0 },
+  headerLeft: { display: "flex", alignItems: "center", gap: 14 },
+  iconBox: { width: 44, height: 44, borderRadius: 12, background: "#f0fdf4", border: "1px solid #bbf7d0", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  title: { fontSize: 18, fontWeight: 700, color: "#1e293b", margin: 0 },
+  sub: { fontSize: 13, color: "#64748b", margin: "3px 0 0" },
+  shareNewBtn: { display: "flex", alignItems: "center", padding: "9px 18px", borderRadius: 9, border: "1.5px solid #bbf7d0", background: "#f0fdf4", color: "#16a34a", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" },
+  closeBtn: { display: "flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 8, border: "1.5px solid #e2e8f0", background: "#f8fafc", color: "#64748b", cursor: "pointer" },
+  subTabs: { display: "flex", borderBottom: "1.5px solid #e2e8f0", padding: "0 28px", background: "#f8fafc", flexShrink: 0 },
+  subTab: { padding: "12px 18px", border: "none", background: "transparent", fontSize: 13, fontWeight: 600, color: "#64748b", cursor: "pointer", borderBottom: "2.5px solid transparent", marginBottom: "-1.5px" },
+  subTabActive: { color: "#2563eb", borderBottom: "2.5px solid #2563eb" },
+  body: { flex: 1, overflowY: "auto", padding: "0 0 24px" },
+  empty: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "64px 20px", gap: 12 },
+  table: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
+  th: { padding: "12px 20px", background: "#f8faff", color: "#64748b", fontSize: 11, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.05em", borderBottom: "1.5px solid #e2e8f0", textAlign: "left" as const, whiteSpace: "nowrap" as const },
+  td: { padding: "14px 20px", borderBottom: "1px solid #f1f5f9", verticalAlign: "middle" as const },
+  boardBadge: { display: "inline-flex", alignItems: "center", padding: "3px 10px", borderRadius: 20, background: "#eff6ff", color: "#2563eb", fontSize: 12, fontWeight: 600 },
+  avatar: { width: 32, height: 32, borderRadius: "50%", background: "#e0f2fe", color: "#0369a1", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, flexShrink: 0 },
+  deleteBtn: { display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 8, border: "1.5px solid #fecaca", background: "#fef2f2", color: "#dc2626", cursor: "pointer" },
+};
+
+/* ── Share Board To User Modal ───────────────────────────────────────────── */
+function ShareBoardToUserModal({
+  orgId, userId, onClose,
+}: {
+  orgId: number;
+  userId: string;
+  onClose: () => void;
+}) {
+  const [flatBoards, setFlatBoards] = useState<{ board_id: number; board_name: string; main_board_name: string }[]>([]);
+  const [loadingBoards, setLoadingBoards] = useState(true);
+  const [orgMembers, setOrgMembers] = useState<OrgMemberLite[]>([]);
+  const [loadingMembers, setLoadingMembers] = useState(true);
+  const [selectedBoardId, setSelectedBoardId] = useState<number | null>(null);
+  const [selectedUser, setSelectedUser] = useState<OrgMemberLite | null>(null);
+  const [query, setQuery] = useState("");
+  const [showOptions, setShowOptions] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const fetchBoards = async () => {
+      setLoadingBoards(true);
+      try {
+        const res = await fetch(`${API_BASE_URL}/rbac/main-boards/info-tree?user_id=${userId}&org_id=${orgId}`, {
+          headers: { Accept: "application/json", "X-API-Key": API_KEY },
+        });
+        if (res.ok) {
+          const raw = await res.json();
+          const items: any[] = Array.isArray(raw) ? raw : (raw?.items ?? raw?.main_boards ?? raw?.data ?? []);
+          const boards = items.flatMap((mb: any) => {
+            const mbName = mb.name ?? mb.main_board_name ?? "";
+            const bList: any[] = Array.isArray(mb.boards)
+              ? mb.boards
+              : Object.entries(mb.boards ?? {}).map(([bId, b]: [string, any]) => ({ board_id: Number(bId), ...b }));
+            return bList
+              .filter((b: any) => b.is_active !== false)
+              .map((b: any) => ({
+                board_id: Number(b.board_id ?? b.id ?? 0),
+                board_name: b.name ?? b.board_name ?? "",
+                main_board_name: mbName,
+              }));
+          });
+          setFlatBoards(boards);
+        } else { setFlatBoards([]); }
+      } catch { setFlatBoards([]); }
+      finally { setLoadingBoards(false); }
+    };
+    fetchBoards();
+  }, [orgId, userId]);
+
+  useEffect(() => {
+    const fetchMembers = async () => {
+      setLoadingMembers(true);
+      try {
+        const res = await fetch(`${API_BASE_URL}/organizations/${orgId}/members?requester_user_id=${userId}`, {
+          headers: { Accept: "application/json", "X-API-Key": API_KEY },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const list: any[] = Array.isArray(data) ? data : (data.members ?? data.data ?? []);
+          setOrgMembers(
+            list
+              .filter((u: any) => !u.status || u.status === "ACTIVE")
+              .map((u: any): OrgMemberLite => ({
+                user_id: Number(u.user_id || 0),
+                user_name: u.user_name || (`${u.user_first_name || ""} ${u.user_last_name || ""}`.trim()) || null,
+                user_email: u.user_email || null,
+              }))
+          );
+        } else { setOrgMembers([]); }
+      } catch { setOrgMembers([]); }
+      finally { setLoadingMembers(false); }
+    };
+    fetchMembers();
+  }, [orgId, userId]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setShowOptions(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const filteredMembers = orgMembers.filter(u => {
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    return (u.user_name || "").toLowerCase().includes(q) || (u.user_email || "").toLowerCase().includes(q);
+  });
+
+  const initials = (name: string | null) =>
+    (name || "?").split(" ").filter(Boolean).slice(0, 2).map(p => p[0]?.toUpperCase()).join("") || "?";
+
+  const handleShare = async () => {
+    if (!selectedBoardId) { toast.error("Please select a board."); return; }
+    if (!selectedUser) { toast.error("Please select a user."); return; }
+    setSharing(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/shared-boards/?shared_by_user_id=${userId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json", "X-API-Key": API_KEY },
+        body: JSON.stringify({
+          org_id: orgId,
+          board_id: selectedBoardId,
+          shared_with_type: "USER",
+          shared_with_group_id: null,
+          shared_with_user_id: selectedUser.user_id,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) { toast.success("Board shared successfully!"); onClose(); }
+      else toast.error(typeof data.detail === "string" ? data.detail : `Error ${res.status}`);
+    } catch (e: any) { toast.error(`Network error: ${e.message}`); }
+    finally { setSharing(false); }
+  };
+
+  return (
+    <div style={m.overlay} onClick={onClose}>
+      <div style={m.box} onClick={e => e.stopPropagation()}>
+        <div style={m.header}>
+          <h3 style={m.title}>Share Board to User</h3>
+          <button style={m.closeBtn} onClick={onClose}><X size={18} /></button>
+        </div>
+
+        <label style={m.label}>Board <span style={{ color: "#ef4444" }}>*</span></label>
+        <select
+          style={{ ...m.input, cursor: "pointer" }}
+          value={selectedBoardId ?? ""}
+          onChange={e => setSelectedBoardId(e.target.value ? Number(e.target.value) : null)}
+          disabled={loadingBoards}
+        >
+          <option value="">{loadingBoards ? "Loading boards…" : "Select a board"}</option>
+          {flatBoards.map(b => (
+            <option key={b.board_id} value={b.board_id}>
+              {b.main_board_name ? `${b.main_board_name} / ${b.board_name}` : b.board_name}
+            </option>
+          ))}
+        </select>
+
+        <label style={{ ...m.label, marginTop: 16 }}>Share With</label>
+        <div style={{ ...m.input, display: "flex", alignItems: "center", gap: 8, background: "#f0fdf4", border: "1.5px solid #bbf7d0", color: "#15803d", fontWeight: 600, cursor: "default" }}>
+          <UserPlus size={14} /> Specific User
+        </div>
+
+        <label style={{ ...m.label, marginTop: 16 }}>User <span style={{ color: "#ef4444" }}>*</span></label>
+        {selectedUser ? (
+          <div style={gm.selectedCard}>
+            <div style={gm.avatar}>{initials(selectedUser.user_name)}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>{selectedUser.user_name || "—"}</div>
+              <div style={{ fontSize: 12, color: "#64748b" }}>{selectedUser.user_email}</div>
+            </div>
+            <button style={gm.changeBtn} onClick={() => setSelectedUser(null)}>Change</button>
+          </div>
+        ) : (
+          <div ref={boxRef} style={{ position: "relative" }}>
+            <input
+              style={m.input}
+              placeholder="Search org members by name or email…"
+              value={query}
+              onFocus={() => setShowOptions(true)}
+              onChange={e => { setQuery(e.target.value); setShowOptions(true); }}
+            />
+            {showOptions && (
+              <div style={gm.dropdown}>
+                {loadingMembers ? (
+                  <div style={gm.dropdownEmpty}>Loading members…</div>
+                ) : filteredMembers.length === 0 ? (
+                  <div style={gm.dropdownEmpty}>No members found.</div>
+                ) : (
+                  filteredMembers.map(u => (
+                    <div key={u.user_id} style={gm.dropdownItem}
+                      onClick={() => { setSelectedUser(u); setQuery(""); setShowOptions(false); }}>
+                      <div style={gm.avatar}>{initials(u.user_name)}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>{u.user_name || "—"}</div>
+                        <div style={{ fontSize: 12, color: "#64748b" }}>{u.user_email}</div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div style={{ ...gm.infoNote, marginTop: 16 }}>
+          <Lock size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span>Sharing a single <strong>Board</strong> only gives access to that board — other boards under the same Main Board are unaffected.</span>
+        </div>
+
+        <div style={{ display: "flex", gap: 12, justifyContent: "flex-end", marginTop: 24 }}>
+          <button style={m.cancelBtn} onClick={onClose} disabled={sharing}>Cancel</button>
+          <button style={m.saveBtn} onClick={handleShare} disabled={sharing}>
+            {sharing ? "Sharing…" : "Share"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function normalizeInfoTreeToMainBoard(raw: any): OrgMainBoard {
+  const boards: OrgMainBoard["boards"] = Array.isArray(raw.boards)
+    ? raw.boards.map((b: any) => ({
+        board_id: Number(b.board_id ?? b.id ?? 0),
+        board_name: b.name ?? b.board_name ?? "",
+        is_active: b.is_active ?? true,
+      }))
+    : Object.entries(raw.boards ?? {}).map(([bId, b]: [string, any]) => ({
+        board_id: Number(bId),
+        board_name: b.name ?? b.board_name ?? "",
+        is_active: b.is_active ?? true,
+      }));
+  return {
+    main_board_id: Number(raw.main_board_id ?? raw.id ?? 0),
+    main_board_name: raw.name ?? raw.main_board_name ?? "",
+    main_board_type: raw.main_board_type ?? "",
+    created_by_user_id: raw.created_by_user_id ?? 0,
+    created_by_name: raw.created_by_name ?? null,
+    created_by_email: raw.created_by_email ?? null,
+    created_at: raw.created_at ?? null,
+    boards,
+  };
 }
 
 /* ── Access Tab: Main Board sharing ──────────────────────────────────────── */
@@ -863,8 +1541,6 @@ function GroupAccessPanel({
   groupName: string;
   userId: string;
 }) {
-  const [accessSubTab, setAccessSubTab] = useState<"mainboard" | "board">("mainboard");
-
   const [mainBoards, setMainBoards] = useState<OrgMainBoard[]>([]);
   const [loadingMainBoards, setLoadingMainBoards] = useState(true);
 
@@ -874,12 +1550,6 @@ function GroupAccessPanel({
   const [loadingMainBoardShares, setLoadingMainBoardShares] = useState(false);
   const [togglingMainBoardShareId, setTogglingMainBoardShareId] = useState<number | null>(null);
 
-  const [selectedBoardId, setSelectedBoardId] = useState<number | null>(null);
-  const [showShareBoardModal, setShowShareBoardModal] = useState(false);
-  const [boardShares, setBoardShares] = useState<SharedBoard[]>([]);
-  const [loadingBoardShares, setLoadingBoardShares] = useState(false);
-  const [togglingBoardShareId, setTogglingBoardShareId] = useState<number | null>(null);
-
   const [revokeTarget, setRevokeTarget] = useState<{
     kind: "mainboard" | "board";
     shareId: number;
@@ -887,15 +1557,187 @@ function GroupAccessPanel({
     sharedWithName: string | null;
   } | null>(null);
 
+  const [groupShareMainBoards, setGroupShareMainBoards] = useState<GroupShareMainBoard[]>([]);
+  const [groupShareBoards, setGroupShareBoards] = useState<GroupShareBoard[]>([]);
+  const [loadingGroupShares, setLoadingGroupShares] = useState(false);
+  const [deletingGroupShareId, setDeletingGroupShareId] = useState<number | null>(null);
+
+  const [accessSubTab, setAccessSubTab] = useState<"mainboard" | "board">("mainboard");
+  const [flatBoards, setFlatBoards] = useState<FlatBoardOption[]>([]);
+  const [loadingFlatBoards, setLoadingFlatBoards] = useState(false);
+  const [showShareBoardModal, setShowShareBoardModal] = useState(false);
+  const [deletingBoardShareId, setDeletingBoardShareId] = useState<number | null>(null);
+
+  const fetchGroupShares = async () => {
+    setLoadingGroupShares(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/board-access/shares?type=GROUP&id=${groupId}`, {
+        headers: { Accept: "application/json", "X-API-Key": API_KEY },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        console.log('[fetchGroupShares] raw keys:', Object.keys(data), '| shared_main_boards count:', data.shared_main_boards?.length);
+        if (Array.isArray(data)) {
+          const mainBoards = data.filter((d: any) => !d.board_id && !d.board_name);
+          const boards = data.filter((d: any) => d.board_id || d.board_name);
+          console.log('[fetchGroupShares] array mode — mainBoards:', mainBoards.length, 'boards:', boards.length);
+          setGroupShareMainBoards(mainBoards);
+          setGroupShareBoards(boards);
+        } else {
+          const mainBoards: GroupShareMainBoard[] = Array.isArray(data.shared_main_boards) ? data.shared_main_boards : [];
+          const boards: GroupShareBoard[] = Array.isArray(data.shared_boards) ? data.shared_boards : [];
+          console.log('[fetchGroupShares] object mode — mainBoards:', mainBoards.length, 'share_ids:', mainBoards.map((m: GroupShareMainBoard) => m.share_id));
+          setGroupShareMainBoards(mainBoards);
+          setGroupShareBoards(boards);
+        }
+      }
+    } catch { /* ignore */ }
+    finally { setLoadingGroupShares(false); }
+  };
+
+  useEffect(() => { fetchGroupShares(); }, [groupId]);
+
+  const handleDeleteGroupMainBoardShare = (shareId: number, name: string | null) => {
+    const label = name || 'this main board';
+    const doDelete = async () => {
+      setDeletingGroupShareId(shareId);
+      try {
+        const res = await fetch(
+          `${API_BASE_URL}/shared-main-boards/${shareId}?deleted_by_user_id=${userId}&org_id=${orgId}`,
+          { method: 'DELETE', headers: { Accept: 'application/json', 'X-API-Key': API_KEY } }
+        );
+        if (res.ok) {
+          setGroupShareMainBoards(prev => prev.filter(s => s.share_id !== shareId));
+          toast.success('Main board share removed successfully.');
+        } else {
+          const err = await res.json().catch(() => ({}));
+          toast.error(typeof err.detail === 'string' ? err.detail : `Failed to remove share (${res.status}).`);
+        }
+      } catch (e: any) {
+        toast.error(`Network error: ${e.message}`);
+      } finally {
+        setDeletingGroupShareId(null);
+      }
+    };
+
+    toast(
+      ({ closeToast }: { closeToast: () => void }) => (
+        <div style={{ padding: '4px 0' }}>
+          <p style={{ margin: '0 0 10px', fontSize: 13, color: '#1e293b' }}>
+            Remove <strong>{label}</strong> from this group?
+          </p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => { closeToast(); doDelete(); }}
+              style={{ flex: 1, padding: '6px 0', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+            >
+              Yes, Remove
+            </button>
+            <button
+              onClick={closeToast}
+              style={{ flex: 1, padding: '6px 0', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ),
+      { autoClose: false, closeOnClick: false, closeButton: false }
+    );
+  };
+
   useEffect(() => {
+    if (accessSubTab !== "board" || flatBoards.length > 0 || loadingFlatBoards) return;
+    const fetchFlatBoards = async () => {
+      setLoadingFlatBoards(true);
+      try {
+        const res = await fetch(`${API_BASE_URL}/rbac/main-boards/info-tree?user_id=${userId}&org_id=${orgId}`, {
+          headers: { Accept: "application/json", "X-API-Key": API_KEY },
+        });
+        if (res.ok) {
+          const raw = await res.json();
+          const items: any[] = Array.isArray(raw) ? raw : (raw?.items ?? raw?.main_boards ?? raw?.data ?? []);
+          const boards = items.flatMap((mb: any) => {
+            const mbName = mb.name ?? mb.main_board_name ?? "";
+            const bList: any[] = Array.isArray(mb.boards)
+              ? mb.boards
+              : Object.entries(mb.boards ?? {}).map(([bId, b]: [string, any]) => ({ board_id: Number(bId), ...b }));
+            return bList
+              .filter((b: any) => b.is_active !== false)
+              .map((b: any) => ({
+                board_id: Number(b.board_id ?? b.id ?? 0),
+                board_name: b.name ?? b.board_name ?? "",
+                main_board_name: mbName,
+              }));
+          });
+          setFlatBoards(boards);
+        } else { setFlatBoards([]); }
+      } catch { setFlatBoards([]); }
+      finally { setLoadingFlatBoards(false); }
+    };
+    fetchFlatBoards();
+  }, [accessSubTab]);
+
+  const handleDeleteGroupBoardShare = (shareId: number, name: string | null) => {
+    const label = name || 'this board';
+    const doDelete = async () => {
+      setDeletingBoardShareId(shareId);
+      try {
+        const res = await fetch(
+          `${API_BASE_URL}/shared-boards/${shareId}?deleted_by_user_id=${userId}&org_id=${orgId}`,
+          { method: 'DELETE', headers: { Accept: 'application/json', 'X-API-Key': API_KEY } }
+        );
+        if (res.ok) {
+          setGroupShareBoards(prev => prev.filter(s => s.share_id !== shareId));
+          toast.success('Board share removed successfully.');
+        } else {
+          const err = await res.json().catch(() => ({}));
+          toast.error(typeof err.detail === 'string' ? err.detail : `Failed to remove share (${res.status}).`);
+        }
+      } catch (e: any) {
+        toast.error(`Network error: ${e.message}`);
+      } finally {
+        setDeletingBoardShareId(null);
+      }
+    };
+    toast(
+      ({ closeToast }: { closeToast: () => void }) => (
+        <div style={{ padding: '4px 0' }}>
+          <p style={{ margin: '0 0 10px', fontSize: 13, color: '#1e293b' }}>
+            Remove <strong>{label}</strong> from this group?
+          </p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => { closeToast(); doDelete(); }} style={{ flex: 1, padding: '6px 0', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+              Yes, Remove
+            </button>
+            <button onClick={closeToast} style={{ flex: 1, padding: '6px 0', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ),
+      { autoClose: false, closeOnClick: false, closeButton: false }
+    );
+  };
+
+  useEffect(() => {
+    if (!userId || !orgId) { setLoadingMainBoards(false); return; }
     const fetchMainBoards = async () => {
       setLoadingMainBoards(true);
       try {
-        const res = await fetch(`${API_BASE_URL}/board-access/all-boards?requester_user_id=${userId}&org_id=${orgId}`, {
-          headers: { Accept: "application/json", "X-API-Key": API_KEY },
-        });
-        if (res.ok) setMainBoards(await res.json());
-        else setMainBoards([]);
+        const res = await fetch(
+          `${API_BASE_URL}/rbac/main-boards/info-tree?user_id=${userId}&org_id=${orgId}`,
+          { headers: { Accept: "application/json", "X-API-Key": API_KEY } }
+        );
+        if (res.ok) {
+          const raw = await res.json();
+          const items: any[] = Array.isArray(raw)
+            ? raw
+            : (raw?.items ?? raw?.main_boards ?? raw?.data ?? []);
+          setMainBoards(items.map(normalizeInfoTreeToMainBoard));
+        } else {
+          setMainBoards([]);
+        }
       } catch {
         setMainBoards([]);
       } finally {
@@ -904,10 +1746,6 @@ function GroupAccessPanel({
     };
     fetchMainBoards();
   }, [userId, orgId]);
-
-  const boardOptions: FlatBoardOption[] = mainBoards.flatMap(mb =>
-    mb.boards.map(b => ({ board_id: b.board_id, board_name: b.board_name, main_board_name: mb.main_board_name }))
-  );
 
   const fetchMainBoardShares = async (mainBoardId: number) => {
     setLoadingMainBoardShares(true);
@@ -929,28 +1767,7 @@ function GroupAccessPanel({
     else setMainBoardShares([]);
   }, [selectedMainBoardId]);
 
-  const fetchBoardShares = async (boardId: number) => {
-    setLoadingBoardShares(true);
-    try {
-      const res = await fetch(`${API_BASE_URL}/shared-boards/${boardId}?requester_user_id=${userId}&org_id=${orgId}`, {
-        headers: { Accept: "application/json", "X-API-Key": API_KEY },
-      });
-      if (res.ok) setBoardShares(await res.json());
-      else setBoardShares([]);
-    } catch {
-      setBoardShares([]);
-    } finally {
-      setLoadingBoardShares(false);
-    }
-  };
-
-  useEffect(() => {
-    if (selectedBoardId) fetchBoardShares(selectedBoardId);
-    else setBoardShares([]);
-  }, [selectedBoardId]);
-
   const selectedMainBoard = mainBoards.find(b => b.main_board_id === selectedMainBoardId);
-  const selectedBoard = boardOptions.find(b => b.board_id === selectedBoardId);
 
   const handleToggleMainBoardShare = async (share: SharedMainBoard) => {
     setTogglingMainBoardShareId(share.share_id);
@@ -974,28 +1791,6 @@ function GroupAccessPanel({
     }
   };
 
-  const handleToggleBoardShare = async (share: SharedBoard) => {
-    setTogglingBoardShareId(share.share_id);
-    try {
-      const res = await fetch(`${API_BASE_URL}/shared-boards/${share.share_id}?updated_by_user_id=${userId}&org_id=${orgId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", Accept: "application/json", "X-API-Key": API_KEY },
-        body: JSON.stringify({ is_active: !share.is_active }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setBoardShares(prev => prev.map(s => (s.share_id === share.share_id ? data : s)));
-        toast.success(share.is_active ? "Share suspended." : "Share restored.");
-      } else {
-        toast.error(typeof data.detail === "string" ? data.detail : `Error ${res.status}`);
-      }
-    } catch (e: any) {
-      toast.error(`Network error: ${e.message}`);
-    } finally {
-      setTogglingBoardShareId(null);
-    }
-  };
-
   return (
     <>
       {revokeTarget && (
@@ -1008,8 +1803,7 @@ function GroupAccessPanel({
           userId={userId}
           onClose={() => setRevokeTarget(null)}
           onRevoked={shareId => {
-            if (revokeTarget.kind === "mainboard") setMainBoardShares(prev => prev.filter(s => s.share_id !== shareId));
-            else setBoardShares(prev => prev.filter(s => s.share_id !== shareId));
+            setMainBoardShares(prev => prev.filter(s => s.share_id !== shareId));
             setRevokeTarget(null);
             toast.success("Access revoked.");
           }}
@@ -1029,6 +1823,7 @@ function GroupAccessPanel({
           onShared={mainBoardId => {
             setSelectedMainBoardId(mainBoardId);
             fetchMainBoardShares(mainBoardId);
+            fetchGroupShares();
             setShowShareMainBoardModal(false);
             toast.success("Main board shared successfully!");
           }}
@@ -1041,33 +1836,33 @@ function GroupAccessPanel({
           groupId={groupId}
           groupName={groupName}
           userId={userId}
-          boardOptions={boardOptions}
-          loadingBoards={loadingMainBoards}
-          defaultBoardId={selectedBoardId}
+          boardOptions={flatBoards}
+          loadingBoards={loadingFlatBoards}
+          defaultBoardId={null}
           onClose={() => setShowShareBoardModal(false)}
-          onShared={boardId => {
-            setSelectedBoardId(boardId);
-            fetchBoardShares(boardId);
+          onShared={(_boardId: number) => {
+            fetchGroupShares();
             setShowShareBoardModal(false);
             toast.success("Board shared successfully!");
           }}
         />
       )}
 
-      {/* Main Board / Board sub-tabs */}
-      <div style={gm.subTabs}>
-        <button
-          style={{ ...gm.subTab, ...(accessSubTab === "mainboard" ? gm.subTabActive : {}) }}
-          onClick={() => setAccessSubTab("mainboard")}
-        >
-          Main Board
-        </button>
-        <button
-          style={{ ...gm.subTab, ...(accessSubTab === "board" ? gm.subTabActive : {}) }}
-          onClick={() => setAccessSubTab("board")}
-        >
-          Board
-        </button>
+      {/* Sub-tabs: Main Board | Board */}
+      <div style={{ display: "flex", gap: 4, borderBottom: "1.5px solid #e2e8f0", marginBottom: 16, flexShrink: 0 }}>
+        {(["mainboard", "board"] as const).map(tab => (
+          <button
+            key={tab}
+            style={{
+              padding: "9px 16px", border: "none", background: "none", fontSize: 13, fontWeight: 600, cursor: "pointer",
+              borderBottom: accessSubTab === tab ? "2.5px solid #2563eb" : "2.5px solid transparent",
+              color: accessSubTab === tab ? "#2563eb" : "#64748b",
+            }}
+            onClick={() => setAccessSubTab(tab)}
+          >
+            {tab === "mainboard" ? "Main Board" : "Board"}
+          </button>
+        ))}
       </div>
 
       {accessSubTab === "mainboard" && (
@@ -1078,71 +1873,60 @@ function GroupAccessPanel({
             </button>
           </div>
 
-          {selectedMainBoard && (
-            <div style={gm.tableScroll}>
-              {loadingMainBoardShares ? (
-                <div style={s.empty}><Spinner /></div>
-              ) : mainBoardShares.length === 0 ? (
-                <div style={s.empty}>
-                  <span style={{ fontSize: 32 }}>🔒</span>
-                  <p style={{ color: "#94a3b8", fontSize: 13, marginTop: 8 }}>This main board hasn't been shared with anyone yet.</p>
-                </div>
-              ) : (
+          {/* Main Boards shared WITH this group */}
+          <div style={{ marginTop: 16 }}>
+            <div style={{ fontWeight: 600, fontSize: 13, color: "#1e293b", marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <Lock size={13} color="#6366f1" /> Main Boards Shared With This Group
+              </span>
+              <button style={gm.refreshBtn} onClick={fetchGroupShares} disabled={loadingGroupShares}>
+                <RefreshCw size={12} style={{ marginRight: 4 }} /> Refresh
+              </button>
+            </div>
+            {loadingGroupShares ? (
+              <div style={s.empty}><Spinner /></div>
+            ) : groupShareMainBoards.length === 0 ? (
+              <div style={{ ...s.empty, padding: "8px 20px" }}>
+                <p style={{ color: "#94a3b8", fontSize: 13 }}>No main boards shared with this group yet.</p>
+              </div>
+            ) : (
+              <div style={gm.tableScroll}>
                 <table style={s.table}>
                   <thead>
                     <tr>
-                      {["Shared With", "Role", "Shared By", "Status", "Actions"].map(col => (
+                      {["Main Board", "Shared By", "Status", "Actions"].map(col => (
                         <th key={col} style={{ ...s.th, ...gm.thSticky }}>{col}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {mainBoardShares.map(share => (
-                      <tr key={share.share_id}>
+                    {groupShareMainBoards.map((item, idx) => (
+                      <tr key={item.share_id ?? item.main_board_id ?? idx}>
+                        <td style={s.td}><span style={{ fontWeight: 600, color: "#1e293b" }}>{item.main_board_name || "—"}</span></td>
+                        <td style={s.td}>{item.shared_by_name ?? item.shared_by ?? item.user_name ?? "—"}</td>
                         <td style={s.td}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <span style={{ ...gm.typeBadge, ...(share.shared_with_type === "GROUP" ? gm.typeBadgeGroup : gm.typeBadgeUser) }}>
-                              {share.shared_with_type === "GROUP" ? <Users size={11} /> : <UserPlus size={11} />}
-                            </span>
-                            <div style={{ minWidth: 0 }}>
-                              <div style={{ fontWeight: 600, color: "#1e293b" }}>{share.shared_with_name || "—"}</div>
-                              {share.shared_with_email && <div style={{ fontSize: 12, color: "#94a3b8" }}>{share.shared_with_email}</div>}
-                            </div>
-                          </div>
-                        </td>
-                        <td style={s.td}>{share.shared_with_org_role ? <span style={s.roleBadge}>{share.shared_with_org_role}</span> : "—"}</td>
-                        <td style={s.td}>{share.shared_by_name || "—"}</td>
-                        <td style={s.td}>
-                          <span style={{ ...s.statusBadge, background: share.is_active ? "#dcfce7" : "#f1f5f9", color: share.is_active ? "#16a34a" : "#64748b" }}>
-                            {share.is_active ? "Active" : "Suspended"}
+                          <span style={{ ...s.statusBadge, background: item.is_active !== false ? "#dcfce7" : "#f1f5f9", color: item.is_active !== false ? "#16a34a" : "#64748b" }}>
+                            {item.is_active !== false ? "Active" : "Suspended"}
                           </span>
                         </td>
                         <td style={s.td}>
-                          <div style={{ display: "flex", gap: 6 }}>
-                            <button
-                              style={gm.refreshBtn}
-                              onClick={() => handleToggleMainBoardShare(share)}
-                              disabled={togglingMainBoardShareId === share.share_id}
-                            >
-                              {togglingMainBoardShareId === share.share_id ? "…" : share.is_active ? "Suspend" : "Restore"}
-                            </button>
-                            <button
-                              style={gm.removeBtn}
-                              onClick={() => setRevokeTarget({
-                                kind: "mainboard", shareId: share.share_id, targetLabel: share.main_board_name, sharedWithName: share.shared_with_name,
-                              })}
-                            >
-                              <Trash2 size={13} style={{ marginRight: 5 }} /> Revoke
-                            </button>
-                          </div>
+                          <button
+                            style={gm.removeBtn}
+                            onClick={() => item.share_id != null && handleDeleteGroupMainBoardShare(item.share_id, item.main_board_name)}
+                            disabled={deletingGroupShareId === item.share_id || item.share_id == null}
+                          >
+                            {deletingGroupShareId === item.share_id
+                              ? '…'
+                              : <><Trash2 size={13} style={{ marginRight: 4 }} />Delete</>}
+                          </button>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              )}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </>
       )}
 
@@ -1154,72 +1938,127 @@ function GroupAccessPanel({
             </button>
           </div>
 
-          {selectedBoard && (
-            <div style={gm.tableScroll}>
-              {loadingBoardShares ? (
-                <div style={s.empty}><Spinner /></div>
-              ) : boardShares.length === 0 ? (
-                <div style={s.empty}>
-                  <span style={{ fontSize: 32 }}>🔒</span>
-                  <p style={{ color: "#94a3b8", fontSize: 13, marginTop: 8 }}>This board hasn't been shared with anyone yet.</p>
-                </div>
-              ) : (
+          <div style={{ marginTop: 16 }}>
+            <div style={{ fontWeight: 600, fontSize: 13, color: "#1e293b", marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <Lock size={13} color="#6366f1" /> Boards Shared With This Group
+              </span>
+              <button style={gm.refreshBtn} onClick={fetchGroupShares} disabled={loadingGroupShares}>
+                <RefreshCw size={12} style={{ marginRight: 4 }} /> Refresh
+              </button>
+            </div>
+            {loadingGroupShares ? (
+              <div style={s.empty}><Spinner /></div>
+            ) : groupShareBoards.length === 0 ? (
+              <div style={{ ...s.empty, padding: "8px 20px" }}>
+                <p style={{ color: "#94a3b8", fontSize: 13 }}>No boards shared with this group yet.</p>
+              </div>
+            ) : (
+              <div style={gm.tableScroll}>
                 <table style={s.table}>
                   <thead>
                     <tr>
-                      {["Shared With", "Role", "Shared By", "Status", "Actions"].map(col => (
+                      {["Board", "Main Board", "Shared By", "Status", "Actions"].map(col => (
                         <th key={col} style={{ ...s.th, ...gm.thSticky }}>{col}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {boardShares.map(share => (
-                      <tr key={share.share_id}>
+                    {groupShareBoards.map((item, idx) => (
+                      <tr key={item.share_id ?? item.board_id ?? idx}>
+                        <td style={s.td}><span style={{ fontWeight: 600, color: "#1e293b" }}>{item.board_name || "—"}</span></td>
+                        <td style={s.td}>{item.main_board_name || "—"}</td>
+                        <td style={s.td}>{item.shared_by_name ?? item.user_name ?? "—"}</td>
                         <td style={s.td}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <span style={{ ...gm.typeBadge, ...(share.shared_with_type === "GROUP" ? gm.typeBadgeGroup : gm.typeBadgeUser) }}>
-                              {share.shared_with_type === "GROUP" ? <Users size={11} /> : <UserPlus size={11} />}
-                            </span>
-                            <div style={{ minWidth: 0 }}>
-                              <div style={{ fontWeight: 600, color: "#1e293b" }}>{share.shared_with_name || "—"}</div>
-                              {share.shared_with_email && <div style={{ fontSize: 12, color: "#94a3b8" }}>{share.shared_with_email}</div>}
-                            </div>
-                          </div>
-                        </td>
-                        <td style={s.td}>{share.shared_with_org_role ? <span style={s.roleBadge}>{share.shared_with_org_role}</span> : "—"}</td>
-                        <td style={s.td}>{share.shared_by_name || "—"}</td>
-                        <td style={s.td}>
-                          <span style={{ ...s.statusBadge, background: share.is_active ? "#dcfce7" : "#f1f5f9", color: share.is_active ? "#16a34a" : "#64748b" }}>
-                            {share.is_active ? "Active" : "Suspended"}
+                          <span style={{ ...s.statusBadge, background: item.is_active !== false ? "#dcfce7" : "#f1f5f9", color: item.is_active !== false ? "#16a34a" : "#64748b" }}>
+                            {item.is_active !== false ? "Active" : "Suspended"}
                           </span>
                         </td>
                         <td style={s.td}>
-                          <div style={{ display: "flex", gap: 6 }}>
-                            <button
-                              style={gm.refreshBtn}
-                              onClick={() => handleToggleBoardShare(share)}
-                              disabled={togglingBoardShareId === share.share_id}
-                            >
-                              {togglingBoardShareId === share.share_id ? "…" : share.is_active ? "Suspend" : "Restore"}
-                            </button>
-                            <button
-                              style={gm.removeBtn}
-                              onClick={() => setRevokeTarget({
-                                kind: "board", shareId: share.share_id, targetLabel: share.board_name, sharedWithName: share.shared_with_name,
-                              })}
-                            >
-                              <Trash2 size={13} style={{ marginRight: 5 }} /> Revoke
-                            </button>
-                          </div>
+                          <button
+                            style={gm.removeBtn}
+                            onClick={() => item.share_id != null && handleDeleteGroupBoardShare(item.share_id, item.board_name)}
+                            disabled={deletingBoardShareId === item.share_id || item.share_id == null}
+                          >
+                            {deletingBoardShareId === item.share_id
+                              ? '…'
+                              : <><Trash2 size={13} style={{ marginRight: 4 }} />Delete</>}
+                          </button>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              )}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </>
+      )}
+
+      {accessSubTab === "mainboard" && selectedMainBoard && (
+        <div style={gm.tableScroll}>
+          {loadingMainBoardShares ? (
+            <div style={s.empty}><Spinner /></div>
+          ) : mainBoardShares.length === 0 ? (
+            <div style={s.empty}>
+              <span style={{ fontSize: 32 }}>🔒</span>
+              <p style={{ color: "#94a3b8", fontSize: 13, marginTop: 8 }}>This main board hasn't been shared with anyone yet.</p>
+            </div>
+          ) : (
+            <table style={s.table}>
+              <thead>
+                <tr>
+                  {["Shared With", "Role", "Shared By", "Status", "Actions"].map(col => (
+                    <th key={col} style={{ ...s.th, ...gm.thSticky }}>{col}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {mainBoardShares.map(share => (
+                  <tr key={share.share_id}>
+                    <td style={s.td}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ ...gm.typeBadge, ...(share.shared_with_type === "GROUP" ? gm.typeBadgeGroup : gm.typeBadgeUser) }}>
+                          {share.shared_with_type === "GROUP" ? <Users size={11} /> : <UserPlus size={11} />}
+                        </span>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, color: "#1e293b" }}>{share.shared_with_name || "—"}</div>
+                          {share.shared_with_email && <div style={{ fontSize: 12, color: "#94a3b8" }}>{share.shared_with_email}</div>}
+                        </div>
+                      </div>
+                    </td>
+                    <td style={s.td}>{share.shared_with_org_role ? <span style={s.roleBadge}>{share.shared_with_org_role}</span> : "—"}</td>
+                    <td style={s.td}>{share.shared_by_name || "—"}</td>
+                    <td style={s.td}>
+                      <span style={{ ...s.statusBadge, background: share.is_active ? "#dcfce7" : "#f1f5f9", color: share.is_active ? "#16a34a" : "#64748b" }}>
+                        {share.is_active ? "Active" : "Suspended"}
+                      </span>
+                    </td>
+                    <td style={s.td}>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button
+                          style={gm.refreshBtn}
+                          onClick={() => handleToggleMainBoardShare(share)}
+                          disabled={togglingMainBoardShareId === share.share_id}
+                        >
+                          {togglingMainBoardShareId === share.share_id ? "…" : share.is_active ? "Suspend" : "Restore"}
+                        </button>
+                        <button
+                          style={gm.removeBtn}
+                          onClick={() => setRevokeTarget({
+                            kind: "mainboard", shareId: share.share_id, targetLabel: share.main_board_name, sharedWithName: share.shared_with_name,
+                          })}
+                        >
+                          <Trash2 size={13} style={{ marginRight: 5 }} /> Revoke
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
       )}
     </>
   );
@@ -1234,7 +2073,7 @@ function GroupMembersModal({
   userId: string;
   onClose: () => void;
 }) {
-  const [activeTab, setActiveTab] = useState<"members" | "access">("members");
+  const [activeTab, setActiveTab] = useState<"members" | "access" | "pg-tables">("members");
   const [showAddModal, setShowAddModal] = useState(false);
 
   const [members, setMembers] = useState<GroupMember[]>([]);
@@ -1244,6 +2083,15 @@ function GroupMembersModal({
   const [memberSearch, setMemberSearch] = useState("");
   const [sortBy, setSortBy] = useState<"id" | "user_name" | "added_by_name" | "created_at" | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  const [pgBoards, setPgBoards] = useState<{ id: number; name: string }[]>([]);
+  const [pgBoardsLoading, setPgBoardsLoading] = useState(false);
+  const [selectedPgBoardId, setSelectedPgBoardId] = useState<number | null>(null);
+  const [pgTables, setPgTables] = useState<any[]>([]);
+  const [pgTablesLoading, setPgTablesLoading] = useState(false);
+  const [showAddPgForm, setShowAddPgForm] = useState(false);
+  const [addPgData, setAddPgData] = useState({ table_name: "", source_name: "", description: "", row_limit: 1000 });
+  const [addingPg, setAddingPg] = useState(false);
 
   const fetchMembers = async () => {
     setMembersLoading(true);
@@ -1261,6 +2109,70 @@ function GroupMembersModal({
   };
 
   useEffect(() => { fetchMembers(); }, []);
+
+  useEffect(() => {
+    if (activeTab !== "pg-tables" || pgBoards.length > 0 || pgBoardsLoading) return;
+    const fetchPgBoards = async () => {
+      setPgBoardsLoading(true);
+      try {
+        const res = await fetch(`${API_BASE_URL}/rbac/main-boards/info-tree?user_id=${userId}&org_id=${orgId}`, {
+          headers: { Accept: "application/json", "X-API-Key": API_KEY },
+        });
+        if (res.ok) {
+          const raw = await res.json();
+          const items: any[] = Array.isArray(raw) ? raw : (raw?.items ?? raw?.main_boards ?? raw?.data ?? []);
+          setPgBoards(items.map((mb: any) => ({
+            id: Number(mb.main_board_id ?? mb.id ?? 0),
+            name: mb.name ?? mb.main_board_name ?? "",
+          })));
+        } else { setPgBoards([]); }
+      } catch { setPgBoards([]); }
+      finally { setPgBoardsLoading(false); }
+    };
+    fetchPgBoards();
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!selectedPgBoardId) { setPgTables([]); return; }
+    const fetchPgTables = async () => {
+      setPgTablesLoading(true);
+      try {
+        const res = await fetch(`${API_BASE_URL}/rbac/data-sources/pg-tables/${selectedPgBoardId}?user_id=${userId}&org_id=${orgId}`, {
+          headers: { Accept: "application/json", "X-API-Key": API_KEY },
+        });
+        if (res.ok) setPgTables(await res.json());
+        else setPgTables([]);
+      } catch { setPgTables([]); }
+      finally { setPgTablesLoading(false); }
+    };
+    fetchPgTables();
+  }, [selectedPgBoardId]);
+
+  const handleAddPg = async () => {
+    if (!selectedPgBoardId || !addPgData.table_name || !addPgData.source_name) return;
+    setAddingPg(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/rbac/data-sources/board/${selectedPgBoardId}/add-pg?user_id=${userId}&org_id=${orgId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json", "X-API-Key": API_KEY },
+        body: JSON.stringify({ ...addPgData, row_limit: Number(addPgData.row_limit) }),
+      });
+      if (res.ok) {
+        const added = await res.json();
+        setPgTables(prev => [added, ...prev]);
+        setAddPgData({ table_name: "", source_name: "", description: "", row_limit: 1000 });
+        setShowAddPgForm(false);
+        toast.success("PG table source added.");
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(typeof data.detail === "string" ? data.detail : `Error ${res.status}`);
+      }
+    } catch (e: any) {
+      toast.error(`Network error: ${e.message}`);
+    } finally {
+      setAddingPg(false);
+    }
+  };
 
   const initials = (name: string) =>
     name.split(" ").filter(Boolean).slice(0, 2).map(p => p[0]?.toUpperCase()).join("") || "?";
@@ -1474,7 +2386,9 @@ function GroupMembersModal({
           )}
 
           {activeTab === "access" && (
-            <GroupAccessPanel orgId={orgId} groupId={group.id} groupName={group.name} userId={userId} />
+            orgId
+              ? <GroupAccessPanel orgId={orgId} groupId={group.id} groupName={group.name} userId={userId} />
+              : <div style={{ padding: 24, color: "#94a3b8", fontSize: 13, textAlign: "center" }}>Loading organization…</div>
           )}
         </div>
       </div>
@@ -1486,7 +2400,9 @@ function GroupMembersModal({
 export default function GroupsPage() {
   const { t } = useTranslation();
   const pathname = usePathname();
+  const router = useRouter();
   const [showRoleDropdown, setShowRoleDropdown] = useState(false);
+  const [activeScreenRole, setActiveScreenRole] = useState<"consultant" | "cxo">("consultant");
   const roleDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -1499,7 +2415,22 @@ export default function GroupsPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    if (pathname === "/CXO" || pathname === "/CXODemo") {
+      setActiveScreenRole("cxo");
+      localStorage.setItem("activeScreenRole", "cxo");
+    } else if (pathname === "/Container" || pathname === "/Consultant" || pathname === "/Dashboard") {
+      setActiveScreenRole("consultant");
+      localStorage.setItem("activeScreenRole", "consultant");
+    } else {
+      const stored = localStorage.getItem("activeScreenRole") as "consultant" | "cxo" | null;
+      setActiveScreenRole(stored || "consultant");
+    }
+  }, [pathname]);
+
   const userId = getOwnerUserId();
+  const orgRole = getOrgRole();
+  const isAdmin = orgRole === 'ADMIN';
   const [orgId, setOrgId] = useState<number | null>(null);
   const [orgLoading, setOrgLoading] = useState(true);
 
@@ -1509,6 +2440,8 @@ export default function GroupsPage() {
   const [editingGroup, setEditingGroup] = useState<Group | null>(null);
   const [deletingGroup, setDeletingGroup] = useState<Group | null>(null);
   const [manageGroup, setManageGroup] = useState<Group | null>(null);
+  const [showSharedBoardsPanel, setShowSharedBoardsPanel] = useState(false);
+  const [showShareBoardModal, setShowShareBoardModal] = useState(false);
 
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<"name" | "member_count" | "created_by_name" | "created_at" | null>(null);
@@ -1518,6 +2451,10 @@ export default function GroupsPage() {
     const resolveOrg = async () => {
       if (!userId) { setOrgLoading(false); return; }
       setOrgLoading(true);
+      // Try sessionStorage first — works for all roles including ADMIN
+      const stored = getStoredOrgId();
+      if (stored) { setOrgId(stored); setOrgLoading(false); return; }
+      // Fallback to API (only resolves for OWNER)
       try {
         const res = await fetch(`${API_BASE_URL}/organizations/my-org?owner_user_id=${userId}`, {
           headers: { Accept: "application/json", "X-API-Key": API_KEY },
@@ -1598,11 +2535,7 @@ export default function GroupsPage() {
               className="flex items-center gap-2 text-gray-700 hover:bg-gray-50 px-3 py-1.5 rounded-md transition-colors border border-gray-200 text-sm"
             >
               <span className="text-sm font-medium">
-                {pathname === "/Container"
-                  ? t("header.consultantRole")
-                  : pathname === "/CXO"
-                  ? t("header.cxoRole")
-                  : t("header.selectScreen")}
+                {activeScreenRole === "cxo" ? t("header.cxoRole") : t("header.consultantRole")}
               </span>
               <svg
                 className={`w-3 h-3 transition-transform ${showRoleDropdown ? "rotate-180" : ""}`}
@@ -1614,12 +2547,16 @@ export default function GroupsPage() {
 
             {showRoleDropdown && (
               <div ref={roleDropdownRef} className="absolute right-0 mt-2 w-44 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50">
-                <a href="/Consultant" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                <button
+                  onClick={() => { localStorage.setItem("activeScreenRole", "consultant"); setActiveScreenRole("consultant"); setShowRoleDropdown(false); router.push("/Consultant"); }}
+                  className={`w-full text-left block px-4 py-2 text-sm hover:bg-gray-50 ${activeScreenRole === "consultant" ? "text-blue-600 font-semibold bg-blue-50" : "text-gray-700"}`}>
                   {t("header.consultantRole")}
-                </a>
-                <a href="/CXO" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
+                </button>
+                <button
+                  onClick={() => { localStorage.setItem("activeScreenRole", "cxo"); setActiveScreenRole("cxo"); setShowRoleDropdown(false); router.push("/CXO"); }}
+                  className={`w-full text-left block px-4 py-2 text-sm hover:bg-gray-50 ${activeScreenRole === "cxo" ? "text-blue-600 font-semibold bg-blue-50" : "text-gray-700"}`}>
                   {t("header.cxoRole")}
-                </a>
+                </button>
               </div>
             )}
           </div>
@@ -1667,13 +2604,40 @@ export default function GroupsPage() {
         />
       )}
 
+      {showSharedBoardsPanel && orgId && (
+        <SharedBoardsPanel
+          orgId={orgId}
+          userId={userId}
+          onShareNew={() => setShowShareBoardModal(true)}
+          onClose={() => setShowSharedBoardsPanel(false)}
+        />
+      )}
+
+      {showShareBoardModal && orgId && (
+        <ShareBoardToUserModal
+          orgId={orgId}
+          userId={userId}
+          onClose={() => setShowShareBoardModal(false)}
+        />
+      )}
+
       <div style={s.header}>
         <div>
           <h1 style={s.pageTitle}>Groups</h1>
           <p style={s.pageSub}>Organize your organization's members into groups</p>
         </div>
         {orgId && (
-          <button style={s.createBtn} onClick={() => setModalMode("create")}>+ Create Group</button>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <button style={s.shareBoardHeaderBtn} onClick={() => setShowSharedBoardsPanel(true)}>
+              <Share2 size={15} style={{ marginRight: 6 }} /> Share To User
+            </button>
+            <button
+              style={isAdmin ? { ...s.createBtn, opacity: 0.4, cursor: 'not-allowed' } : s.createBtn}
+              onClick={() => !isAdmin && setModalMode("create")}
+              disabled={isAdmin}
+              title={isAdmin ? "Admins cannot create groups" : undefined}
+            >+ Create Group</button>
+          </div>
         )}
       </div>
 
@@ -1705,7 +2669,12 @@ export default function GroupsPage() {
           <div style={s.empty}>
             <span style={{ fontSize: 40 }}>👥</span>
             <p style={{ color: "#94a3b8", fontSize: 14, marginTop: 10 }}>No groups created yet.</p>
-            <button style={{ ...s.createBtn, marginTop: 16 }} onClick={() => setModalMode("create")}>+ Create Group</button>
+            <button
+              style={isAdmin ? { ...s.createBtn, marginTop: 16, opacity: 0.4, cursor: 'not-allowed' } : { ...s.createBtn, marginTop: 16 }}
+              onClick={() => !isAdmin && setModalMode("create")}
+              disabled={isAdmin}
+              title={isAdmin ? "Admins cannot create groups" : undefined}
+            >+ Create Group</button>
           </div>
         ) : displayedGroups.length === 0 ? (
           <div style={s.empty}>
@@ -1742,7 +2711,7 @@ export default function GroupsPage() {
                         <button style={s.manageBtn} onClick={() => setManageGroup(group)} title="Manage members">
                           <Users size={14} style={{ marginRight: 6 }} /> Manage Members
                         </button>
-                        <button style={s.iconBtn} onClick={() => { setEditingGroup(group); setModalMode("edit"); }} title="Edit group">
+<button style={s.iconBtn} onClick={() => { setEditingGroup(group); setModalMode("edit"); }} title="Edit group">
                           <Edit2 size={14} />
                         </button>
                         <button style={{ ...s.iconBtn, ...s.iconBtnDanger }} onClick={() => setDeletingGroup(group)} title="Delete group">
@@ -1794,6 +2763,7 @@ const s: Record<string, React.CSSProperties> = {
   iconBtn: { display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 8, border: "1.5px solid #bfdbfe", background: "#eff6ff", color: "#2563eb", cursor: "pointer" },
   iconBtnDanger: { border: "1.5px solid #fecaca", background: "#fef2f2", color: "#dc2626" },
   manageBtn: { display: "flex", alignItems: "center", padding: "6px 12px", borderRadius: 8, border: "1.5px solid #c7d2fe", background: "#eef2ff", color: "#4338ca", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" },
+  shareBoardHeaderBtn: { display: "flex", alignItems: "center", padding: "10px 20px", borderRadius: 10, border: "1.5px solid #bbf7d0", background: "#f0fdf4", color: "#16a34a", fontSize: 14, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" },
   empty: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "64px 20px", textAlign: "center" },
 };
 

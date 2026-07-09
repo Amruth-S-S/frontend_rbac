@@ -119,7 +119,6 @@ export default function CXO() {
     userName: "",
   });
   const [isMounted, setIsMounted] = useState(false);
-  const [orgId, setOrgId] = useState<number | null>(null);
 
   interface ChartData {
     chart_type: string;
@@ -271,25 +270,10 @@ export default function CXO() {
 
   useEffect(() => {
     if (!isMounted || !userData.userId) return;
-    try {
-      const s = sessionStorage.getItem('currentUserData');
-      const stored = s ? JSON.parse(s).orgId : null;
-      if (stored) { setOrgId(Number(stored)); return; }
-    } catch { /* ignore */ }
-    fetch(`${API_BASE_URL}/organizations/my-org?owner_user_id=${userData.userId}`, {
-      headers: { Accept: 'application/json', 'X-API-Key': EXCEL_API_KEY },
-    })
-      .then(res => (res.ok ? res.json() : null))
-      .then(data => setOrgId(data?.id ?? null))
-      .catch(() => setOrgId(null));
-  }, [isMounted, userData.userId]);
-
-  useEffect(() => {
-    if (!isMounted || !userData.userId || !orgId) return;
     const fetchNavItems = async () => {
       try {
         setLoading(true);
-        const res = await fetch(`${API_BASE_URL}/rbac/main-boards/info-tree?user_id=${userData.userId}&org_id=${orgId}`, {
+        const res = await fetch(`${API_BASE_URL}/main-boards/get_all_info_tree?user_id=${userData.userId}`, {
           method: 'GET',
           headers: { Accept: 'application/json', "X-API-Key": EXCEL_API_KEY },
         });
@@ -300,7 +284,7 @@ export default function CXO() {
       } finally { setLoading(false); }
     };
     fetchNavItems();
-  }, [isMounted, userData.userId, orgId]);
+  }, [isMounted, userData.userId]);
 
   useEffect(() => {
     if (!isMounted) return;
@@ -1181,7 +1165,7 @@ export default function CXO() {
                       {(() => { const n = navItems.find(i => i.main_board_id === selectedMainBoardId)?.name ?? "Boards"; return boardNameMap[n] || n; })()}
                     </h2>
                   </div>
-                  <div className="flex flex-row gap-4 overflow-x-auto pb-3" style={{ scrollbarWidth: 'auto', scrollbarColor: '#93c5fd #f1f1f1' }}>
+                  <div className="grid grid-cols-4 gap-4 pb-3">
                     {Object.entries(navItems.find(i => i.main_board_id === selectedMainBoardId)?.boards ?? {})
                       .filter(([, b]) => b.is_active)
                       .map(([bid, board], idx) => {
@@ -1189,7 +1173,7 @@ export default function CXO() {
                         const isChecking = boardCheckLoading === bid;
                         return (
                           <button key={bid} onClick={() => handleBoardClick(bid)} disabled={isChecking}
-                            className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col items-center gap-3 hover:shadow-md hover:border-blue-200 transition-all disabled:opacity-50 flex-shrink-0 w-44">
+                            className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col items-center gap-3 hover:shadow-md hover:border-blue-200 transition-all disabled:opacity-50 w-full">
                             <div className={`w-16 h-16 rounded-full ${style.bg} flex items-center justify-center`}>
                               {isChecking ? <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600" /> : <style.Icon className={`w-8 h-8 ${style.iconColor}`} />}
                             </div>
@@ -1212,7 +1196,7 @@ export default function CXO() {
                       {demoMainBoards.find(m => String(m.id) === activeDemoMainBoard)?.name ?? "Demo Boards"}
                     </h2>
                   </div>
-                  <div className="flex flex-row gap-4 overflow-x-auto pb-3" style={{ scrollbarWidth: 'auto', scrollbarColor: '#93c5fd #f1f1f1' }}>
+                  <div className="grid grid-cols-4 gap-4 pb-3">
                     {demoBoards.filter(b => b.main_board_id === parseInt(activeDemoMainBoard)).map((board, idx) => {
                       const style = cardIconStyles[idx % cardIconStyles.length];
                       const isChecking = boardCheckLoading === String(board.id);
@@ -1220,7 +1204,7 @@ export default function CXO() {
                         <button key={board.id}
                           onClick={() => handleDemoBoardClick(board.id, parseInt(activeDemoMainBoard), board.name)}
                           disabled={isChecking}
-                          className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col items-center gap-3 hover:shadow-md hover:border-blue-200 transition-all disabled:opacity-50 flex-shrink-0 w-44">
+                          className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col items-center gap-3 hover:shadow-md hover:border-blue-200 transition-all disabled:opacity-50 w-full">
                           <div className={`w-16 h-16 rounded-full ${style.bg} flex items-center justify-center`}>
                             {isChecking ? <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600" /> : <style.Icon className={`w-8 h-8 ${style.iconColor}`} />}
                           </div>
@@ -1232,95 +1216,66 @@ export default function CXO() {
                 </>
 
               ) : (
-                /* ── Combined home: Dashboard + Demo Reference + Mainboards side by side ── */
-                <div className="flex gap-10 overflow-x-auto pb-3" style={{ scrollbarWidth: 'auto', scrollbarColor: '#93c5fd #f1f1f1' }}>
+                /* ── Combined home: all tiles in one flat 4-column grid ── */
+                <div className="grid grid-cols-4 gap-4 pb-3">
 
-                  {/* Dashboard tile */}
-                  <div className="flex-shrink-0">
-                    <h2 className="text-sm font-bold text-gray-700 mb-4">Dashboard</h2>
-                    <div className="flex flex-row gap-4">
-                      <button
-                        onClick={() => setCxoView("dashboard")}
-                        className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col items-center gap-3 hover:shadow-md hover:border-teal-200 transition-all flex-shrink-0 w-44"
-                      >
-                        <div className="w-16 h-16 rounded-full bg-teal-50 flex items-center justify-center">
-                          <LayoutDashboard className="w-8 h-8 text-teal-400" />
-                        </div>
-                        <span className="text-sm font-semibold text-center text-teal-500">Dashboard</span>
-                      </button>
+                  {/* Dashboard */}
+                  <button
+                    onClick={() => setCxoView("dashboard")}
+                    className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col items-center gap-3 hover:shadow-md hover:border-teal-200 transition-all w-full"
+                  >
+                    <div className="w-16 h-16 rounded-full bg-teal-50 flex items-center justify-center">
+                      <LayoutDashboard className="w-8 h-8 text-teal-400" />
                     </div>
-                  </div>
+                    <span className="text-sm font-semibold text-center text-teal-500">Dashboard</span>
+                  </button>
 
-                  {/* Divider */}
-                  <div className="w-px bg-gray-200 flex-shrink-0 self-stretch" />
-
-                  {/* Live Data tile */}
-                  <div className="flex-shrink-0">
-                    <h2 className="text-sm font-bold text-gray-700 mb-4">Live Data</h2>
-                    <div className="flex flex-row gap-4">
-                      <button
-                        onClick={() => setCxoView("livedata")}
-                        className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col items-center gap-3 hover:shadow-md hover:border-blue-200 transition-all flex-shrink-0 w-44"
-                      >
-                        <div className="w-16 h-16 rounded-full bg-blue-50 flex items-center justify-center">
-                          <Database className="w-8 h-8 text-blue-400" />
-                        </div>
-                        <span className="text-sm font-semibold text-center text-blue-500">Live Data</span>
-                      </button>
+                  {/* Live Data */}
+                  <button
+                    onClick={() => setCxoView("livedata")}
+                    className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col items-center gap-3 hover:shadow-md hover:border-blue-200 transition-all w-full"
+                  >
+                    <div className="w-16 h-16 rounded-full bg-blue-50 flex items-center justify-center">
+                      <Database className="w-8 h-8 text-blue-400" />
                     </div>
-                  </div>
+                    <span className="text-sm font-semibold text-center text-blue-500">Live Data</span>
+                  </button>
 
-                  {/* Divider */}
-                  <div className="w-px bg-gray-200 flex-shrink-0 self-stretch" />
+                  {/* Demo Reference tiles */}
+                  {isDemoLoading ? (
+                    <div className="text-xs text-gray-400 flex items-center">Loading...</div>
+                  ) : (
+                    demoMainBoards.map((mb, idx) => {
+                      const style = cardIconStyles[(idx + 4) % cardIconStyles.length];
+                      return (
+                        <button key={mb.id} onClick={() => setActiveDemoMainBoard(String(mb.id))}
+                          className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col items-center gap-3 hover:shadow-md hover:border-blue-200 transition-all w-full">
+                          <div className={`w-16 h-16 rounded-full ${style.bg} flex items-center justify-center`}>
+                            <style.Icon className={`w-8 h-8 ${style.iconColor}`} />
+                          </div>
+                          <span className={`text-sm font-semibold text-center ${style.textColor}`}>{mb.name}</span>
+                        </button>
+                      );
+                    })
+                  )}
 
-                  {/* Demo Reference column */}
-                  <div className="flex-shrink-0">
-                    <h2 className="text-sm font-bold text-gray-700 mb-4">Demo Reference</h2>
-                    {isDemoLoading ? (
-                      <div className="text-xs text-gray-400">Loading...</div>
-                    ) : (
-                      <div className="flex flex-row gap-4">
-                        {demoMainBoards.map((mb, idx) => {
-                          const style = cardIconStyles[(idx + 4) % cardIconStyles.length];
-                          return (
-                            <button key={mb.id} onClick={() => setActiveDemoMainBoard(String(mb.id))}
-                              className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col items-center gap-3 hover:shadow-md hover:border-blue-200 transition-all flex-shrink-0 w-44">
-                              <div className={`w-16 h-16 rounded-full ${style.bg} flex items-center justify-center`}>
-                                <style.Icon className={`w-8 h-8 ${style.iconColor}`} />
-                              </div>
-                              <span className={`text-sm font-semibold text-center ${style.textColor}`}>{mb.name}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Divider */}
-                  <div className="w-px bg-gray-200 flex-shrink-0 self-stretch" />
-
-                  {/* Mainboards column */}
-                  <div className="flex-shrink-0">
-                    <h2 className="text-sm font-bold text-gray-700 mb-4">Mainboards</h2>
-                    {loading ? (
-                      <div className="text-xs text-gray-400">Loading...</div>
-                    ) : (
-                      <div className="flex flex-row gap-4">
-                        {navItems.map((item, idx) => {
-                          const style = cardIconStyles[idx % cardIconStyles.length];
-                          return (
-                            <button key={item.main_board_id} onClick={() => setSelectedMainBoardId(item.main_board_id)}
-                              className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col items-center gap-3 hover:shadow-md hover:border-blue-200 transition-all flex-shrink-0 w-44">
-                              <div className={`w-16 h-16 rounded-full ${style.bg} flex items-center justify-center`}>
-                                <style.Icon className={`w-8 h-8 ${style.iconColor}`} />
-                              </div>
-                              <span className={`text-sm font-semibold text-center ${style.textColor}`}>{boardNameMap[item.name] || item.name}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
+                  {/* Mainboard tiles */}
+                  {loading ? (
+                    <div className="text-xs text-gray-400 flex items-center">Loading...</div>
+                  ) : (
+                    navItems.map((item, idx) => {
+                      const style = cardIconStyles[idx % cardIconStyles.length];
+                      return (
+                        <button key={item.main_board_id} onClick={() => setSelectedMainBoardId(item.main_board_id)}
+                          className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col items-center gap-3 hover:shadow-md hover:border-blue-200 transition-all w-full">
+                          <div className={`w-16 h-16 rounded-full ${style.bg} flex items-center justify-center`}>
+                            <style.Icon className={`w-8 h-8 ${style.iconColor}`} />
+                          </div>
+                          <span className={`text-sm font-semibold text-center ${style.textColor}`}>{boardNameMap[item.name] || item.name}</span>
+                        </button>
+                      );
+                    })
+                  )}
 
                 </div>
               )}

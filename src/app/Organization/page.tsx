@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -531,11 +531,62 @@ function getOwnerUserId(): string {
   }
 }
 
+function getStoredOrgData(): Organization | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem("currentUserData");
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    const d = p.orgData;
+    if (!d?.id) return null;
+    return {
+      id: d.id,
+      owner_user_id: d.owner_user_id || 0,
+      name: d.name || "",
+      org_code: d.org_code || "",
+      industry_type: d.industry_type || "",
+      registered_country: d.registered_country || "",
+      address: d.address || "",
+      company_website: d.company_website || null,
+      company_size: d.company_size || null,
+      gst_number: d.gst_number || null,
+      pan_number: d.pan_number || null,
+      billing_email: d.billing_email || null,
+      org_logo_url: d.org_logo_url || null,
+      business_entity_type: d.business_entity_type || null,
+      fiscal_year_start_month: d.fiscal_year_start_month || null,
+      hq_timezone: d.hq_timezone || null,
+      support_contact_phone: d.support_contact_phone || null,
+      support_contact_email: d.support_contact_email || null,
+      subscription: d.subscription || "",
+      trial_end_date: d.trial_end_date || null,
+      is_trial_active: d.is_trial_active ?? false,
+      is_active: d.is_active !== undefined ? d.is_active : true,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function getSessionOrgRole(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    const raw = sessionStorage.getItem("currentUserData");
+    if (!raw) return "";
+    const p = JSON.parse(raw);
+    return (p.orgRole || "").toUpperCase();
+  } catch {
+    return "";
+  }
+}
+
 /* ── Main Page ────────────────────────────────────────────────────────────── */
 export default function OrganizationPage() {
   const { t } = useTranslation();
   const pathname = usePathname();
+  const router = useRouter();
   const [showRoleDropdown, setShowRoleDropdown] = useState(false);
+  const [activeScreenRole, setActiveScreenRole] = useState<"consultant" | "cxo">("consultant");
   const roleDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -548,15 +599,34 @@ export default function OrganizationPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    if (pathname === "/CXO" || pathname === "/CXODemo") {
+      setActiveScreenRole("cxo");
+      localStorage.setItem("activeScreenRole", "cxo");
+    } else if (pathname === "/Container" || pathname === "/Consultant" || pathname === "/Dashboard") {
+      setActiveScreenRole("consultant");
+      localStorage.setItem("activeScreenRole", "consultant");
+    } else {
+      const stored = localStorage.getItem("activeScreenRole") as "consultant" | "cxo" | null;
+      setActiveScreenRole(stored || "consultant");
+    }
+  }, [pathname]);
+
   const [org, setOrg] = useState<Organization | null>(null);
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
 
   const ownerUserId = getOwnerUserId();
+  const sessionOrgRole = getSessionOrgRole();
+  const canCreateOrg = sessionOrgRole !== 'SUPER_ADMIN' && sessionOrgRole !== 'ADMIN';
 
   const fetchMyOrg = async () => {
     if (!ownerUserId) { setLoading(false); return; }
     setLoading(true);
+    // Use org from login response if available — works for all roles including SUPER_ADMIN
+    const storedOrg = getStoredOrgData();
+    if (storedOrg) { setOrg(storedOrg); setLoading(false); return; }
+    // Fallback API call (only resolves for OWNER)
     try {
       const res = await fetch(`${API_BASE_URL}/organizations/my-org?owner_user_id=${ownerUserId}`, {
         headers: { Accept: "application/json", "X-API-Key": API_KEY },
@@ -648,11 +718,7 @@ export default function OrganizationPage() {
               className="flex items-center gap-2 text-gray-700 hover:bg-gray-50 px-3 py-1.5 rounded-md transition-colors border border-gray-200 text-sm"
             >
               <span className="text-sm font-medium">
-                {pathname === "/Container"
-                  ? t("header.consultantRole")
-                  : pathname === "/CXO"
-                  ? t("header.cxoRole")
-                  : t("header.selectScreen")}
+                {activeScreenRole === "cxo" ? t("header.cxoRole") : t("header.consultantRole")}
               </span>
               <svg
                 className={`w-3 h-3 transition-transform ${showRoleDropdown ? "rotate-180" : ""}`}
@@ -664,12 +730,16 @@ export default function OrganizationPage() {
 
             {showRoleDropdown && (
               <div ref={roleDropdownRef} className="absolute right-0 mt-2 w-44 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50">
-                <a href="/Consultant" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                <button
+                  onClick={() => { localStorage.setItem("activeScreenRole", "consultant"); setActiveScreenRole("consultant"); setShowRoleDropdown(false); router.push("/Consultant"); }}
+                  className={`w-full text-left block px-4 py-2 text-sm hover:bg-gray-50 ${activeScreenRole === "consultant" ? "text-blue-600 font-semibold bg-blue-50" : "text-gray-700"}`}>
                   {t("header.consultantRole")}
-                </a>
-                <a href="/CXO" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
+                </button>
+                <button
+                  onClick={() => { localStorage.setItem("activeScreenRole", "cxo"); setActiveScreenRole("cxo"); setShowRoleDropdown(false); router.push("/CXO"); }}
+                  className={`w-full text-left block px-4 py-2 text-sm hover:bg-gray-50 ${activeScreenRole === "cxo" ? "text-blue-600 font-semibold bg-blue-50" : "text-gray-700"}`}>
                   {t("header.cxoRole")}
-                </a>
+                </button>
               </div>
             )}
           </div>
@@ -710,7 +780,7 @@ export default function OrganizationPage() {
           <h1 style={s.pageTitle}>Organization</h1>
           <p style={s.pageSub}>Manage your organization profile</p>
         </div>
-        {!org && !loading && (
+        {!org && !loading && canCreateOrg && (
           <button style={s.createBtn} onClick={() => setModalMode("create")}>+ Create Organization</button>
         )}
       </div>
@@ -725,8 +795,12 @@ export default function OrganizationPage() {
         ) : !org ? (
           <div style={s.empty}>
             <span style={{ fontSize: 40 }}>🏢</span>
-            <p style={{ color: "#94a3b8", fontSize: 14, marginTop: 10 }}>You have not created an organization yet.</p>
-            <button style={{ ...s.createBtn, marginTop: 16 }} onClick={() => setModalMode("create")}>+ Create Organization</button>
+            <p style={{ color: "#94a3b8", fontSize: 14, marginTop: 10 }}>
+              {canCreateOrg ? "You have not created an organization yet." : "No organization found for your account."}
+            </p>
+            {canCreateOrg && (
+              <button style={{ ...s.createBtn, marginTop: 16 }} onClick={() => setModalMode("create")}>+ Create Organization</button>
+            )}
           </div>
         ) : (
           <div style={{ overflowX: "auto" }}>

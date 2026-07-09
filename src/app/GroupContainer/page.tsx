@@ -342,6 +342,20 @@ function GroupContainerPage() {
   const [emailData, setEmailData] = useState({ email: '', subject: '', message: '', tableOption: 'limited', reportType: '' });
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [activeScreenRole, setActiveScreenRole] = useState<'consultant' | 'cxo'>('consultant');
+
+  useEffect(() => {
+    if (pathname === '/CXO' || pathname === '/CXODemo') {
+      setActiveScreenRole('cxo');
+      localStorage.setItem('activeScreenRole', 'cxo');
+    } else if (pathname === '/Container' || pathname === '/Consultant' || pathname === '/Dashboard') {
+      setActiveScreenRole('consultant');
+      localStorage.setItem('activeScreenRole', 'consultant');
+    } else {
+      const stored = localStorage.getItem('activeScreenRole') as 'consultant' | 'cxo' | null;
+      setActiveScreenRole(stored || 'consultant');
+    }
+  }, [pathname]);
   const currentDate = new Date();
   const [selectedDate, setSelectedDate] = useState(() => {
     const now = new Date();
@@ -669,11 +683,13 @@ useEffect(() => {
     if (!selectedPgTable) return;
 
     let userId: string | null = null;
+    let orgId: string | null = null;
     const currentUserData = sessionStorage.getItem("currentUserData");
     if (currentUserData) {
       try {
         const parsed = JSON.parse(currentUserData);
         userId = String(parsed.userId);
+        orgId = parsed.orgId ? String(parsed.orgId) : null;
       } catch (e) {
         console.error("Failed to parse session:", e);
       }
@@ -687,7 +703,7 @@ useEffect(() => {
     setIsAddingDataSource(true);
     try {
       const response = await fetch(
-        `${API_BASE_URL}/main-boards/boards/data-sources/board/${boardId}/add-pg?user_id=${parseInt(userId, 10)}`,
+        `${API_BASE_URL}/rbac/data-sources/board/${boardId}/add-pg?user_id=${userId}&org_id=${orgId}`,
         {
           method: "POST",
           headers: {
@@ -728,11 +744,13 @@ useEffect(() => {
 
   const fetchDataSources = async () => {
     let userId: string | null = null;
+    let orgId: string | null = null;
     const currentUserData = sessionStorage.getItem("currentUserData");
     if (currentUserData) {
       try {
         const parsed = JSON.parse(currentUserData);
         userId = String(parsed.userId);
+        orgId = parsed.orgId ? String(parsed.orgId) : null;
       } catch (e) { }
     }
 
@@ -741,7 +759,7 @@ useEffect(() => {
     setDataSourcesLoading(true);
     try {
       const response = await fetch(
-        `${API_BASE_URL}/main-boards/boards/data-sources/board/${boardId}?user_id=${parseInt(userId, 10)}`,
+        `${API_BASE_URL}/rbac/data-sources/board/${boardId}?user_id=${userId}&org_id=${orgId}`,
         {
           headers: {
             accept: "application/json",
@@ -925,6 +943,7 @@ useEffect(() => {
 
   const handleViewTables = async () => {
     let userId: string | null = null;
+    let orgId: string | null = null;
 
     // Read from sessionStorage (where login stores it)
     const currentUserData = sessionStorage.getItem("currentUserData");
@@ -932,6 +951,7 @@ useEffect(() => {
       try {
         const parsed = JSON.parse(currentUserData);
         userId = String(parsed.userId);
+        orgId = parsed.orgId ? String(parsed.orgId) : null;
       } catch (e) {
         console.error("Failed to parse currentUserData from sessionStorage:", e);
       }
@@ -946,7 +966,7 @@ useEffect(() => {
     setIsViewTablesModalOpen(true);
     try {
       const response = await fetch(
-        `${API_BASE_URL}/main-boards/boards/data-sources/pg-tables/${boardId}?user_id=${parseInt(userId, 10)}`,
+        `${API_BASE_URL}/rbac/data-sources/pg-tables/${boardId}?user_id=${userId}&org_id=${orgId}`,
         {
           headers: {
             accept: "application/json",
@@ -4274,11 +4294,7 @@ const SpeechRecognition =
               className="flex items-center gap-2 text-gray-700 hover:bg-gray-50 px-3 py-1.5 rounded-md transition-colors border border-gray-200 text-sm"
             >
               <span className="text-sm font-medium">
-                {location.pathname === '/Container'
-                  ? t('header.consultantRole')
-                  : location.pathname === '/CXO'
-                  ? t('header.cxoRole')
-                  : t('header.selectScreen')}
+                {activeScreenRole === 'cxo' ? t('header.cxoRole') : t('header.consultantRole')}
               </span>
               <svg
                 className={`w-3 h-3 transition-transform ${showDropdown ? 'rotate-180' : ''}`}
@@ -4296,18 +4312,28 @@ const SpeechRecognition =
                 ref={dropdownRef}
                 className="absolute right-0 mt-2 w-44 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50"
               >
-                <a
-                  href="/Consultant"
-                  className={`block px-4 py-2 text-sm ${location.pathname === '/Container' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}
+                <button
+                  onClick={() => {
+                    localStorage.setItem('activeScreenRole', 'consultant');
+                    setActiveScreenRole('consultant');
+                    setShowDropdown(false);
+                    router.push('/Consultant');
+                  }}
+                  className={`w-full text-left block px-4 py-2 text-sm ${activeScreenRole === 'consultant' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}
                 >
                   {t('header.consultantRole')}
-                </a>
-                <a
-                  href="/CXO"
-                  className={`block px-4 py-2 text-sm ${location.pathname === '/CXO' ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-100'}`}
+                </button>
+                <button
+                  onClick={() => {
+                    localStorage.setItem('activeScreenRole', 'cxo');
+                    setActiveScreenRole('cxo');
+                    setShowDropdown(false);
+                    router.push('/CXO');
+                  }}
+                  className={`w-full text-left block px-4 py-2 text-sm ${activeScreenRole === 'cxo' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-100'}`}
                 >
                   {t('header.cxoRole')}
-                </a>
+                </button>
               </div>
             )}
           </div>

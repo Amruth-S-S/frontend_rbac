@@ -53,20 +53,6 @@ type SelectedBoard = {
   boardName?: string;
 } | null;
 
-interface DemoMainBoard {
-  id: number;
-  name: string;
-  main_board_type?: string;
-}
-
-interface DemoBoard {
-  id: number;
-  name: string;
-  main_board_id: number;
-  is_active?: boolean;
-  customer_db_key?: string;
-}
-
 // Always offered in the Customer Database Key dropdown, even if the org's
 // available-customer-dbs list doesn't (yet) include it.
 const FALLBACK_CUSTOMER_DB_KEY = "customer_db_hospital_a";
@@ -133,6 +119,7 @@ const Sidebar: React.FC<SidebarProps> = ({ }) => {
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef(null);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [orgRole, setOrgRole] = useState<string>('');
   const [showModal, setShowModal] = useState<boolean>(false);
   const [showSubMenu, setShowSubMenu] = useState(false);
   const [showAddDialog, setShowAddDialog] = useState(false);
@@ -196,27 +183,10 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
   // /rbac/boards endpoints which require org_id on every call.
   const [orgId, setOrgId] = useState<number | null>(null);
 
-  // Group Reference — mirrors the main nav tree but sourced from /rbac/main-boards/info-tree
-  const [isGroupRefOpen, setIsGroupRefOpen] = useState(false);
+  // Main Boards tree — sourced from /rbac/main-boards/info-tree
   const [groupRefItems, setGroupRefItems] = useState<MainBoard[]>([]);
   const [groupRefLoading, setGroupRefLoading] = useState(false);
   const [activeGroupRefMainBoard, setActiveGroupRefMainBoard] = useState<string | null>(null);
-
-  // Demo Reference
-  const [isDemoRefOpen, setIsDemoRefOpen] = useState(false);
-  const [demoMainBoards, setDemoMainBoards] = useState<DemoMainBoard[]>([]);
-  const [demoBoards, setDemoBoards] = useState<DemoBoard[]>([]);
-  const [activeDemoMainBoard, setActiveDemoMainBoard] = useState<string | null>(null);
-  const [isDemoLoading, setIsDemoLoading] = useState(false);
-
-  // Demo Create/Edit Board modal
-  const [showDemoModal, setShowDemoModal] = useState(false);
-  const [demoBoardName, setDemoBoardName] = useState('');
-  const [demoCustomerDbKey, setDemoCustomerDbKey] = useState('');
-  const [selectedDemoMainBoardId, setSelectedDemoMainBoardId] = useState<number | null>(null);
-  const [isCreatingDemoBoard, setIsCreatingDemoBoard] = useState(false);
-  const [isDemoEditMode, setIsDemoEditMode] = useState(false);
-  const [editingDemoBoardId, setEditingDemoBoardId] = useState<number | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [userData, setUserData] = useState<UserData>({ email: "", userId: "", userRole: "", userName: "" });
   const [isMounted, setIsMounted] = useState(false);
@@ -270,157 +240,6 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
     setCustomerDbOptions([FALLBACK_CUSTOMER_DB_KEY]);
   }
 };
-
-  // ─── Demo Reference API ───────────────────────────────────────────────────────
-  const fetchDemoMainBoards = async () => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/demo/main-boards`, {
-        headers: { accept: "application/json", "X-API-Key": EXCEL_API_KEY },
-      });
-      if (res.ok) {
-        const json = await res.json();
-        const list = Array.isArray(json) ? json : (json.data ?? json.items ?? []);
-        setDemoMainBoards(list);
-      }
-    } catch (err) {
-      console.error("Error fetching demo main boards:", err);
-    }
-  };
-
-  const fetchDemoBoards = async () => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/demo/boards`, {
-        headers: { accept: "application/json", "X-API-Key": EXCEL_API_KEY },
-      });
-      if (res.ok) {
-        const json = await res.json();
-        const list = Array.isArray(json) ? json : (json.data ?? json.items ?? []);
-        setDemoBoards(list);
-      }
-    } catch (err) {
-      console.error("Error fetching demo boards:", err);
-    }
-  };
-
-  const toggleDemoRef = () => {
-    const opening = !isDemoRefOpen;
-    setIsDemoRefOpen(opening);
-    setActiveDemoMainBoard(null);
-    if (opening) {
-      setIsDemoLoading(true);
-      Promise.all([fetchDemoMainBoards(), fetchDemoBoards()]).finally(() =>
-        setIsDemoLoading(false)
-      );
-    }
-  };
-
-  const openDemoCreateModal = (e: React.MouseEvent, mbId: number) => {
-    e.stopPropagation();
-    setSelectedDemoMainBoardId(mbId);
-    setDemoBoardName('');
-    setDemoCustomerDbKey('');
-    setShowDemoModal(true);
-    fetchCustomerDbKeys();
-  };
-
-  const closeDemoModal = () => {
-    setShowDemoModal(false);
-    setDemoBoardName('');
-    setDemoCustomerDbKey('');
-    setSelectedDemoMainBoardId(null);
-    setIsDemoEditMode(false);
-    setEditingDemoBoardId(null);
-  };
-
-  const openDemoEditModal = (e: React.MouseEvent, board: DemoBoard) => {
-    e.stopPropagation();
-    setIsDemoEditMode(true);
-    setEditingDemoBoardId(board.id);
-    setSelectedDemoMainBoardId(board.main_board_id);
-    setDemoBoardName(board.name);
-    setDemoCustomerDbKey(board.customer_db_key ?? '');
-    setShowDemoModal(true);
-    fetchCustomerDbKeys();
-  };
-
-  const handleSaveDemoBoard = async () => {
-    if (!demoBoardName.trim() || !demoCustomerDbKey || !selectedDemoMainBoardId) return;
-    setIsCreatingDemoBoard(true);
-    try {
-      if (isDemoEditMode && editingDemoBoardId) {
-        const params = new URLSearchParams({
-          demo_user_id: String(clientUserId),
-          name: demoBoardName.trim(),
-          customer_db_key: demoCustomerDbKey,
-        });
-        const res = await fetch(`${API_BASE_URL}/demo/boards/${editingDemoBoardId}?${params}`, {
-          method: 'PUT',
-          headers: { accept: 'application/json', 'X-API-Key': EXCEL_API_KEY },
-        });
-        if (res.ok) {
-          toast.success('Demo board updated!');
-          closeDemoModal();
-          fetchDemoBoards();
-        } else {
-          const err = await res.json();
-          toast.error(err.detail || 'Failed to update demo board');
-        }
-      } else {
-        const params = new URLSearchParams({
-          demo_user_id: String(clientUserId),
-          main_board_id: String(selectedDemoMainBoardId),
-          name: demoBoardName.trim(),
-          customer_db_key: demoCustomerDbKey,
-        });
-        const res = await fetch(`${API_BASE_URL}/demo/boards?${params}`, {
-          method: 'POST',
-          headers: { accept: 'application/json', 'X-API-Key': EXCEL_API_KEY },
-        });
-        if (res.ok) {
-          toast.success('Demo board created!');
-          closeDemoModal();
-          fetchDemoBoards();
-        } else {
-          const err = await res.json();
-          toast.error(err.detail || 'Failed to create demo board');
-        }
-      }
-    } catch {
-      toast.error(isDemoEditMode ? 'Error updating demo board' : 'Error creating demo board');
-    } finally {
-      setIsCreatingDemoBoard(false);
-    }
-  };
-
-  const handleDeleteDemoBoard = (e: React.MouseEvent, board: DemoBoard) => {
-    e.stopPropagation();
-    const ConfirmToast = ({ closeToast }: { closeToast: () => void }) => (
-      <div className="p-3 bg-white rounded-lg shadow-lg">
-        <p className="text-gray-800 text-sm mb-3">Delete <strong>{board.name}</strong>? This cannot be undone.</p>
-        <div className="flex justify-end space-x-2">
-          <button onClick={() => closeToast()} className="px-3 py-1.5 text-sm bg-gray-200 text-gray-800 hover:bg-gray-300 rounded">Cancel</button>
-          <button
-            onClick={async () => {
-              closeToast();
-              try {
-                const res = await fetch(
-                  `${API_BASE_URL}/demo/boards/${board.id}?demo_user_id=${clientUserId}`,
-                  { method: 'DELETE', headers: { accept: 'application/json', 'X-API-Key': EXCEL_API_KEY } }
-                );
-                if (res.ok) { toast.success('Demo board deleted!'); fetchDemoBoards(); }
-                else toast.error('Failed to delete demo board');
-              } catch { toast.error('Error deleting demo board'); }
-            }}
-            className="px-3 py-1.5 text-sm bg-red-500 text-white hover:bg-red-600 rounded"
-          >Delete</button>
-        </div>
-      </div>
-    );
-    toast(<ConfirmToast closeToast={() => {}} />, {
-      position: 'top-center', autoClose: false, closeButton: false, closeOnClick: false, draggable: false,
-      className: '!bg-transparent !shadow-none',
-    });
-  };
 
   // ─── Password Update ──────────────────────────────────────────────────────────
   const handlePasswordUpdate = async () => {
@@ -500,7 +319,7 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
   // `roles` controls which logged-in role sees the item — Organization and
   // org-groups are OWNER/SUPER_ADMIN-only, the rest stay admin-only.
   const adminNavigationItems = [
-    { id: 'users', label: 'User', href: '/UserList', roles: ['admin'] },
+    { id: 'users', label: 'User', href: '/UserList', roles: ['admin', 'owner', 'super_admin'] },
     { id: 'organization', label: 'Organization', href: '/Organization', roles: ['owner'] },
     { id: 'members', label: 'Members', href: '/member-list', roles: ['admin'] },
     { id: 'groups', label: 'Groups', href: '/user-groups', roles: ['admin'] },
@@ -511,21 +330,21 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
 
   // ─── Search filtering ─────────────────────────────────────────────────────────
   const filteredNavItems = useMemo(() => {
-    const sorted = [...groupRefItems].sort((a, b) => a.name.localeCompare(b.name));
+    const sorted = [...groupRefItems].sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
     if (!searchQuery.trim()) return sorted;
     const query = searchQuery.toLowerCase();
     const matchingMainBoards = new Set<string>();
     return sorted.map(item => {
-      const mainBoardMatches = item.name.toLowerCase().includes(query);
+      const mainBoardMatches = (item.name ?? '').toLowerCase().includes(query);
       const matchingBoards: { [key: string]: Board } = {};
       let hasBoardMatches = false;
-      Object.entries(item.boards).forEach(([boardId, board]) => {
-        if (board.is_active && board.name.toLowerCase().includes(query)) {
+      Object.entries(item.boards ?? {}).forEach(([boardId, board]) => {
+        if (board.is_active && (board.name ?? '').toLowerCase().includes(query)) {
           matchingBoards[boardId] = board; hasBoardMatches = true;
         }
       });
       if (mainBoardMatches) {
-        Object.entries(item.boards).forEach(([boardId, board]) => { if (board.is_active) matchingBoards[boardId] = board; });
+        Object.entries(item.boards ?? {}).forEach(([boardId, board]) => { if (board.is_active) matchingBoards[boardId] = board; });
       }
       if (mainBoardMatches || hasBoardMatches) {
         matchingMainBoards.add(item.main_board_id);
@@ -536,16 +355,30 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
   }, [groupRefItems, searchQuery]);
 
   const filteredAdminItems = useMemo(() => {
-    const role = userRole?.toLowerCase() || '';
-    const visible = adminNavigationItems.filter(item => item.roles.includes(role));
+    let visible: typeof adminNavigationItems;
+    if (orgRole === 'OWNER' || orgRole === 'SUPER_ADMIN') {
+      visible = [
+        { id: 'users', label: 'User', href: '/UserList', roles: [] },
+        { id: 'organization', label: 'Organization', href: '/Organization', roles: [] },
+        { id: 'org-groups', label: 'Groups', href: '/Groups', roles: [] },
+      ];
+    } else if (orgRole === 'ADMIN') {
+      visible = [
+        { id: 'org-groups', label: 'Groups', href: '/Groups', roles: [] },
+      ];
+    } else if (orgRole === 'VIEWER' || orgRole === 'EDITOR' || orgRole === 'ANALYST') {
+      visible = []; // no admin menus — only the boards tree is shown
+    } else {
+      const role = userRole?.toLowerCase() || '';
+      visible = adminNavigationItems.filter(item => item.roles.includes(role));
+    }
     if (!searchQuery.trim()) return visible;
     return visible.filter(item => item.label.toLowerCase().includes(searchQuery.toLowerCase()));
-  }, [searchQuery, userRole]);
+  }, [searchQuery, userRole, orgRole]);
 
   useEffect(() => {
     if (searchQuery.trim() && filteredNavItems.length > 0) {
       setActiveGroupRefMainBoard(filteredNavItems[0].main_board_id);
-      setIsGroupRefOpen(true);
     }
   }, [filteredNavItems, searchQuery]);
 
@@ -765,6 +598,7 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
       if (s) {
         const d = JSON.parse(s);
         setUserRole(d.userRole);
+        setOrgRole((d.orgRole || '').toUpperCase());
         setClientUserId(d.userId);
       } else {
         const id = localStorage.getItem('loggedInUserId');
@@ -776,41 +610,74 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
     loadStoredLogo();
   }, []);
 
-  // ─── Resolve org_id (required by /rbac/main-boards and /rbac/boards) ─────────
-  // Prefer the org_id captured at login (works for every role). Fall back to
-  // /organizations/my-org only for sessions from before that fix — it only
-  // resolves for the org OWNER, so non-owners logged in before this change
-  // will need to log out/in once to pick up their org_id.
+  // ─── Resolve org_id ───────────────────────────────────────────────────────────
+  // null = not yet attempted; 0 = all attempts exhausted, none found; >0 = resolved
   useEffect(() => {
     if (!clientUserId) return;
+    // 1. Check every variant key in currentUserData
     try {
       const s = sessionStorage.getItem('currentUserData');
-      const stored = s ? JSON.parse(s).orgId : null;
-      if (stored) { setOrgId(Number(stored)); return; }
+      if (s) {
+        const d = JSON.parse(s);
+        const stored = d.orgId ?? d.org_id ?? d.organizationId ?? d.organization_id;
+        if (stored) { setOrgId(Number(stored)); return; }
+      }
+      // 2. Standalone sessionStorage keys written by other components
+      const direct = sessionStorage.getItem('organization_id') ?? sessionStorage.getItem('orgId');
+      if (direct) { setOrgId(Number(direct)); return; }
     } catch { /* ignore */ }
+    // 3. Owner-only fallback — only resolves for the org OWNER
     fetch(`${API_BASE_URL}/organizations/my-org?owner_user_id=${clientUserId}`, {
       headers: { Accept: 'application/json', 'X-API-Key': EXCEL_API_KEY },
     })
       .then(res => (res.ok ? res.json() : null))
-      .then(data => setOrgId(data?.id ?? null))
-      .catch(() => setOrgId(null));
+      .then(data => {
+        const id = data?.id ?? data?.org_id ?? data?.organization?.id;
+        setOrgId(id ? Number(id) : 0);
+      })
+      .catch(() => setOrgId(0));
   }, [clientUserId]);
 
-  // ─── Group Reference tree (now the main board/board nav tree) ───────────────
+  // ─── Main Boards tree from /rbac/main-boards/info-tree ──────────────────────
+  // Normalize raw API items to the MainBoard shape the UI expects.
+  const normalizeMainBoard = (raw: any): MainBoard => {
+    const name = raw.name ?? raw.main_board_name ?? raw.board_name ?? raw.title ?? raw.label ?? '';
+    const mbId = String(raw.main_board_id ?? raw.id ?? '');
+    let boards: { [key: string]: Board } = {};
+    if (raw.boards && !Array.isArray(raw.boards)) {
+      boards = raw.boards;
+    } else if (Array.isArray(raw.boards)) {
+      raw.boards.forEach((b: any) => {
+        const bId = String(b.board_id ?? b.id ?? b.key ?? Math.random());
+        boards[bId] = { name: b.name ?? b.board_name ?? '', is_active: b.is_active ?? true, path: b.path };
+      });
+    }
+    return { ...raw, name, main_board_id: mbId, boards };
+  };
+
   const fetchGroupRefItems = () => {
-    if (!clientUserId || !orgId) return;
+    if (!clientUserId || orgId === null) return;
     setGroupRefLoading(true);
-    fetch(`${API_BASE_URL}/rbac/main-boards/info-tree?user_id=${clientUserId}&org_id=${orgId}`, {
+    // orgId === 0 means org couldn't be resolved; try without it as last resort
+    const url = orgId > 0
+      ? `${API_BASE_URL}/rbac/main-boards/info-tree?user_id=${clientUserId}&org_id=${orgId}`
+      : `${API_BASE_URL}/rbac/main-boards/info-tree?user_id=${clientUserId}`;
+    fetch(url, {
       headers: { Accept: 'application/json', 'X-API-Key': EXCEL_API_KEY },
     })
       .then(res => (res.ok ? res.json() : []))
-      .then(data => setGroupRefItems(Array.isArray(data) ? data : []))
+      .then(data => {
+        const raw = Array.isArray(data)
+          ? data
+          : (data?.items ?? data?.main_boards ?? data?.boards ?? data?.data ?? []);
+        setGroupRefItems(Array.isArray(raw) ? raw.map(normalizeMainBoard) : []);
+      })
       .catch(() => setGroupRefItems([]))
       .finally(() => setGroupRefLoading(false));
   };
 
   useEffect(() => {
-    fetchGroupRefItems();
+    if (orgId !== null) fetchGroupRefItems();
   }, [clientUserId, orgId]);
 
   // ── Once userId is confirmed in state, fetch real blob from server ────────────
@@ -828,7 +695,7 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
     }
     const userId = currentUserData.userId;
     if (!userId) { toast.error("User not found. Please log in again."); return; }
-    if (!orgId) { toast.error("Could not determine your organization. Please reload and try again."); return; }
+    if (!orgId || orgId <= 0) { toast.error("Could not determine your organization. Please reload and try again."); return; }
 
     showGlobalLoader("Creating Main Board...");
     try {
@@ -861,7 +728,7 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
       if (!userId) userId = sessionStorage.getItem("loggedInUserId") || localStorage.getItem('loggedInUserId');
     }
     if (!userId) { toast.error("User ID not found. Please log in again."); return; }
-    if (!orgId) { toast.error("Could not determine your organization. Please reload and try again."); return; }
+    if (!orgId || orgId <= 0) { toast.error("Could not determine your organization. Please reload and try again."); return; }
 
     showGlobalLoader(isEditMode ? "Updating Board..." : "Creating Board...");
     try {
@@ -931,7 +798,7 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
         if (!userId) userId = sessionStorage.getItem("loggedInUserId") || localStorage.getItem('loggedInUserId') || '';
       }
       if (!userId) { toast.error("User not found. Please log in again."); return; }
-      if (!orgId) { toast.error("Could not determine your organization. Please reload and try again."); return; }
+      if (!orgId || orgId <= 0) { toast.error("Could not determine your organization. Please reload and try again."); return; }
 
       const response = await fetch(`${API_BASE_URL}/rbac/main-boards/${mainBoardId}?user_id=${userId}&org_id=${orgId}`, {
         method: 'DELETE',
@@ -968,7 +835,7 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
                 }
                 const userId = currentUserData.userId;
                 if (!userId) { toast.error("User not found. Please log in again."); return; }
-                if (!orgId) { toast.error("Could not determine your organization. Please reload and try again."); return; }
+                if (!orgId || orgId <= 0) { toast.error("Could not determine your organization. Please reload and try again."); return; }
                 const response = await fetch(`${API_BASE_URL}/rbac/boards/${boardId}?user_id=${userId}&org_id=${orgId}`, {
                   method: 'DELETE',
                   headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-API-Key': EXCEL_API_KEY },
@@ -977,12 +844,8 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
                   const errorData = await response.json();
                   throw new Error(errorData.message || "Failed to delete board");
                 }
-                setGroupRefItems(prev => prev.map(item =>
-                  item.main_board_id === mainBoardId
-                    ? { ...item, boards: Object.fromEntries(Object.entries(item.boards).filter(([key]) => key !== boardId)) }
-                    : item
-                ));
                 toast.success("Board deleted successfully!");
+                fetchGroupRefItems();
               } catch (error) {
                 toast.error(error instanceof Error ? error.message : "An error occurred while deleting the board.");
               } finally { hideGlobalLoader(); }
@@ -1165,7 +1028,7 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
         </div>
 
         {/* ── Create Main Board button ──────────────────────────────────────── */}
-        {(isSidebarOpen || isMobile) && (
+        {(isSidebarOpen || isMobile) && orgRole !== 'ADMIN' && orgRole !== 'VIEWER' && orgRole !== 'EDITOR' && orgRole !== 'ANALYST' && (
           <div className="px-3 py-2">
             <button
               onClick={() => { setIsModalOpen(true); closeMobileMenu(); }}
@@ -1237,219 +1100,97 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
               )}
             </div> */}
 
-            {/* Group Reference dropdown — sourced from /rbac/main-boards/info-tree */}
-            {(!searchQuery.trim() || "group reference".includes(searchQuery.toLowerCase())) && (
+            {/* Main Boards tree — from /rbac/main-boards/info-tree */}
+            {(isSidebarOpen || isMobile) && (
               <div className="space-y-0.5 mb-4">
-                <div
-                  className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all duration-200 group ${isGroupRefOpen ? 'bg-blue-700/60 shadow-md border border-blue-500/30' : 'hover:bg-blue-700/30'}`}
-                  onClick={() => setIsGroupRefOpen(prev => !prev)}
-                  onMouseEnter={() => setHoveredItem('group-ref')}
-                  onMouseLeave={() => setHoveredItem(null)}
-                >
-                  <div className="flex items-center min-w-0 flex-1">
-                    {isGroupRefOpen
-                      ? <ChevronDown className="w-3.5 h-3.5 mr-1.5 text-gray-700 flex-shrink-0" />
-                      : <ChevronRight className="w-3.5 h-3.5 mr-1.5 text-gray-700 flex-shrink-0" />
-                    }
-                    {(isSidebarOpen || isMobile) && (
-                      <span className="font-medium text-xs truncate">Group Reference</span>
-                    )}
-                  </div>
-                </div>
-
-                {isGroupRefOpen && (isSidebarOpen || isMobile) && (
-                  <div className="ml-5 space-y-0.5 pb-1">
-                    {groupRefLoading ? (
-                      <div className="text-xs text-gray-400 px-2 py-1">{t('sidebar.loading')}</div>
-                    ) : filteredNavItems.length === 0 ? (
-                      <div className="text-xs text-gray-400 px-2 py-1">No main boards found.</div>
-                    ) : (
-                      filteredNavItems.map(item => {
-                        const mbId = String(item.main_board_id);
-                        const isExpanded = searchQuery.trim() ? true : activeGroupRefMainBoard === mbId;
-                        return (
-                          <div key={mbId} className="space-y-0.5">
-                            <div
-                              className={`flex items-center justify-between p-2 rounded-md cursor-pointer transition-all duration-200 group ${isExpanded ? 'bg-blue-600/50 shadow-sm border border-blue-400/30' : 'hover:bg-blue-700/25'}`}
-                              onClick={() => toggleMainBoard(mbId)}
-                              onMouseEnter={() => setHoveredItem(item.main_board_id)}
-                              onMouseLeave={() => setHoveredItem(null)}
-                            >
-                              <div className="flex items-center min-w-0 flex-1">
-                                {isExpanded
-                                  ? <ChevronDown className="w-3 h-3 mr-1.5 text-gray-600 flex-shrink-0" />
-                                  : <ChevronRight className="w-3 h-3 mr-1.5 text-gray-600 flex-shrink-0" />
-                                }
-                                <span className="text-xs font-medium truncate">
-                                  {searchQuery
-                                    ? <span dangerouslySetInnerHTML={{ __html: highlight(item.name, searchQuery) }} />
-                                    : (boardNameMap[item.name] || item.name)}
-                                </span>
-                              </div>
-                              {!searchQuery.trim() && (
-                                <div className="flex space-x-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                                  <Plus className="p-1 hover:bg-blue-600 rounded transition-colors duration-200 w-5 h-5" onClick={e => handlePlusClick(e, mbId)} />
-                                  <button onClick={e => handleDeleteMainBoard(e, mbId, item.name)} className="p-1 hover:bg-red-600 rounded transition-colors duration-200" title="Delete Main Board">
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-
-                            {isExpanded && (
-                              <div className="ml-4 space-y-0.5">
-                                {Object.keys(item.boards).filter(bId => item.boards[bId].is_active).length === 0 ? (
-                                  <div className="text-xs text-gray-400 px-2 py-1">No boards</div>
-                                ) : (
-                                  Object.keys(item.boards).filter(bId => item.boards[bId].is_active).map(boardId => {
-                                    const board = item.boards[boardId];
-                                    return (
-                                      <div
-                                        key={boardId}
-                                        className={`flex items-center justify-between p-2 rounded-md cursor-pointer transition-all duration-200 group ${activeBoardId === boardId ? 'bg-blue-600/50 shadow-sm border border-blue-400/30' : 'hover:bg-blue-700/25'}`}
-                                        onClick={() => handleBoardClick(boardId)}
-                                      >
-                                        <Link
-                                          href={{ pathname: '/GroupContainer', query: { main_board_id: item.main_board_id, board_id: boardId } }}
-                                          onClick={closeMobileMenu}
-                                          className="flex-1 text-black text-xs font-medium truncate"
-                                        >
-                                          {searchQuery
-                                            ? <span dangerouslySetInnerHTML={{ __html: highlight(board.name, searchQuery) }} />
-                                            : (boardNameMap[board.name] || board.name)}
-                                        </Link>
-                                        {!searchQuery.trim() && (
-                                          <div className="flex space-x-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                                            <button
-                                              onClick={e => { e.stopPropagation(); handleEditClick(boardId, item.main_board_id); }}
-                                              className="p-1 hover:bg-blue-600 rounded transition-colors duration-200" title="Edit Board"
-                                            >
-                                              <Edit2 className="w-3 h-3" />
-                                            </button>
-                                            <button
-                                              onClick={e => { e.stopPropagation(); handleDelete(boardId, item.main_board_id, board.name); }}
-                                              className="p-1 hover:bg-red-600 rounded transition-colors duration-200" title="Delete Board"
-                                            >
-                                              <Trash2 className="w-3 h-3" />
-                                            </button>
-                                          </div>
-                                        )}
-                                      </div>
-                                    );
-                                  })
-                                )}
-                              </div>
-                            )}
+                {(groupRefLoading || orgId === null) ? (
+                  <div className="text-xs text-gray-400 px-2 py-1">{t('sidebar.loading')}</div>
+                ) : filteredNavItems.length === 0 ? (
+                  <div className="text-xs text-gray-400 px-2 py-1">No main boards found.</div>
+                ) : (
+                  filteredNavItems.map(item => {
+                    const mbId = String(item.main_board_id);
+                    const isExpanded = searchQuery.trim() ? true : activeGroupRefMainBoard === mbId;
+                    return (
+                      <div key={mbId} className="space-y-0.5">
+                        <div
+                          className={`flex items-center justify-between p-2 rounded-md cursor-pointer transition-all duration-200 group ${isExpanded ? 'bg-blue-600/50 shadow-sm border border-blue-400/30' : 'hover:bg-blue-700/25'}`}
+                          onClick={() => toggleMainBoard(mbId)}
+                          onMouseEnter={() => setHoveredItem(item.main_board_id)}
+                          onMouseLeave={() => setHoveredItem(null)}
+                        >
+                          <div className="flex items-center min-w-0 flex-1">
+                            {isExpanded
+                              ? <ChevronDown className="w-3 h-3 mr-1.5 text-gray-600 flex-shrink-0" />
+                              : <ChevronRight className="w-3 h-3 mr-1.5 text-gray-600 flex-shrink-0" />
+                            }
+                            <span className="text-xs font-medium truncate">
+                              {searchQuery
+                                ? <span dangerouslySetInnerHTML={{ __html: highlight(item.name, searchQuery) }} />
+                                : (boardNameMap[item.name] || item.name)}
+                            </span>
                           </div>
-                        );
-                      })
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Demo Reference dropdown */}
-            {(!searchQuery.trim() || "demo reference".includes(searchQuery.toLowerCase())) && (
-              <div className="space-y-0.5 mb-4">
-                <div
-                  className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all duration-200 group ${isDemoRefOpen ? 'bg-blue-700/60 shadow-md border border-blue-500/30' : 'hover:bg-blue-700/30'}`}
-                  onClick={toggleDemoRef}
-                  onMouseEnter={() => setHoveredItem('demo-ref')}
-                  onMouseLeave={() => setHoveredItem(null)}
-                >
-                  <div className="flex items-center min-w-0 flex-1">
-                    {isDemoRefOpen
-                      ? <ChevronDown className="w-3.5 h-3.5 mr-1.5 text-gray-700 flex-shrink-0" />
-                      : <ChevronRight className="w-3.5 h-3.5 mr-1.5 text-gray-700 flex-shrink-0" />
-                    }
-                    {(isSidebarOpen || isMobile) && (
-                      <span className="font-medium text-xs truncate">{t('sidebar.demoReference')}</span>
-                    )}
-                  </div>
-                </div>
-
-                {isDemoRefOpen && (isSidebarOpen || isMobile) && (
-                  <div className="ml-5 space-y-0.5 pb-1">
-                    {isDemoLoading ? (
-                      <div className="text-xs text-gray-400 px-2 py-1">{t('sidebar.loading')}</div>
-                    ) : !Array.isArray(demoMainBoards) || demoMainBoards.length === 0 ? (
-                      <div className="text-xs text-gray-400 px-2 py-1">{t('sidebar.noDemoBoards')}</div>
-                    ) : (
-                      demoMainBoards.map(mb => {
-                        const mbId = String(mb.id);
-                        const isActiveDemoMb = activeDemoMainBoard === mbId;
-                        const boardsForMb = Array.isArray(demoBoards)
-                          ? demoBoards.filter(b => b.main_board_id === mb.id)
-                          : [];
-                        return (
-                          <div key={mbId} className="space-y-0.5">
-                            <div
-                              className={`flex items-center justify-between p-2 rounded-md cursor-pointer transition-all duration-200 group ${isActiveDemoMb ? 'bg-blue-600/50 shadow-sm border border-blue-400/30' : 'hover:bg-blue-700/25'}`}
-                              onClick={() => setActiveDemoMainBoard(prev => prev === mbId ? null : mbId)}
-                            >
-                              <div className="flex items-center min-w-0 flex-1">
-                                {isActiveDemoMb
-                                  ? <ChevronDown className="w-3 h-3 mr-1.5 text-gray-600 flex-shrink-0" />
-                                  : <ChevronRight className="w-3 h-3 mr-1.5 text-gray-600 flex-shrink-0" />
-                                }
-                                <span className="text-xs font-medium truncate">{mb.name}</span>
-                              </div>
-                              <button
-                                onClick={e => openDemoCreateModal(e, mb.id)}
-                                className="p-1 hover:bg-blue-600 rounded transition-colors duration-200 opacity-0 group-hover:opacity-100 flex-shrink-0"
-                                title={`Add board to ${mb.name}`}
-                              >
-                                <Plus className="w-3.5 h-3.5" />
+                          {!searchQuery.trim() && (
+                            <div className="flex space-x-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                              <Plus className="p-1 hover:bg-blue-600 rounded transition-colors duration-200 w-5 h-5" onClick={e => handlePlusClick(e, mbId)} />
+                              <button onClick={e => handleDeleteMainBoard(e, mbId, item.name)} className="p-1 hover:bg-red-600 rounded transition-colors duration-200" title="Delete Main Board">
+                                <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             </div>
+                          )}
+                        </div>
 
-                            {isActiveDemoMb && (
-                              <div className="ml-4 space-y-0.5">
-                                {boardsForMb.length === 0 ? (
-                                  <div className="text-xs text-gray-400 px-2 py-1">No boards</div>
-                                ) : (
-                                  boardsForMb.map(board => (
-                                    <div
-                                      key={board.id}
-                                      className="flex items-center justify-between p-2 rounded-md hover:bg-blue-700/20 cursor-pointer group transition-all duration-200"
+                        {isExpanded && (
+                          <div className="ml-4 space-y-0.5">
+                            {Object.keys(item.boards ?? {}).filter(bId => item.boards[bId]?.is_active).length === 0 ? (
+                              <div className="text-xs text-gray-400 px-2 py-1">No boards</div>
+                            ) : (
+                              Object.keys(item.boards ?? {}).filter(bId => item.boards[bId]?.is_active).map(boardId => {
+                                const board = item.boards[boardId];
+                                return (
+                                  <div
+                                    key={boardId}
+                                    className={`flex items-center justify-between p-2 rounded-md cursor-pointer transition-all duration-200 group ${activeBoardId === boardId ? 'bg-blue-600/50 shadow-sm border border-blue-400/30' : 'hover:bg-blue-700/25'}`}
+                                    onClick={() => handleBoardClick(boardId)}
+                                  >
+                                    <Link
+                                      href={{ pathname: '/GroupContainer', query: { main_board_id: item.main_board_id, board_id: boardId } }}
+                                      onClick={closeMobileMenu}
+                                      className="flex-1 text-black text-xs font-medium truncate"
                                     >
-                                      <Link
-                                        href={{ pathname: '/DemoContainer', query: { board_id: board.id, main_board_id: mb.id } }}
-                                        onClick={closeMobileMenu}
-                                        className="flex-1 text-black text-xs font-medium truncate"
-                                      >
-                                        {board.name}
-                                      </Link>
+                                      {searchQuery
+                                        ? <span dangerouslySetInnerHTML={{ __html: highlight(board.name, searchQuery) }} />
+                                        : (boardNameMap[board.name] || board.name)}
+                                    </Link>
+                                    {!searchQuery.trim() && (
                                       <div className="flex space-x-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                                         <button
-                                          onClick={e => openDemoEditModal(e, board)}
-                                          className="p-1 hover:bg-blue-600 rounded transition-colors duration-200"
-                                          title="Edit board"
+                                          onClick={e => { e.stopPropagation(); handleEditClick(boardId, item.main_board_id); }}
+                                          className="p-1 hover:bg-blue-600 rounded transition-colors duration-200" title="Edit Board"
                                         >
                                           <Edit2 className="w-3 h-3" />
                                         </button>
                                         <button
-                                          onClick={e => handleDeleteDemoBoard(e, board)}
-                                          className="p-1 hover:bg-red-600 rounded transition-colors duration-200"
-                                          title="Delete board"
+                                          onClick={e => { e.stopPropagation(); handleDelete(boardId, item.main_board_id, board.name); }}
+                                          className="p-1 hover:bg-red-600 rounded transition-colors duration-200" title="Delete Board"
                                         >
                                           <Trash2 className="w-3 h-3" />
                                         </button>
                                       </div>
-                                    </div>
-                                  ))
-                                )}
-                              </div>
+                                    )}
+                                  </div>
+                                );
+                              })
                             )}
                           </div>
-                        );
-                      })
-                    )}
-                  </div>
+                        )}
+                      </div>
+                    );
+                  })
                 )}
               </div>
             )}
+
 
             {/* Admin / Owner items */}
             {filteredAdminItems.length > 0 && (
@@ -1699,74 +1440,6 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
                 <button onClick={handleCreateBoard} disabled={!newBoardName.trim() || !customerDbKey.trim()}
                   className="px-4 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200">
                   {isEditMode ? 'Update Board' : 'Create Board'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── Create Demo Board Modal ──────────────────────────────────────── */}
-        {showDemoModal && selectedDemoMainBoardId !== null && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center" onClick={closeDemoModal}>
-            <div className="bg-white rounded-xl shadow-2xl p-5 w-full max-w-sm mx-4 relative" onClick={e => e.stopPropagation()}>
-              <div className="mb-4">
-                <button className="absolute top-3 right-3 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full p-1.5 transition-all duration-200" onClick={closeDemoModal}>
-                  <X className="w-4 h-4" />
-                </button>
-                <h2 className="text-base font-bold text-gray-900">{isDemoEditMode ? 'Edit Demo Board' : 'Create a Demo Board'}</h2>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  {isDemoEditMode ? `Board ID: ${editingDemoBoardId} • Main Board ID: ${selectedDemoMainBoardId}` : `Main Board ID: ${selectedDemoMainBoardId}`}
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-                    Board Name <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={demoBoardName}
-                    onChange={e => setDemoBoardName(e.target.value)}
-                    placeholder="Enter board name"
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-                    Customer Database Key <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    value={demoCustomerDbKey}
-                    onChange={e => setDemoCustomerDbKey(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
-                  >
-                    <option value="">Select database</option>
-                    {customerDbOptions.map(db => (
-                      <option key={db} value={db}>{db}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {demoBoardName.trim() && demoCustomerDbKey && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-2.5">
-                    <p className="text-xs text-blue-800"><span className="font-semibold">{isDemoEditMode ? 'Ready to update:' : 'Ready to create:'}</span> {demoBoardName}</p>
-                    <p className="text-xs text-blue-600 mt-0.5">Database: {demoCustomerDbKey}</p>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex justify-end gap-2 mt-5">
-                <button onClick={closeDemoModal} className="px-4 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200">
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSaveDemoBoard}
-                  disabled={!demoBoardName.trim() || !demoCustomerDbKey || isCreatingDemoBoard}
-                  className="px-4 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
-                >
-                  {isCreatingDemoBoard ? (isDemoEditMode ? 'Updating...' : 'Creating...') : (isDemoEditMode ? 'Update Board' : 'Create Board')}
                 </button>
               </div>
             </div>
