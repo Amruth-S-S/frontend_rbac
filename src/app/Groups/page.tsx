@@ -478,7 +478,7 @@ function RevokeShareModal({
           <button style={{ ...m.saveBtn, background: "#ef4444" }} onClick={handleRevoke} disabled={revoking}>
             {revoking ? "Revoking…" : "Yes, Revoke"}
           </button>
-        </div>
+        </div>z
       </div>
     </div>
   );
@@ -1012,8 +1012,8 @@ function SharedBoardsPanel({
       await Promise.all(members.map(async (member: any) => {
         const memberId = member.user_id ?? member.id;
         if (!memberId) return;
-        const memberName = member.full_name ?? member.user_name ?? member.name
-          ?? `${member.first_name ?? ""} ${member.last_name ?? ""}`.trim() || member.email || `User #${memberId}`;
+        const memberName = (member.full_name ?? member.user_name ?? member.name
+          ?? `${(member.first_name ?? "")} ${(member.last_name ?? "")}`.trim()) || member.email || `User #${memberId}`;
         const memberEmail = member.email ?? member.user_email ?? "";
 
         try {
