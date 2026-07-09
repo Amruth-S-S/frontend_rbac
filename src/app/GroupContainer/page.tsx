@@ -264,6 +264,16 @@ function GroupContainerPage() {
     }
   }, [translatedPromptInput, newPromptName, isModalOpen]);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [infoObjForm, setInfoObjForm] = useState({
+    source_name: "",
+    month_year: "",
+    table_name: "",
+    description: "",
+    table_description: "",
+  });
+  const [infoObjFile, setInfoObjFile] = useState<File | null>(null);
+  const [isCreatingInfoObj, setIsCreatingInfoObj] = useState(false);
+
   const [formData, setFormData] = useState({
     tableName: "",
     tableDescription: "",
@@ -2117,10 +2127,57 @@ useEffect(() => {
 
   const handleeCloseModal = () => {
     setIsModallOpen(false);
-    setEditRow(null); // Reset editRow
-    setFormData({ tableName: "", tableDescription: "" }); // Reset the form
+    setEditRow(null);
+    setFormData({ tableName: "", tableDescription: "" });
+    setInfoObjForm({ source_name: "", month_year: "", table_name: "", description: "", table_description: "" });
+    setInfoObjFile(null);
   };
 
+  const handleCreateInfoObject = async () => {
+    if (!infoObjForm.source_name || !infoObjForm.month_year || !infoObjForm.table_name || !infoObjFile) {
+      toast.error("Please fill all required fields and select a CSV file.");
+      return;
+    }
+    let userId: string | null = null;
+    let orgId: string | null = null;
+    const currentUserData = sessionStorage.getItem("currentUserData");
+    if (currentUserData) {
+      try {
+        const parsed = JSON.parse(currentUserData);
+        userId = String(parsed.userId);
+        orgId = parsed.orgId ? String(parsed.orgId) : null;
+      } catch {}
+    }
+    if (!userId) { toast.error("User session not found."); return; }
+
+    setIsCreatingInfoObj(true);
+    const fd = new FormData();
+    fd.append("file", infoObjFile);
+    fd.append("source_name", infoObjForm.source_name);
+    fd.append("month_year", infoObjForm.month_year);
+    fd.append("table_name", infoObjForm.table_name);
+    if (infoObjForm.description) fd.append("description", infoObjForm.description);
+    if (infoObjForm.table_description) fd.append("table_description", infoObjForm.table_description);
+
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/rbac/data-sources/board/${boardId}/upload-csv?user_id=${userId}&org_id=${orgId}`,
+        { method: "POST", headers: { accept: "application/json", "X-API-Key": EXCEL_API_KEY }, body: fd }
+      );
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(`Data source "${infoObjForm.source_name}" created! (Slot ${data.slot_number ?? ""})`);
+        fetchDataSources();
+        handleeCloseModal();
+      } else {
+        toast.error(typeof data.detail === "string" ? data.detail : data.message || `Error ${res.status}`);
+      }
+    } catch (e: any) {
+      toast.error(`Network error: ${e.message}`);
+    } finally {
+      setIsCreatingInfoObj(false);
+    }
+  };
 
   const downloadExcel = () => {
     if (!runResult?.table || runResult.table.data.length === 0) {
@@ -5820,24 +5877,6 @@ const SpeechRecognition =
                                 </td>
                                 <td className="px-2 py-2">
                                   <div className="flex justify-center items-center gap-1 flex-wrap">
-                                    {row.files && row.files.length > 0 ? (
-                                      <button
-                                        onClick={() => handleDirectApprove('table', row.id)}
-                                        className="flex items-center gap-0.5 px-1.5 py-1 bg-green-600 hover:bg-green-700 text-white text-xs font-medium rounded"
-                                        title="Approve & Add to Data Sources"
-                                      >
-                                        <FaCheck size={9} />
-                                        <span className="hidden sm:inline">Approve</span>
-                                      </button>
-                                    ) : (
-                                      <span
-                                        className="flex items-center gap-0.5 px-1.5 py-1 bg-gray-100 text-gray-400 text-xs font-medium rounded cursor-not-allowed"
-                                        title="Upload a file before this can be approved"
-                                      >
-                                        <FaCheck size={9} />
-                                        <span className="hidden sm:inline">Approve</span>
-                                      </span>
-                                    )}
                                     <button
                                       onClick={() => handleEdit(row)}
                                       className="text-blue-600 hover:text-blue-800 p-1"
@@ -6308,69 +6347,117 @@ const SpeechRecognition =
 
             {/* ── Create / Edit Info-Object Modal ── */}
             {isModallOpen && (
-              <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 px-3">
-                <div className="bg-white rounded-lg shadow-lg w-full max-w-sm p-4">
-                  <h3 className="text-base font-semibold mb-4">
-                    {editRow ? 'Edit Info-Object' : 'Create New Info-Object'}
-                  </h3>
-                  <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-3">
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+                  {/* Header */}
+                  <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                     <div>
-                      <label className="block text-gray-700 text-xs font-bold mb-1.5">
-                        Info-Object Name
-                      </label>
-                      <input
-                        type="text"
-                        name="tableName"
-                        value={formData.tableName}
-                        onChange={handleChange}
-                        required
-                        disabled={isSavingInfoObject}
-                        className="border rounded w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-100"
-                      />
+                      <h3 className="text-base font-bold text-gray-800">
+                        {editRow ? 'Edit Info-Object' : 'Upload Data Source'}
+                      </h3>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {editRow ? 'Update name and description' : 'Upload a CSV file to create a new data source'}
+                      </p>
                     </div>
-                    <div>
-                      <label className="block text-gray-700 text-xs font-bold mb-1.5">
-                        Info-Object Description
-                      </label>
-                      <input
-                        type="text"
-                        name="tableDescription"
-                        value={formData.tableDescription}
-                        onChange={handleChange}
-                        required
-                        disabled={isSavingInfoObject}
-                        className="border rounded w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-100"
-                      />
+                    <button onClick={handleeCloseModal} className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                  </div>
+
+                  {editRow ? (
+                    /* Edit mode — keep existing simple form */
+                    <form onSubmit={handleSubmit} className="px-6 py-4 space-y-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">Name</label>
+                        <input type="text" name="tableName" value={formData.tableName} onChange={handleChange} required disabled={isSavingInfoObject}
+                          className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">Description</label>
+                        <input type="text" name="tableDescription" value={formData.tableDescription} onChange={handleChange} disabled={isSavingInfoObject}
+                          className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50" />
+                      </div>
+                      <div className="flex gap-2 pt-2">
+                        <button type="submit" disabled={isSavingInfoObject}
+                          className={`flex-1 text-white text-xs font-bold py-2 px-4 rounded-lg focus:outline-none flex items-center justify-center gap-2 ${isSavingInfoObject ? 'bg-blue-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                          {isSavingInfoObject ? 'Updating...' : 'Update'}
+                        </button>
+                        <button type="button" onClick={handleeCloseModal} disabled={isSavingInfoObject}
+                          className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold py-2 px-4 rounded-lg focus:outline-none">
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    /* Create mode — unified CSV upload */
+                    <div className="px-6 py-4 space-y-3 max-h-[70vh] overflow-y-auto">
+                      {/* CSV File upload */}
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">CSV File <span className="text-red-500">*</span></label>
+                        <label className={`flex items-center gap-3 border-2 border-dashed rounded-xl px-4 py-3 cursor-pointer transition-colors ${infoObjFile ? 'border-green-400 bg-green-50' : 'border-gray-200 hover:border-blue-400 hover:bg-blue-50'}`}>
+                          <svg className={`w-5 h-5 flex-shrink-0 ${infoObjFile ? 'text-green-500' : 'text-gray-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                          </svg>
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-gray-700 truncate">{infoObjFile ? infoObjFile.name : 'Click to choose CSV file'}</p>
+                            <p className="text-[10px] text-gray-400">{infoObjFile ? `${(infoObjFile.size / 1024).toFixed(1)} KB` : 'Only .csv files supported'}</p>
+                          </div>
+                          <input type="file" accept=".csv" className="hidden" onChange={e => setInfoObjFile(e.target.files?.[0] ?? null)} />
+                        </label>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">Source Name <span className="text-red-500">*</span></label>
+                          <input type="text" value={infoObjForm.source_name} onChange={e => setInfoObjForm(p => ({ ...p, source_name: e.target.value }))} placeholder="e.g. Sales Report Jan"
+                            className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">Month / Year <span className="text-red-500">*</span></label>
+                          <input
+                            type="month"
+                            value={infoObjForm.month_year
+                              ? (() => { const [m, y] = infoObjForm.month_year.split('/'); return y && m ? `${y}-${m.padStart(2,'0')}` : ''; })()
+                              : ''}
+                            onChange={e => {
+                              const [y, m] = (e.target.value || '').split('-');
+                              setInfoObjForm(p => ({ ...p, month_year: y && m ? `${m}/${y}` : '' }));
+                            }}
+                            className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">Table Name <span className="text-red-500">*</span></label>
+                          <input type="text" value={infoObjForm.table_name} onChange={e => setInfoObjForm(p => ({ ...p, table_name: e.target.value }))} placeholder="e.g. sales_data"
+                            className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">Description</label>
+                          <input type="text" value={infoObjForm.description} onChange={e => setInfoObjForm(p => ({ ...p, description: e.target.value }))} placeholder="Optional"
+                            className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">Table Description</label>
+                        <input type="text" value={infoObjForm.table_description} onChange={e => setInfoObjForm(p => ({ ...p, table_description: e.target.value }))} placeholder="Optional description for the data management table"
+                          className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                      </div>
+
+                      <div className="flex gap-2 pt-2">
+                        <button onClick={handleCreateInfoObject} disabled={isCreatingInfoObj}
+                          className={`flex-1 text-white text-xs font-bold py-2.5 px-4 rounded-lg flex items-center justify-center gap-2 ${isCreatingInfoObj ? 'bg-green-300 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}>
+                          {isCreatingInfoObj ? (
+                            <><svg className="animate-spin h-3.5 w-3.5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg> Uploading...</>
+                          ) : 'Upload & Create'}
+                        </button>
+                        <button onClick={handleeCloseModal} disabled={isCreatingInfoObj}
+                          className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold py-2.5 px-4 rounded-lg">
+                          Cancel
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex gap-2 pt-1">
-                      <button
-                        type="submit"
-                        disabled={isSavingInfoObject}
-                        className={`flex-1 text-white text-xs font-bold py-2 px-4 rounded focus:outline-none flex items-center justify-center gap-2 ${isSavingInfoObject ? 'bg-blue-300 cursor-not-allowed' : 'bg-blue-500 hover:bg-blue-700'
-                          }`}
-                      >
-                        {isSavingInfoObject ? (
-                          <>
-                            <svg className="animate-spin h-3.5 w-3.5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                            </svg>
-                            {editRow ? 'Updating...' : 'Creating...'}
-                          </>
-                        ) : (
-                          editRow ? 'Update' : 'Save'
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleeCloseModal}
-                        disabled={isSavingInfoObject}
-                        className="flex-1 bg-gray-500 hover:bg-gray-700 text-white text-xs font-bold py-2 px-4 rounded focus:outline-none disabled:bg-gray-300 disabled:cursor-not-allowed"
-                      >
-                        Close
-                      </button>
-                    </div>
-                  </form>
+                  )}
                 </div>
               </div>
             )}
