@@ -640,11 +640,13 @@ useEffect(() => {
     if (!deleteDataSourceConfirm.source) return;
 
     let userId: string | null = null;
+    let orgId: string | null = null;
     const currentUserData = sessionStorage.getItem("currentUserData");
     if (currentUserData) {
       try {
         const parsed = JSON.parse(currentUserData);
         userId = String(parsed.userId);
+        orgId = parsed.orgId ? String(parsed.orgId) : null;
       } catch (e) { }
     }
     if (!userId) { toast.error("User session not found."); return; }
@@ -654,9 +656,8 @@ useEffect(() => {
       const sourceId = deleteDataSourceConfirm.source.id;
       const deletedTableId = deleteDataSourceConfirm.source?.data_management_table_id;
 
-      // Single API that handles everything (data source + files + table)
       const response = await fetch(
-        `${API_BASE_URL}/main-boards/boards/data-sources/${sourceId}/complete?user_id=${parseInt(userId, 10)}`,
+        `${API_BASE_URL}/rbac/data-sources/${sourceId}/complete?user_id=${userId}&org_id=${orgId}`,
         {
           method: "DELETE",
           headers: { accept: "application/json", "X-API-Key": EXCEL_API_KEY },
