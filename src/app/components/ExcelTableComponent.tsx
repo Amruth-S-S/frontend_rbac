@@ -55,6 +55,13 @@ const ExcelTableComponent = ({ boardId }: ExcelTableComponentProps) => {
     return localStorage.getItem("loggedInUserId") || null;
   })();
 
+  const isViewer = (() => {
+    try {
+      const d = sessionStorage.getItem("currentUserData");
+      return d ? JSON.parse(d).orgRole === 'VIEWER' : false;
+    } catch { return false; }
+  })();
+
   const [tables, setTables] = useState<TableData[]>([]);
   const [tablesLoading, setTablesLoading] = useState(false);
   const [expandedTableId, setExpandedTableId] = useState<string | null>(null);
@@ -954,14 +961,14 @@ const ExcelTableComponent = ({ boardId }: ExcelTableComponentProps) => {
         {/* ── Top bar ── */}
         <div className="flex justify-end items-center my-2">
           <button
-            onClick={openCreateModal}
-            disabled={!boardId || !loggedInUserId || tables.length > 0}
+            onClick={() => !isViewer && openCreateModal()}
+            disabled={isViewer || !boardId || !loggedInUserId || tables.length > 0}
             className={`px-4 py-2 rounded text-xs font-medium transition-colors shadow-sm ${
-              !boardId || !loggedInUserId || tables.length > 0
-                ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+              isViewer || !boardId || !loggedInUserId || tables.length > 0
+                ? "bg-gray-300 text-gray-500 cursor-not-allowed opacity-40"
                 : "bg-blue-600 text-white hover:bg-blue-700"
             }`}
-            title={tables.length > 0 ? "Delete the existing table to create a new one" : undefined}
+            title={isViewer ? "View only" : tables.length > 0 ? "Delete the existing table to create a new one" : undefined}
           >
             {!boardId ? "Select Board First" : "+ Create Master Data"}
           </button>
@@ -1065,18 +1072,18 @@ const ExcelTableComponent = ({ boardId }: ExcelTableComponentProps) => {
                             ) : (
                               <>
                                 <button
-                                  onClick={() => startEditTable(table)}
-                                  className="text-blue-500 hover:text-blue-700 p-1 rounded hover:bg-blue-50"
-                                  title="Edit table"
+                                  onClick={() => !isViewer && startEditTable(table)}
+                                  disabled={isViewer}
+                                  className={`p-1 rounded ${isViewer ? 'text-blue-200 cursor-not-allowed opacity-40' : 'text-blue-500 hover:text-blue-700 hover:bg-blue-50'}`}
+                                  title={isViewer ? "View only" : "Edit table"}
                                 >
                                   <Edit2 className="h-3.5 w-3.5" />
                                 </button>
                                 <button
-                                  onClick={() =>
-                                    deleteTable(table.id, table.table_name)
-                                  }
-                                  className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50"
-                                  title="Delete table"
+                                  onClick={() => !isViewer && deleteTable(table.id, table.table_name)}
+                                  disabled={isViewer}
+                                  className={`p-1 rounded ${isViewer ? 'text-red-200 cursor-not-allowed opacity-40' : 'text-red-400 hover:text-red-600 hover:bg-red-50'}`}
+                                  title={isViewer ? "View only" : "Delete table"}
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </button>
@@ -1244,12 +1251,14 @@ const ExcelTableComponent = ({ boardId }: ExcelTableComponentProps) => {
                                   ) : (
                                     <button
                                       onClick={() => {
+                                        if (isViewer) return;
                                         setUploadingFor(table.id);
                                         setDatasetFile(null);
                                       }}
-                                      className="px-4 py-2 bg-white border border-gray-200 text-gray-600 rounded-md text-xs font-medium hover:bg-gray-50 hover:border-gray-300 flex items-center gap-1.5 shadow-sm"
+                                      disabled={isViewer}
+                                      className={`px-4 py-2 rounded-md text-xs font-medium flex items-center gap-1.5 shadow-sm ${isViewer ? 'bg-gray-50 border border-gray-200 text-gray-300 cursor-not-allowed opacity-40' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-300'}`}
                                     >
-                                      <Upload className="h-3.5 w-3.5 text-gray-500" />
+                                      <Upload className="h-3.5 w-3.5" />
                                       {table.has_uploaded_file
                                         ? "Re-upload Dataset"
                                         : "Upload Dataset"}
@@ -1269,9 +1278,9 @@ const ExcelTableComponent = ({ boardId }: ExcelTableComponentProps) => {
                                   </span>
                                   <div className="flex items-center gap-2">
                                     <button
-                                      onClick={() => addFieldRow(table.id)}
-                                      disabled={savingField}
-                                      className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700 flex items-center gap-1 disabled:opacity-50 shadow-sm"
+                                      onClick={() => !isViewer && addFieldRow(table.id)}
+                                      disabled={isViewer || savingField}
+                                      className={`px-3 py-1.5 rounded text-xs font-medium flex items-center gap-1 shadow-sm ${isViewer ? 'bg-gray-300 text-gray-400 cursor-not-allowed opacity-40' : 'bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50'}`}
                                     >
                                       <Plus className="h-3 w-3" /> Add new field
                                     </button>

@@ -87,6 +87,12 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
   const [boardId, setBoardId] = useState<number>(Number(props.boardId || 0));
   const [userId, setUserId] = useState<number>(Number(props.userId || 0));
   const [orgId, setOrgId] = useState<number>(Number(props.orgId || 0));
+  const isViewer = (() => {
+    try {
+      const d = typeof window !== "undefined" ? sessionStorage.getItem("currentUserData") : null;
+      return d ? JSON.parse(d).orgRole === 'VIEWER' : false;
+    } catch { return false; }
+  })();
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -1209,8 +1215,11 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
               <RefreshCw className={`h-4 w-4 ${loadingSettings ? "animate-spin text-violet-600" : ""}`} />
               <span className="hidden sm:inline">Refresh</span>
             </button>
-            <button onClick={openCreateModal}
-              className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg flex items-center gap-2 shadow-md hover:shadow-lg hover:from-blue-700 hover:to-blue-800 transition-all font-medium text-sm">
+            <button
+              onClick={() => !isViewer && openCreateModal()}
+              disabled={isViewer}
+              className={`px-4 py-2 rounded-lg flex items-center gap-2 shadow-md transition-all font-medium text-sm ${isViewer ? 'bg-gray-300 text-gray-400 cursor-not-allowed opacity-40' : 'bg-gradient-to-r from-blue-600 to-blue-700 text-white hover:shadow-lg hover:from-blue-700 hover:to-blue-800'}`}
+            >
               <Plus className="h-4 w-4" />
               <span>Create</span>
             </button>

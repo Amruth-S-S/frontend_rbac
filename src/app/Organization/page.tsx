@@ -618,6 +618,7 @@ export default function OrganizationPage() {
 
   const ownerUserId = getOwnerUserId();
   const sessionOrgRole = getSessionOrgRole();
+  const isViewer = sessionOrgRole === 'VIEWER';
   const canCreateOrg = sessionOrgRole !== 'SUPER_ADMIN' && sessionOrgRole !== 'ADMIN';
 
   const fetchMyOrg = async () => {
@@ -781,7 +782,7 @@ export default function OrganizationPage() {
           <p style={s.pageSub}>Manage your organization profile</p>
         </div>
         {!org && !loading && canCreateOrg && (
-          <button style={s.createBtn} onClick={() => setModalMode("create")}>+ Create Organization</button>
+          <button style={isViewer ? { ...s.createBtn, opacity: 0.4, cursor: 'not-allowed' } : s.createBtn} onClick={() => !isViewer && setModalMode("create")} disabled={isViewer}>+ Create Organization</button>
         )}
       </div>
 
@@ -799,7 +800,7 @@ export default function OrganizationPage() {
               {canCreateOrg ? "You have not created an organization yet." : "No organization found for your account."}
             </p>
             {canCreateOrg && (
-              <button style={{ ...s.createBtn, marginTop: 16 }} onClick={() => setModalMode("create")}>+ Create Organization</button>
+              <button style={isViewer ? { ...s.createBtn, marginTop: 16, opacity: 0.4, cursor: 'not-allowed' } : { ...s.createBtn, marginTop: 16 }} onClick={() => !isViewer && setModalMode("create")} disabled={isViewer}>+ Create Organization</button>
             )}
           </div>
         ) : (
@@ -826,7 +827,7 @@ export default function OrganizationPage() {
                   </td>
                   <td style={{ ...s.td, textAlign: "center" }}>
                     <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-                      <button style={s.editBtn} onClick={() => setModalMode("edit")}>✏️ Edit</button>
+                      <button style={isViewer ? { ...s.editBtn, opacity: 0.4, cursor: 'not-allowed' } : s.editBtn} onClick={() => !isViewer && setModalMode("edit")} disabled={isViewer}>✏️ Edit</button>
                     </div>
                   </td>
                 </tr>
@@ -871,7 +872,7 @@ export default function OrganizationPage() {
               <h2 style={s.sectionTitle}>Add Members to Organization</h2>
               <p style={s.pageSub}>Manage who has access to {org.name}</p>
             </div>
-            <button style={s.createBtn} onClick={() => setShowAddMemberModal(true)}>+ Add Member</button>
+            <button style={isViewer ? { ...s.createBtn, opacity: 0.4, cursor: 'not-allowed' } : s.createBtn} onClick={() => !isViewer && setShowAddMemberModal(true)} disabled={isViewer}>+ Add Member</button>
           </div>
 
           {members.length > 0 && (
@@ -928,10 +929,10 @@ export default function OrganizationPage() {
                         <td style={s.td}>{member.joined_at ? new Date(member.joined_at).toLocaleDateString() : "—"}</td>
                         <td style={{ ...s.td, textAlign: "center" }}>
                           <div style={{ display: "flex", gap: 6, justifyContent: "center" }}>
-                            <button style={s.iconBtn} onClick={() => setEditingMember(member)} title="Edit role">
+                            <button style={isViewer ? { ...s.iconBtn, opacity: 0.4, cursor: 'not-allowed' } : s.iconBtn} onClick={() => !isViewer && setEditingMember(member)} title="Edit role" disabled={isViewer}>
                               <Edit2 size={14} />
                             </button>
-                            <button style={{ ...s.iconBtn, ...s.iconBtnDanger }} onClick={() => setDeletingMember(member)} title="Remove member">
+                            <button style={isViewer ? { ...s.iconBtn, ...s.iconBtnDanger, opacity: 0.4, cursor: 'not-allowed' } : { ...s.iconBtn, ...s.iconBtnDanger }} onClick={() => !isViewer && setDeletingMember(member)} title="Remove member" disabled={isViewer}>
                               <Trash2 size={14} />
                             </button>
                           </div>

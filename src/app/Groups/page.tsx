@@ -1541,6 +1541,8 @@ function GroupAccessPanel({
   groupName: string;
   userId: string;
 }) {
+  const isViewer = getOrgRole() === 'VIEWER';
+
   const [mainBoards, setMainBoards] = useState<OrgMainBoard[]>([]);
   const [loadingMainBoards, setLoadingMainBoards] = useState(true);
 
@@ -1868,7 +1870,7 @@ function GroupAccessPanel({
       {accessSubTab === "mainboard" && (
         <>
           <div style={gm.mainBoardPicker}>
-            <button style={s.createBtn} onClick={() => setShowShareMainBoardModal(true)}>
+            <button style={isViewer ? { ...s.createBtn, opacity: 0.4, cursor: 'not-allowed' } : s.createBtn} onClick={() => !isViewer && setShowShareMainBoardModal(true)} disabled={isViewer}>
               <Lock size={14} style={{ marginRight: 6, display: "inline" }} /> Share Main Board
             </button>
           </div>
@@ -1911,9 +1913,9 @@ function GroupAccessPanel({
                         </td>
                         <td style={s.td}>
                           <button
-                            style={gm.removeBtn}
-                            onClick={() => item.share_id != null && handleDeleteGroupMainBoardShare(item.share_id, item.main_board_name)}
-                            disabled={deletingGroupShareId === item.share_id || item.share_id == null}
+                            style={isViewer ? { ...gm.removeBtn, opacity: 0.4, cursor: 'not-allowed' } : gm.removeBtn}
+                            onClick={() => !isViewer && item.share_id != null && handleDeleteGroupMainBoardShare(item.share_id, item.main_board_name)}
+                            disabled={isViewer || deletingGroupShareId === item.share_id || item.share_id == null}
                           >
                             {deletingGroupShareId === item.share_id
                               ? '…'
@@ -1933,7 +1935,7 @@ function GroupAccessPanel({
       {accessSubTab === "board" && (
         <>
           <div style={gm.mainBoardPicker}>
-            <button style={s.createBtn} onClick={() => setShowShareBoardModal(true)}>
+            <button style={isViewer ? { ...s.createBtn, opacity: 0.4, cursor: 'not-allowed' } : s.createBtn} onClick={() => !isViewer && setShowShareBoardModal(true)} disabled={isViewer}>
               <Lock size={14} style={{ marginRight: 6, display: "inline" }} /> Share Board
             </button>
           </div>
@@ -1976,9 +1978,9 @@ function GroupAccessPanel({
                         </td>
                         <td style={s.td}>
                           <button
-                            style={gm.removeBtn}
-                            onClick={() => item.share_id != null && handleDeleteGroupBoardShare(item.share_id, item.board_name)}
-                            disabled={deletingBoardShareId === item.share_id || item.share_id == null}
+                            style={isViewer ? { ...gm.removeBtn, opacity: 0.4, cursor: 'not-allowed' } : gm.removeBtn}
+                            onClick={() => !isViewer && item.share_id != null && handleDeleteGroupBoardShare(item.share_id, item.board_name)}
+                            disabled={isViewer || deletingBoardShareId === item.share_id || item.share_id == null}
                           >
                             {deletingBoardShareId === item.share_id
                               ? '…'
@@ -2073,6 +2075,8 @@ function GroupMembersModal({
   userId: string;
   onClose: () => void;
 }) {
+  const isViewer = getOrgRole() === 'VIEWER';
+
   const [activeTab, setActiveTab] = useState<"members" | "access" | "pg-tables">("members");
   const [showAddModal, setShowAddModal] = useState(false);
 
@@ -2306,7 +2310,7 @@ function GroupMembersModal({
                   <button style={gm.refreshBtn} onClick={fetchMembers} disabled={membersLoading}>
                     <RefreshCw size={14} style={{ marginRight: 6 }} /> Refresh
                   </button>
-                  <button style={s.createBtn} onClick={() => setShowAddModal(true)}>
+                  <button style={isViewer ? { ...s.createBtn, opacity: 0.4, cursor: 'not-allowed' } : s.createBtn} onClick={() => !isViewer && setShowAddModal(true)} disabled={isViewer}>
                     <UserPlus size={14} style={{ marginRight: 6, display: "inline" }} /> Add Member
                   </button>
                 </div>
@@ -2368,9 +2372,9 @@ function GroupMembersModal({
                           <td style={s.td}>{member.created_at ? new Date(member.created_at).toLocaleDateString() : "—"}</td>
                           <td style={s.td}>
                             <button
-                              style={gm.removeBtn}
-                              onClick={() => handleRemoveMember(member)}
-                              disabled={removingId === member.id}
+                              style={isViewer ? { ...gm.removeBtn, opacity: 0.4, cursor: 'not-allowed' } : gm.removeBtn}
+                              onClick={() => !isViewer && handleRemoveMember(member)}
+                              disabled={isViewer || removingId === member.id}
                             >
                               <Trash2 size={13} style={{ marginRight: 5 }} />
                               {removingId === member.id ? "Removing…" : "Remove"}
@@ -2389,6 +2393,90 @@ function GroupMembersModal({
             orgId
               ? <GroupAccessPanel orgId={orgId} groupId={group.id} groupName={group.name} userId={userId} />
               : <div style={{ padding: 24, color: "#94a3b8", fontSize: 13, textAlign: "center" }}>Loading organization…</div>
+          )}
+
+          {activeTab === "pg-tables" && (
+            <div style={{ padding: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <div>
+                  <h4 style={{ margin: 0, fontWeight: 700, color: "#1e293b", fontSize: 14 }}>PG Table Sources</h4>
+                  <p style={{ margin: "2px 0 0", fontSize: 12, color: "#94a3b8" }}>Manage PostgreSQL table sources for this group</p>
+                </div>
+                <button
+                  style={isViewer ? { ...s.createBtn, opacity: 0.4, cursor: 'not-allowed' } : s.createBtn}
+                  onClick={() => !isViewer && setShowAddPgForm(v => !v)}
+                  disabled={isViewer}
+                >
+                  <Plus size={14} style={{ marginRight: 6, display: "inline" }} /> Add PG Table
+                </button>
+              </div>
+
+              <div style={{ marginBottom: 12 }}>
+                <select
+                  style={{ ...s.input, marginBottom: 8 }}
+                  value={selectedPgBoardId ?? ""}
+                  onChange={e => setSelectedPgBoardId(e.target.value ? Number(e.target.value) : null)}
+                >
+                  <option value="">— Select a board —</option>
+                  {pgBoardsLoading
+                    ? <option disabled>Loading boards…</option>
+                    : pgBoards.map((b: any) => <option key={b.id} value={b.id}>{b.name || b.title || `Board #${b.id}`}</option>)
+                  }
+                </select>
+              </div>
+
+              {showAddPgForm && (
+                <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: 14, marginBottom: 14 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                    <input style={s.input} placeholder="Table name *" value={addPgData.table_name} onChange={e => setAddPgData(p => ({ ...p, table_name: e.target.value }))} />
+                    <input style={s.input} placeholder="Source name *" value={addPgData.source_name} onChange={e => setAddPgData(p => ({ ...p, source_name: e.target.value }))} />
+                    <input style={s.input} placeholder="Description" value={addPgData.description} onChange={e => setAddPgData(p => ({ ...p, description: e.target.value }))} />
+                    <input style={s.input} type="number" placeholder="Row limit" value={addPgData.row_limit} onChange={e => setAddPgData(p => ({ ...p, row_limit: Number(e.target.value) }))} />
+                  </div>
+                  <button
+                    style={isViewer || addingPg ? { ...s.createBtn, opacity: 0.4, cursor: 'not-allowed' } : s.createBtn}
+                    onClick={() => !isViewer && handleAddPg()}
+                    disabled={isViewer || addingPg}
+                  >
+                    {addingPg ? "Adding…" : "Submit"}
+                  </button>
+                </div>
+              )}
+
+              {pgTablesLoading ? (
+                <div style={s.empty}><Spinner /></div>
+              ) : pgTables.length === 0 ? (
+                <div style={s.empty}>
+                  <Database size={32} style={{ color: "#cbd5e1", marginBottom: 8 }} />
+                  <p style={{ color: "#94a3b8", fontSize: 13, marginTop: 4 }}>
+                    {selectedPgBoardId ? "No PG tables found for this board." : "Select a board to view its PG tables."}
+                  </p>
+                </div>
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table style={s.table}>
+                    <thead>
+                      <tr>
+                        {["ID", "Table Name", "Source Name", "Description", "Row Limit"].map(h => (
+                          <th key={h} style={s.th}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pgTables.map((t: any) => (
+                        <tr key={t.id}>
+                          <td style={{ ...s.td, color: "#2563eb", fontWeight: 600 }}>#{t.id}</td>
+                          <td style={s.td}>{t.table_name || "—"}</td>
+                          <td style={s.td}>{t.source_name || "—"}</td>
+                          <td style={s.td}>{t.description || "—"}</td>
+                          <td style={s.td}>{t.row_limit ?? "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -2431,6 +2519,7 @@ export default function GroupsPage() {
   const userId = getOwnerUserId();
   const orgRole = getOrgRole();
   const isAdmin = orgRole === 'ADMIN';
+  const isViewer = orgRole === 'VIEWER';
   const [orgId, setOrgId] = useState<number | null>(null);
   const [orgLoading, setOrgLoading] = useState(true);
 
@@ -2632,10 +2721,10 @@ export default function GroupsPage() {
               <Share2 size={15} style={{ marginRight: 6 }} /> Share To User
             </button>
             <button
-              style={isAdmin ? { ...s.createBtn, opacity: 0.4, cursor: 'not-allowed' } : s.createBtn}
-              onClick={() => !isAdmin && setModalMode("create")}
-              disabled={isAdmin}
-              title={isAdmin ? "Admins cannot create groups" : undefined}
+              style={(isAdmin || isViewer) ? { ...s.createBtn, opacity: 0.4, cursor: 'not-allowed' } : s.createBtn}
+              onClick={() => !isAdmin && !isViewer && setModalMode("create")}
+              disabled={isAdmin || isViewer}
+              title={isAdmin ? "Admins cannot create groups" : isViewer ? "Viewers cannot create groups" : undefined}
             >+ Create Group</button>
           </div>
         )}
@@ -2670,10 +2759,10 @@ export default function GroupsPage() {
             <span style={{ fontSize: 40 }}>👥</span>
             <p style={{ color: "#94a3b8", fontSize: 14, marginTop: 10 }}>No groups created yet.</p>
             <button
-              style={isAdmin ? { ...s.createBtn, marginTop: 16, opacity: 0.4, cursor: 'not-allowed' } : { ...s.createBtn, marginTop: 16 }}
-              onClick={() => !isAdmin && setModalMode("create")}
-              disabled={isAdmin}
-              title={isAdmin ? "Admins cannot create groups" : undefined}
+              style={(isAdmin || isViewer) ? { ...s.createBtn, marginTop: 16, opacity: 0.4, cursor: 'not-allowed' } : { ...s.createBtn, marginTop: 16 }}
+              onClick={() => !isAdmin && !isViewer && setModalMode("create")}
+              disabled={isAdmin || isViewer}
+              title={isAdmin ? "Admins cannot create groups" : isViewer ? "Viewers cannot create groups" : undefined}
             >+ Create Group</button>
           </div>
         ) : displayedGroups.length === 0 ? (
@@ -2711,10 +2800,10 @@ export default function GroupsPage() {
                         <button style={s.manageBtn} onClick={() => setManageGroup(group)} title="Manage members">
                           <Users size={14} style={{ marginRight: 6 }} /> Manage Members
                         </button>
-<button style={s.iconBtn} onClick={() => { setEditingGroup(group); setModalMode("edit"); }} title="Edit group">
+<button style={isViewer ? { ...s.iconBtn, opacity: 0.4, cursor: 'not-allowed' } : s.iconBtn} onClick={() => !isViewer && (setEditingGroup(group), setModalMode("edit"))} title="Edit group" disabled={isViewer}>
                           <Edit2 size={14} />
                         </button>
-                        <button style={{ ...s.iconBtn, ...s.iconBtnDanger }} onClick={() => setDeletingGroup(group)} title="Delete group">
+                        <button style={isViewer ? { ...s.iconBtn, ...s.iconBtnDanger, opacity: 0.4, cursor: 'not-allowed' } : { ...s.iconBtn, ...s.iconBtnDanger }} onClick={() => !isViewer && setDeletingGroup(group)} title="Delete group" disabled={isViewer}>
                           <Trash2 size={14} />
                         </button>
                       </div>

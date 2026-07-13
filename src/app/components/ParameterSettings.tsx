@@ -1199,7 +1199,7 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
               <Settings2 className="h-5 w-5 text-white" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-gray-900">Manage Parameter Settings</h1>
+              <h1 className="text-lg font-bold text-gray-900">Manage Parameter Settingsd</h1>
               <p className="text-xs text-gray-500">Configure data source parameters and transformations</p>
             </div>
           </div>

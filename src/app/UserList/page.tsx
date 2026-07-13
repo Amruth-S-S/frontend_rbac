@@ -20,12 +20,11 @@ interface ClientUser {
   id: string;
   email: string;
   name: string;
-  username: string;
-  role: string;
-  subscription: string;
+  designation: string;
+  country: string;
 }
 
-type SortKey = 'name' | 'email' | 'username' | 'role' | 'subscription';
+type SortKey = 'name' | 'email' | 'designation' | 'country';
 type SortDir = 'asc' | 'desc';
 
 /* ─── Register User Modal ─────────────────────────────────────────────────── */
@@ -173,8 +172,6 @@ function RegisterUserModal({ onClose, onRegistered }: { onClose: () => void; onR
 }
 
 /* ─── Edit User Modal ─────────────────────────────────────────────────────── */
-const ROLES = ['Admin', 'User', 'Manager', 'Analyst', 'Viewer'];
-const SUBSCRIPTIONS = ['Trial', 'Gold', 'Silver', 'Platinum', 'Enterprise'];
 
 function EditUserModal({ user, onClose, onUpdated }: { user: ClientUser; onClose: () => void; onUpdated: () => void }) {
   const [isSaving, setIsSaving] = useState(false);
@@ -182,10 +179,9 @@ function EditUserModal({ user, onClose, onUpdated }: { user: ClientUser; onClose
   const [form, setForm] = useState({
     email: user.email || '',
     name: user.name || '',
-    username: user.username || '',
     password: '',
-    role: user.role || '',
-    subscription: user.subscription || '',
+    designation: user.designation || '',
+    country: user.country || '',
   });
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -200,9 +196,8 @@ function EditUserModal({ user, onClose, onUpdated }: { user: ClientUser; onClose
       const payload: Record<string, string> = {
         email: form.email,
         name: form.name,
-        username: form.username,
-        role: form.role,
-        subscription: form.subscription,
+        designation: form.designation,
+        country: form.country,
       };
       if (form.password) payload.password = form.password;
 
@@ -254,10 +249,6 @@ function EditUserModal({ user, onClose, onUpdated }: { user: ClientUser; onClose
               <input style={inputStyle} type="email" name="email" value={form.email} onChange={handleChange} disabled={isSaving} placeholder="john@example.com" />
             </div>
             <div>
-              <label style={labelStyle}>Username</label>
-              <input style={inputStyle} name="username" value={form.username} onChange={handleChange} disabled={isSaving} placeholder="john_doe" />
-            </div>
-            <div>
               <label style={labelStyle}>Password <span style={{ color: '#94a3b8', fontWeight: 400 }}>(leave blank to keep current)</span></label>
               <div style={{ position: 'relative' }}>
                 <input style={{ ...inputStyle, paddingRight: 36 }} type={showPassword ? 'text' : 'password'} name="password" value={form.password} onChange={handleChange} disabled={isSaving} placeholder="New password" />
@@ -267,17 +258,14 @@ function EditUserModal({ user, onClose, onUpdated }: { user: ClientUser; onClose
               </div>
             </div>
             <div>
-              <label style={labelStyle}>Role</label>
-              <select style={inputStyle} name="role" value={form.role} onChange={handleChange} disabled={isSaving}>
-                <option value="">Select role…</option>
-                {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-              </select>
+              <label style={labelStyle}>Designation</label>
+              <input style={inputStyle} name="designation" value={form.designation} onChange={handleChange} disabled={isSaving} placeholder="e.g. Manager" />
             </div>
             <div>
-              <label style={labelStyle}>Subscription</label>
-              <select style={inputStyle} name="subscription" value={form.subscription} onChange={handleChange} disabled={isSaving}>
-                <option value="">Select subscription…</option>
-                {SUBSCRIPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+              <label style={labelStyle}>Country</label>
+              <select style={inputStyle} name="country" value={form.country} onChange={handleChange} disabled={isSaving}>
+                <option value="">Select country…</option>
+                {COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
           </div>
@@ -341,9 +329,8 @@ function normalizeDirectoryUser(u: any): ClientUser {
     id: String(u.id || u.user_id || ''),
     email: u.email || u.user_email || '',
     name: u.full_name || u.name || `${u.first_name || ''} ${u.last_name || ''}`.trim() || '',
-    username: u.username || u.user_name || '',
-    role: u.org_role || u.role || '',
-    subscription: u.subscription || '',
+    designation: u.designation || u.job_title || u.title || '',
+    country: u.country || '',
   };
 }
 
@@ -366,6 +353,7 @@ export default function UserList() {
   const [showRoleDropdown, setShowRoleDropdown] = useState(false);
   const [activeScreenRole, setActiveScreenRole] = useState<'consultant' | 'cxo'>('consultant');
   const roleDropdownRef = useRef<HTMLDivElement>(null);
+  const isViewer = getSessionInfo().orgRole === 'VIEWER';
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -437,8 +425,8 @@ export default function UserList() {
       ? users.filter(u =>
         (u.name || '').toLowerCase().includes(q) ||
         (u.email || '').toLowerCase().includes(q) ||
-        (u.username || '').toLowerCase().includes(q) ||
-        (u.role || '').toLowerCase().includes(q) ||
+        (u.designation || '').toLowerCase().includes(q) ||
+        (u.country || '').toLowerCase().includes(q) ||
         String(u.id || '').includes(q)
       )
       : [...users];
@@ -470,7 +458,7 @@ export default function UserList() {
   };
 
   const downloadExcel = () => {
-    const data = users.map(u => ({ Name: u.name || '—', Email: u.email || '—', Username: u.username || '—', Role: u.role || '—', Subscription: u.subscription || '—' }));
+    const data = users.map(u => ({ Name: u.name || '—', Email: u.email || '—', Designation: u.designation || '—', Country: u.country || '—' }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Users');
@@ -553,7 +541,7 @@ export default function UserList() {
             <button onClick={downloadExcel} style={s.exportBtn}>
               ↓ Export
             </button>
-            <button onClick={() => setShowRegisterModal(true)} style={s.createBtn}>
+            <button onClick={() => setShowRegisterModal(true)} style={isViewer ? { ...s.createBtn, opacity: 0.4, cursor: 'not-allowed' } : s.createBtn} disabled={isViewer}>
               + Create User
             </button>
           </div>
@@ -604,9 +592,8 @@ export default function UserList() {
                     {([
                       ['name', 'Name'],
                       ['email', 'Email'],
-                      ['username', 'Username'],
-                      ['role', 'Role'],
-                      ['subscription', 'Subscription'],
+                      ['designation', 'Designation'],
+                      ['country', 'Country'],
                     ] as [SortKey, string][]).map(([key, label]) => (
                       <th key={key} style={s.th} onClick={() => handleSort(key)}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}>
@@ -627,26 +614,23 @@ export default function UserList() {
                         </div>
                       </td>
                       <td style={s.td}>{u.email || '—'}</td>
-                      <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 12 }}>{u.username || '—'}</td>
-                      <td style={s.td}>
-                        {u.role ? <span style={s.roleBadge}>{u.role}</span> : '—'}
-                      </td>
-                      <td style={s.td}>
-                        {u.subscription ? <span style={s.subBadge}>{u.subscription}</span> : '—'}
-                      </td>
+                      <td style={s.td}>{u.designation || '—'}</td>
+                      <td style={s.td}>{u.country || '—'}</td>
                       <td style={s.td}>
                         <div style={{ display: 'flex', gap: 8 }}>
                           <button
                             onClick={() => setEditingUser(u)}
-                            style={s.iconBtn}
+                            style={isViewer ? { ...s.iconBtn, opacity: 0.4, cursor: 'not-allowed' } : s.iconBtn}
                             title="Edit"
+                            disabled={isViewer}
                           >
                             <Edit2 size={13} />
                           </button>
                           <button
                             onClick={() => setDeletingUser(u)}
-                            style={{ ...s.iconBtn, ...s.iconBtnDanger }}
+                            style={isViewer ? { ...s.iconBtn, ...s.iconBtnDanger, opacity: 0.4, cursor: 'not-allowed' } : { ...s.iconBtn, ...s.iconBtnDanger }}
                             title="Delete"
+                            disabled={isViewer}
                           >
                             <Trash2 size={13} />
                           </button>

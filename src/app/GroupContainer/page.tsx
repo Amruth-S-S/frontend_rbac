@@ -186,6 +186,10 @@ function GroupContainerPage() {
   const pathname = usePathname();
   const boardId = searchParams.get("board_id");
   const mainBoardId = searchParams.get("main_board_id");
+  const [isViewer, setIsViewer] = useState(false);
+  useEffect(() => {
+    try { setIsViewer(JSON.parse(sessionStorage.getItem('currentUserData') || '{}').orgRole === 'VIEWER'); } catch {}
+  }, []);
   // type Prompt = {
   //   id: string;
   //   prompt_text: string;
@@ -264,9 +268,13 @@ function GroupContainerPage() {
     }
   }, [translatedPromptInput, newPromptName, isModalOpen]);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const getCurrentMonthYear = () => {
+    const now = new Date();
+    return `${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+  };
   const [infoObjForm, setInfoObjForm] = useState({
     source_name: "",
-    month_year: "",
+    month_year: getCurrentMonthYear(),
     table_name: "",
     description: "",
     table_description: "",
@@ -2130,7 +2138,7 @@ useEffect(() => {
     setIsModallOpen(false);
     setEditRow(null);
     setFormData({ tableName: "", tableDescription: "" });
-    setInfoObjForm({ source_name: "", month_year: "", table_name: "", description: "", table_description: "" });
+    setInfoObjForm({ source_name: "", month_year: getCurrentMonthYear(), table_name: "", description: "", table_description: "" });
     setInfoObjFile(null);
   };
 
@@ -4560,8 +4568,9 @@ const SpeechRecognition =
 
                   {/* Buttons */}
                   <button
-                    className="flex-shrink-0 py-1.5 px-3 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors text-xs font-medium whitespace-nowrap"
+                    className="flex-shrink-0 py-1.5 px-3 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors text-xs font-medium whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
                     onClick={() => {
+                      if (isViewer) return;
                       setIsRunClicked(false);
                       setRunResult(null);
                       setNewPromptName('');
@@ -4569,19 +4578,20 @@ const SpeechRecognition =
                       setShowTopBtn(false);
                       setIsModalOpen(true);
                     }}
+                    disabled={isViewer}
                   >
                     {t("prompts.newPrompts")}
                   </button>
 
                   <button
                     className={`flex-shrink-0 py-1.5 px-3 rounded-md text-xs font-medium whitespace-nowrap flex items-center gap-1 transition-colors ${
-                      generateDone
-                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      isViewer || generateDone
+                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed opacity-40'
                         : 'bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-60'
                     }`}
-                    onClick={handleGenerateAndSavePrompts}
-                    disabled={isSavingGenerated || generateDone}
-                    title={generateDone ? 'Prompts already generated for this session' : 'Generate AI prompts'}
+                    onClick={() => !isViewer && handleGenerateAndSavePrompts()}
+                    disabled={isViewer || isSavingGenerated || generateDone}
+                    title={isViewer ? 'View only' : generateDone ? 'Prompts already generated for this session' : 'Generate AI prompts'}
                   >
                     {isSavingGenerated ? (
                       <><span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin inline-block" /> {t("prompts.generating")}</>
@@ -4594,15 +4604,17 @@ const SpeechRecognition =
 
                   {prompts.length === 0 ? (
                     <button
-                      className="flex-shrink-0 py-1.5 px-3 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-xs font-medium whitespace-nowrap"
-                      onClick={() => { setImportFile(null); setShowImportModal(true); }}
+                      className="flex-shrink-0 py-1.5 px-3 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-xs font-medium whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
+                      onClick={() => { if (isViewer) return; setImportFile(null); setShowImportModal(true); }}
+                      disabled={isViewer}
                     >
                       Import Prompts
                     </button>
                   ) : (
                     <button
-                      className="flex-shrink-0 py-1.5 px-3 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-xs font-medium whitespace-nowrap"
-                      onClick={() => setShowExportModal(true)}
+                      className="flex-shrink-0 py-1.5 px-3 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-xs font-medium whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
+                      onClick={() => !isViewer && setShowExportModal(true)}
+                      disabled={isViewer}
                     >
                       Export Prompts
                     </button>
@@ -4745,16 +4757,18 @@ const SpeechRecognition =
                                 <FaPlay size={11} />
                               </button>
                               <button
-                                className="text-gray-500 hover:text-blue-600 transition-colors p-0.5"
-                                onClick={() => handleEditPrompt(prompt)}
+                                className="text-gray-500 hover:text-blue-600 transition-colors p-0.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                                onClick={() => !isViewer && handleEditPrompt(prompt)}
                                 title="Edit"
+                                disabled={isViewer}
                               >
                                 <FaPen size={11} />
                               </button>
                               <button
-                                className="text-gray-500 hover:text-red-600 transition-colors p-0.5"
-                                onClick={() => handleDeletePrompt(prompt.id)}
+                                className="text-gray-500 hover:text-red-600 transition-colors p-0.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                                onClick={() => !isViewer && handleDeletePrompt(prompt.id)}
                                 title="Delete"
+                                disabled={isViewer}
                               >
                                 <FaTrash size={11} />
                               </button>
@@ -5691,14 +5705,16 @@ const SpeechRecognition =
                   Refresh
                 </button>
                 <button
-                  className="px-2 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs whitespace-nowrap"
-                  onClick={handleViewTables}
+                  className="px-2 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
+                  onClick={() => !isViewer && handleViewTables()}
+                  disabled={isViewer}
                 >
                   + PG Table
                 </button>
                 <button
-                  className="px-2 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-md text-xs whitespace-nowrap"
-                  onClick={handleeOpenModal}
+                  className="px-2 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-md text-xs whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
+                  onClick={() => !isViewer && handleeOpenModal()}
+                  disabled={isViewer}
                 >
                   + Info-Object
                 </button>
@@ -5768,16 +5784,18 @@ const SpeechRecognition =
                                   {source.source_type === "csv" && matchedRow && (
                                     <>
                                       <button
-                                        onClick={() => handleEdit(matchedRow)}
-                                        className="text-blue-600 hover:text-blue-800 p-1"
+                                        onClick={() => !isViewer && handleEdit(matchedRow)}
+                                        className="text-blue-600 hover:text-blue-800 p-1 disabled:opacity-40 disabled:cursor-not-allowed"
                                         title="Edit"
+                                        disabled={isViewer}
                                       >
                                         <FaPen size={12} />
                                       </button>
                                       <button
-                                        onClick={() => handleOpenUploadModal(matchedRow.id)}
-                                        className="text-green-600 hover:text-green-800 p-1"
+                                        onClick={() => !isViewer && handleOpenUploadModal(matchedRow.id)}
+                                        className="text-green-600 hover:text-green-800 p-1 disabled:opacity-40 disabled:cursor-not-allowed"
                                         title="Upload File"
+                                        disabled={isViewer}
                                       >
                                         <FaFileUpload size={12} />
                                       </button>
@@ -5791,9 +5809,10 @@ const SpeechRecognition =
                                     </>
                                   )}
                                   <button
-                                    onClick={() => setDeleteDataSourceConfirm({ isOpen: true, source })}
-                                    className="text-red-600 hover:text-red-800 p-1"
+                                    onClick={() => !isViewer && setDeleteDataSourceConfirm({ isOpen: true, source })}
+                                    className="text-red-600 hover:text-red-800 p-1 disabled:opacity-40 disabled:cursor-not-allowed"
                                     title="Delete"
+                                    disabled={isViewer}
                                   >
                                     <FaTrash size={12} />
                                   </button>
@@ -5879,16 +5898,18 @@ const SpeechRecognition =
                                 <td className="px-2 py-2">
                                   <div className="flex justify-center items-center gap-1 flex-wrap">
                                     <button
-                                      onClick={() => handleEdit(row)}
-                                      className="text-blue-600 hover:text-blue-800 p-1"
+                                      onClick={() => !isViewer && handleEdit(row)}
+                                      className="text-blue-600 hover:text-blue-800 p-1 disabled:opacity-40 disabled:cursor-not-allowed"
                                       title="Edit"
+                                      disabled={isViewer}
                                     >
                                       <FaPen size={12} />
                                     </button>
                                     <button
-                                      onClick={() => handleOpenUploadModal(row.id)}
-                                      className="text-green-600 hover:text-green-800 p-1"
+                                      onClick={() => !isViewer && handleOpenUploadModal(row.id)}
+                                      className="text-green-600 hover:text-green-800 p-1 disabled:opacity-40 disabled:cursor-not-allowed"
                                       title="Upload File"
+                                      disabled={isViewer}
                                     >
                                       <FaFileUpload size={12} />
                                     </button>
@@ -5900,9 +5921,10 @@ const SpeechRecognition =
                                       {isExpanded ? <FaCaretUp size={12} /> : <FaCaretDown size={12} />}
                                     </button>
                                     <button
-                                      onClick={() => handleDeletes(row)}
-                                      className="text-red-600 hover:text-red-800 p-1"
+                                      onClick={() => !isViewer && handleDeletes(row)}
+                                      className="text-red-600 hover:text-red-800 p-1 disabled:opacity-40 disabled:cursor-not-allowed"
                                       title="Delete"
+                                      disabled={isViewer}
                                     >
                                       <FaTrash size={12} />
                                     </button>
@@ -6410,8 +6432,13 @@ const SpeechRecognition =
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="block text-xs font-semibold text-gray-600 mb-1">Source Name <span className="text-red-500">*</span></label>
-                          <input type="text" value={infoObjForm.source_name} onChange={e => setInfoObjForm(p => ({ ...p, source_name: e.target.value }))} placeholder="e.g. Sales Report Jan"
-                            className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                          <input
+                            type="text"
+                            value={infoObjForm.source_name}
+                            onChange={e => setInfoObjForm(p => ({ ...p, source_name: e.target.value, table_name: e.target.value }))}
+                            placeholder="e.g. Sales Report Jan"
+                            className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                          />
                         </div>
                         <div>
                           <label className="block text-xs font-semibold text-gray-600 mb-1">Month / Year <span className="text-red-500">*</span></label>
@@ -6427,22 +6454,6 @@ const SpeechRecognition =
                             className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400"
                           />
                         </div>
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-600 mb-1">Table Name <span className="text-red-500">*</span></label>
-                          <input type="text" value={infoObjForm.table_name} onChange={e => setInfoObjForm(p => ({ ...p, table_name: e.target.value }))} placeholder="e.g. sales_data"
-                            className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-600 mb-1">Description</label>
-                          <input type="text" value={infoObjForm.description} onChange={e => setInfoObjForm(p => ({ ...p, description: e.target.value }))} placeholder="Optional"
-                            className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-semibold text-gray-600 mb-1">Table Description</label>
-                        <input type="text" value={infoObjForm.table_description} onChange={e => setInfoObjForm(p => ({ ...p, table_description: e.target.value }))} placeholder="Optional description for the data management table"
-                          className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400" />
                       </div>
 
                       <div className="flex gap-2 pt-2">
@@ -6646,6 +6657,7 @@ const SpeechRecognition =
                                                       ) : (
                                                         <button
                                                           onClick={() => {
+                                                            if (isViewer) return;
                                                             setEditRowId(source.id);
                                                             setEditRowKey(col.column_name);
                                                             setEditValues((prev) => ({
@@ -6656,7 +6668,8 @@ const SpeechRecognition =
                                                               },
                                                             }));
                                                           }}
-                                                          className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 text-[10px] rounded"
+                                                          disabled={isViewer}
+                                                          className={`inline-flex items-center gap-1 px-2 py-1 text-[10px] rounded ${isViewer ? 'bg-gray-50 text-gray-300 cursor-not-allowed opacity-40' : 'bg-gray-100 hover:bg-gray-200 text-gray-600'}`}
                                                         >
                                                           <FaPen size={9} /> Edit
                                                         </button>

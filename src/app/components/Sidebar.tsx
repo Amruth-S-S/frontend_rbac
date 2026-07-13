@@ -27,7 +27,10 @@ import {
   Eye,
   EyeOff,
   Building2,
-  Users
+  Users,
+  Shield,
+  ArrowLeft,
+  CheckCircle2,
 } from 'lucide-react';
 import './Toast.css';
 import { toast, ToastContainer } from 'react-toastify';
@@ -120,7 +123,14 @@ const Sidebar: React.FC<SidebarProps> = ({ }) => {
   const sidebarRef = useRef(null);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [orgRole, setOrgRole] = useState<string>('');
+  const isViewer = orgRole === 'VIEWER';
   const [showModal, setShowModal] = useState<boolean>(false);
+
+  // ── Manage Access modal ───────────────────────────────────────────────────
+  const [showAccessModal, setShowAccessModal] = useState(false);
+  const [accessData, setAccessData] = useState<any[]>([]);
+  const [accessLoading, setAccessLoading] = useState(false);
+  const [accessError, setAccessError] = useState<string | null>(null);
   const [showSubMenu, setShowSubMenu] = useState(false);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [newCollectionName, setNewCollectionName] = useState('');
@@ -920,6 +930,34 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
   useEffect(() => { if (refreshTrigger) fetchGroupRefItems(); }, [refreshTrigger]);
   const forceRefresh = () => fetchGroupRefItems();
 
+  // ── Fetch user board access ───────────────────────────────────────────────
+  const fetchUserAccess = async () => {
+    try {
+      const d = sessionStorage.getItem('currentUserData');
+      if (!d) return;
+      const { userId } = JSON.parse(d);
+      if (!userId || !orgId) return;
+      setAccessLoading(true);
+      setAccessError(null);
+      const res = await fetch(
+        `${API_BASE_URL}/board-access/user/${userId}/info-tree?org_id=${orgId}`,
+        { headers: { Accept: 'application/json', 'X-API-Key': EXCEL_API_KEY } }
+      );
+      if (!res.ok) throw new Error(`Error ${res.status}`);
+      const data = await res.json();
+      setAccessData(Array.isArray(data) ? data : data.main_boards || []);
+    } catch (e: any) {
+      setAccessError(e.message || 'Failed to load access data');
+    } finally {
+      setAccessLoading(false);
+    }
+  };
+
+  const openAccessModal = () => {
+    setShowAccessModal(true);
+    fetchUserAccess();
+  };
+
   // Auto-translate all board names when language or groupRefItems changes
   useEffect(() => {
     if (language === 'en' || groupRefItems.length === 0) {
@@ -1130,7 +1168,7 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
                                 : (boardNameMap[item.name] || item.name)}
                             </span>
                           </div>
-                          {!searchQuery.trim() && (
+                          {!searchQuery.trim() && !isViewer && (
                             <div className="flex space-x-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                               <Plus className="p-1 hover:bg-blue-600 rounded transition-colors duration-200 w-5 h-5" onClick={e => handlePlusClick(e, mbId)} />
                               <button onClick={e => handleDeleteMainBoard(e, mbId, item.name)} className="p-1 hover:bg-red-600 rounded transition-colors duration-200" title="Delete Main Board">
@@ -1162,7 +1200,7 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
                                         ? <span dangerouslySetInnerHTML={{ __html: highlight(board.name, searchQuery) }} />
                                         : (boardNameMap[board.name] || board.name)}
                                     </Link>
-                                    {!searchQuery.trim() && (
+                                    {!searchQuery.trim() && !isViewer && (
                                       <div className="flex space-x-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                                         <button
                                           onClick={e => { e.stopPropagation(); handleEditClick(boardId, item.main_board_id); }}
@@ -1215,6 +1253,19 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
             )}
           </div>
         </div>
+
+        {/* ── Manage Access button ─────────────────────────────────────────── */}
+        {(isSidebarOpen || isMobile) && (
+          <div className="px-2.5 pb-2">
+            <button
+              onClick={openAccessModal}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold transition-colors border border-blue-200"
+            >
+              <Shield className="w-3.5 h-3.5 flex-shrink-0" />
+              Manage Access
+            </button>
+          </div>
+        )}
 
         {/* ── User profile / dropdown ──────────────────────────────────────── */}
         <div className="border-t border-gray-200 p-2.5 relative" ref={dropdownRef}>
@@ -1440,6 +1491,136 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
                 <button onClick={handleCreateBoard} disabled={!newBoardName.trim() || !customerDbKey.trim()}
                   className="px-4 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200">
                   {isEditMode ? 'Update Board' : 'Create Board'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Manage Access Modal ───────────────────────────────────────────── */}
+        {showAccessModal && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden">
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-blue-600 to-blue-700">
+                <div className="flex items-center gap-3">
+                  <div className="p-1.5 bg-white/20 rounded-lg">
+                    <Shield className="w-4 h-4 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white">My Board Access</h3>
+                    <p className="text-[11px] text-blue-100">Boards you have access to</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowAccessModal(false)}
+                  className="p-1.5 text-white/70 hover:text-white hover:bg-white/20 rounded-full transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="flex-1 overflow-y-auto px-5 py-4">
+                {accessLoading ? (
+                  <div className="flex flex-col items-center justify-center py-12 gap-3">
+                    <div className="animate-spin rounded-full h-7 w-7 border-2 border-blue-600 border-t-transparent" />
+                    <p className="text-xs text-gray-400">Loading your access…</p>
+                  </div>
+                ) : accessError ? (
+                  <div className="flex flex-col items-center justify-center py-12 gap-2 text-center">
+                    <p className="text-xs text-red-500 font-medium">{accessError}</p>
+                    <button onClick={fetchUserAccess} className="text-xs text-blue-600 underline hover:text-blue-800">Retry</button>
+                  </div>
+                ) : accessData.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 gap-2 text-center">
+                    <Shield className="w-8 h-8 text-gray-200" />
+                    <p className="text-xs text-gray-400">No boards assigned to you yet.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {accessData.map((mainBoard: any, idx: number) => (
+                      <div key={idx} className="border border-gray-200 rounded-xl overflow-hidden">
+                        {/* Main board header */}
+                        <div className="px-3 py-2.5 bg-blue-50 border-b border-blue-100">
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
+                            <span className="text-xs font-bold text-blue-800 truncate flex-1">
+                              {mainBoard.main_board_name || mainBoard.name || `Main Board #${mainBoard.main_board_id}`}
+                            </span>
+                            {mainBoard.main_board_type && (
+                              <span className="text-[10px] px-2 py-0.5 bg-blue-200 text-blue-800 rounded-full font-semibold flex-shrink-0">
+                                {mainBoard.main_board_type}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-1.5 pl-5">
+                            {mainBoard.access_via && (
+                              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 bg-green-100 text-green-700 rounded-full border border-green-200 font-medium">
+                                <Shield className="w-2.5 h-2.5" /> {mainBoard.access_via}
+                              </span>
+                            )}
+                            {mainBoard.share_level && (
+                              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full border border-purple-200 font-medium">
+                                {mainBoard.share_level.replace(/_/g, ' ')}
+                              </span>
+                            )}
+                            {mainBoard.group_name && (
+                              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full border border-orange-200 font-medium">
+                                <Users className="w-2.5 h-2.5" /> {mainBoard.group_name}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Boards */}
+                        {(mainBoard.boards || []).length > 0 ? (
+                          <div className="divide-y divide-gray-100">
+                            {(mainBoard.boards || []).map((board: any, bIdx: number) => (
+                              <div key={bIdx} className="px-4 py-2.5 hover:bg-gray-50">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${board.is_active ? 'bg-green-500' : 'bg-gray-300'}`} />
+                                  <span className="text-xs text-gray-800 font-semibold truncate flex-1">
+                                    {board.board_name || board.name || `Board #${board.board_id}`}
+                                  </span>
+                                  <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${board.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                                    {board.is_active ? 'Active' : 'Inactive'}
+                                  </span>
+                                </div>
+                                <div className="flex flex-wrap gap-1 pl-3.5">
+                                  {board.access_via && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 bg-green-50 text-green-600 rounded border border-green-100 font-medium">
+                                      <Shield className="w-2 h-2" /> {board.access_via}
+                                    </span>
+                                  )}
+                                  {board.group_name && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 bg-orange-50 text-orange-600 rounded border border-orange-100 font-medium">
+                                      <Users className="w-2 h-2" /> {board.group_name}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="px-4 py-2.5 text-[11px] text-gray-400 italic">No boards</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="px-5 py-3 border-t border-gray-100 bg-gray-50 flex justify-between items-center">
+                <span className="text-[11px] text-gray-400">
+                  {accessData.length > 0 ? `${accessData.length} main board${accessData.length !== 1 ? 's' : ''} found` : ''}
+                </span>
+                <button
+                  onClick={() => setShowAccessModal(false)}
+                  className="flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" /> Back
                 </button>
               </div>
             </div>
