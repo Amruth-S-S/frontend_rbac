@@ -187,8 +187,13 @@ export default function Page() {
   const boardId = searchParams.get("board_id");
   const mainBoardId = searchParams.get("main_board_id");
   const [isViewer, setIsViewer] = useState(false);
+  const [isEditorOrAnalyst, setIsEditorOrAnalyst] = useState(false);
   useEffect(() => {
-    try { setIsViewer(JSON.parse(sessionStorage.getItem('currentUserData') || '{}').orgRole === 'VIEWER'); } catch {}
+    try {
+      const role = JSON.parse(sessionStorage.getItem('currentUserData') || '{}').orgRole;
+      setIsViewer(role === 'VIEWER' || role === 'EDITOR' || role === 'ANALYST');
+      setIsEditorOrAnalyst(role === 'EDITOR' || role === 'ANALYST');
+    } catch {}
   }, []);
   // type Prompt = {
   //   id: string;
@@ -2006,12 +2011,16 @@ useEffect(() => {
   };
 
   const getChartData = (chart: ChartData, type: 'bar' | 'line') => {
+    const { values } = chart.data_format;
+    // Backend sends `values` nested per category ([[..], [..]]) for true
+    // multi-series charts, but flat ([..]) when there's only one series —
+    // indexing a flat array with [i] grabs a single number, not the series.
+    const isNested = Array.isArray(values) && Array.isArray(values[0]);
     return {
       labels: chart.data_format.labels,
       datasets: chart.data_format.categories.map((category, i) => ({
         label: category,
-        // ✅ FIX: use values[i] (inner array), not values (nested array)
-        data: chart.data_format.values[i],
+        data: isNested ? (values as number[][])[i] ?? [] : (values as number[]),
         backgroundColor: type === 'bar'
           ? chart.data_format.labels.map((_, idx) => CHART_COLORS[idx % CHART_COLORS.length])
           : CHART_COLORS[i % CHART_COLORS.length],
@@ -3856,7 +3865,7 @@ const SpeechRecognition =
 
       // Show success toast message
       toast.success("Prompt deleted successfully!", {
-        position: "top-right",
+        position: "bottom-center",
         autoClose: 3000, // Close after 3 seconds
         hideProgressBar: false,
         closeOnClick: true,
@@ -3872,7 +3881,7 @@ const SpeechRecognition =
       console.error("Failed to delete prompt:", error);
       // Show error toast message
       toast.error("Failed to delete prompt. Please try again.", {
-        position: "top-right",
+        position: "bottom-center",
         autoClose: 3000, // Close after 3 seconds
         hideProgressBar: false,
         closeOnClick: true,
@@ -3992,6 +4001,8 @@ const SpeechRecognition =
         const ot = parts.join('');
         if (ot) setPromptOutputTypes(prev => ({ ...prev, [savedId]: ot }));
       }
+
+      toast.success(editPromptId ? "Prompt updated successfully!" : "Prompt saved successfully!");
 
       // Close modal and reset state
       setIsModalOpen(false);
@@ -4435,7 +4446,7 @@ const SpeechRecognition =
                   <button
                     className="flex-shrink-0 py-1.5 px-3 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors text-xs font-medium whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
                     onClick={() => {
-                      if (isViewer) return;
+                      if (isViewer && !isEditorOrAnalyst) return;
                       setIsRunClicked(false);
                       setRunResult(null);
                       setNewPromptName('');
@@ -4443,7 +4454,7 @@ const SpeechRecognition =
                       setShowTopBtn(false);
                       setIsModalOpen(true);
                     }}
-                    disabled={isViewer}
+                    disabled={isViewer && !isEditorOrAnalyst}
                   >
                     {t("prompts.newPrompts")}
                   </button>
@@ -4623,9 +4634,9 @@ const SpeechRecognition =
                               </button>
                               <button
                                 className="text-gray-500 hover:text-blue-600 transition-colors p-0.5 disabled:opacity-40 disabled:cursor-not-allowed"
-                                onClick={() => !isViewer && handleEditPrompt(prompt)}
+                                onClick={() => !(isViewer && !isEditorOrAnalyst) && handleEditPrompt(prompt)}
                                 title="Edit"
-                                disabled={isViewer}
+                                disabled={isViewer && !isEditorOrAnalyst}
                               >
                                 <FaPen size={11} />
                               </button>

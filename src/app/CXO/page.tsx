@@ -273,12 +273,39 @@ export default function CXO() {
     const fetchNavItems = async () => {
       try {
         setLoading(true);
-        const res = await fetch(`${API_BASE_URL}/main-boards/get_all_info_tree?user_id=${userData.userId}`, {
+        // Get orgId from session
+        let orgId: string | null = null;
+        try {
+          const sd = sessionStorage.getItem('currentUserData');
+          if (sd) orgId = String(JSON.parse(sd).orgId || '');
+        } catch {}
+        const url = orgId
+          ? `${API_BASE_URL}/rbac/main-boards/info-tree?user_id=${userData.userId}&org_id=${orgId}`
+          : `${API_BASE_URL}/rbac/main-boards/info-tree?user_id=${userData.userId}`;
+        const res = await fetch(url, {
           method: 'GET',
           headers: { Accept: 'application/json', "X-API-Key": EXCEL_API_KEY },
         });
-        if (res.ok) setNavItems(await res.json());
-        else setError(`Failed to fetch data: ${res.statusText}`);
+        if (res.ok) {
+          const raw = await res.json();
+          const list: any[] = Array.isArray(raw) ? raw : (raw?.items ?? raw?.main_boards ?? raw?.data ?? []);
+          // Normalize boards array → object keyed by board_id
+          const normalized: MainBoard[] = list.map((mb: any) => {
+            const boards: { [key: string]: Board } = {};
+            if (Array.isArray(mb.boards)) {
+              mb.boards.forEach((b: any) => {
+                const bId = String(b.board_id ?? b.id ?? Math.random());
+                boards[bId] = { name: b.name ?? b.board_name ?? '', is_active: b.is_active ?? true, path: b.path };
+              });
+            } else if (mb.boards && typeof mb.boards === 'object') {
+              Object.assign(boards, mb.boards);
+            }
+            return { ...mb, main_board_id: String(mb.main_board_id ?? mb.id ?? ''), name: mb.name ?? '', boards };
+          });
+          setNavItems(normalized);
+        } else {
+          setError(`Failed to fetch data: ${res.statusText}`);
+        }
       } catch (e) {
         setError('Failed to load data. Please try again.');
       } finally { setLoading(false); }
@@ -497,15 +524,16 @@ export default function CXO() {
     setIsRunClicked(false);
     try {
       const res = await fetch(`${API_BASE_URL}/main-boards/boards/prompts/boards/${id}`, { headers: { "X-API-Key": EXCEL_API_KEY } });
-      if (!res.ok) { setNoPromptsBoard(id); return; }
+      if (!res.ok) { setNoPromptsBoard(id); showToast("No prompts available in this board.", 'info'); return; }
       const data = await res.json();
-      if (!Array.isArray(data) || data.length === 0) { setNoPromptsBoard(id); return; }
+      if (!Array.isArray(data) || data.length === 0) { setNoPromptsBoard(id); showToast("No prompts available in this board.", 'info'); return; }
       setPrompts(data);
       setActiveTab("prompts");
       setSelectedBoardId(id);
       setShowBoardModal(true);
     } catch {
       setNoPromptsBoard(id);
+      showToast("No prompts available in this board.", 'info');
     } finally {
       setBoardCheckLoading(null);
     }
@@ -810,11 +838,14 @@ export default function CXO() {
   const getChartData = (chartData: ChartData, type: "bar" | "line") => {
     if (!chartData?.data_format) return { labels: [], datasets: [] };
     const { labels = [], categories, values = [] } = chartData.data_format;
+    // Backend sends `values` nested per category ([[..], [..]]) for true
+    // multi-series charts, but flat ([..]) when there's only one series.
+    const isNested = Array.isArray(values) && Array.isArray((values as number[][])[0]);
     return {
       labels,
       datasets: (categories || []).map((cat, i) => ({
         label: cat,
-        data: Array.isArray(values) && Array.isArray((values as number[][])[i]) ? (values as number[][])[i] : [],
+        data: isNested ? ((values as number[][])[i] ?? []) : (values as number[]),
         backgroundColor: type === 'bar'
           ? labels.map((_, idx) => CHART_COLORS[idx % CHART_COLORS.length])
           : CHART_COLORS[i % CHART_COLORS.length],

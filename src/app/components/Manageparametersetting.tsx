@@ -90,7 +90,8 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
   const isViewer = (() => {
     try {
       const d = typeof window !== "undefined" ? sessionStorage.getItem("currentUserData") : null;
-      return d ? JSON.parse(d).orgRole === 'VIEWER' : false;
+      const role = d ? JSON.parse(d).orgRole : null;
+      return role === 'VIEWER' || role === 'EDITOR' || role === 'ANALYST';
     } catch { return false; }
   })();
 

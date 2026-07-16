@@ -58,7 +58,8 @@ const ExcelTableComponent = ({ boardId }: ExcelTableComponentProps) => {
   const isViewer = (() => {
     try {
       const d = sessionStorage.getItem("currentUserData");
-      return d ? JSON.parse(d).orgRole === 'VIEWER' : false;
+      const role = d ? JSON.parse(d).orgRole : null;
+      return role === 'VIEWER' || role === 'EDITOR' || role === 'ANALYST';
     } catch { return false; }
   })();
 

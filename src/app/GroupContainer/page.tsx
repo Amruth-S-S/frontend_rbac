@@ -187,8 +187,13 @@ function GroupContainerPage() {
   const boardId = searchParams.get("board_id");
   const mainBoardId = searchParams.get("main_board_id");
   const [isViewer, setIsViewer] = useState(false);
+  const [isEditorOrAnalyst, setIsEditorOrAnalyst] = useState(false);
   useEffect(() => {
-    try { setIsViewer(JSON.parse(sessionStorage.getItem('currentUserData') || '{}').orgRole === 'VIEWER'); } catch {}
+    try {
+      const role = JSON.parse(sessionStorage.getItem('currentUserData') || '{}').orgRole;
+      setIsViewer(role === 'VIEWER' || role === 'EDITOR' || role === 'ANALYST');
+      setIsEditorOrAnalyst(role === 'EDITOR' || role === 'ANALYST');
+    } catch {}
   }, []);
   // type Prompt = {
   //   id: string;
@@ -363,7 +368,13 @@ function GroupContainerPage() {
   const [activeScreenRole, setActiveScreenRole] = useState<'consultant' | 'cxo'>('consultant');
 
   useEffect(() => {
-    if (pathname === '/CXO' || pathname === '/CXODemo') {
+    // The board link that brought us here stamps which dashboard flavor it was
+    // clicked from — trust that over a possibly stale localStorage value.
+    const linkedRole = searchParams.get('screenRole');
+    if (linkedRole === 'cxo' || linkedRole === 'consultant') {
+      setActiveScreenRole(linkedRole);
+      localStorage.setItem('activeScreenRole', linkedRole);
+    } else if (pathname === '/CXO' || pathname === '/CXODemo') {
       setActiveScreenRole('cxo');
       localStorage.setItem('activeScreenRole', 'cxo');
     } else if (pathname === '/Container' || pathname === '/Consultant' || pathname === '/Dashboard') {
@@ -373,7 +384,7 @@ function GroupContainerPage() {
       const stored = localStorage.getItem('activeScreenRole') as 'consultant' | 'cxo' | null;
       setActiveScreenRole(stored || 'consultant');
     }
-  }, [pathname]);
+  }, [pathname, searchParams]);
   const currentDate = new Date();
   const [selectedDate, setSelectedDate] = useState(() => {
     const now = new Date();
@@ -439,6 +450,13 @@ function GroupContainerPage() {
   const [showAddDataSourceModal, setShowAddDataSourceModal] = useState(false);
   const [showTopBtn, setShowTopBtn] = useState(false);
   const [resultTab, setResultTab] = useState('message');
+  const [columnMetadata, setColumnMetadata] = useState<any[]>([]);
+  const [columnMetaLoading, setColumnMetaLoading] = useState(false);
+  const [showColumnMeta, setShowColumnMeta] = useState(false);
+  const [showSuggModal, setShowSuggModal] = useState(false);
+  const [suggSelectedSource, setSuggSelectedSource] = useState<string>('');
+  const [suggLoading, setSuggLoading] = useState(false);
+  const [suggPrompts, setSuggPrompts] = useState<string[]>([]);
   const [addDataSourceForm, setAddDataSourceForm] = useState({
     source_name: "",
     description: "",
@@ -605,18 +623,18 @@ useEffect(() => {
 
 useEffect(() => {
   if (dataSources.length === 0) return;
-  
-  fetchParamFilterStatuses(); // initial fetch
-  
-  // Poll every 5 seconds when on parameter tab
+
+  fetchParamFilterStatuses(); // initial fetch when data sources load
+
+  // Poll every 5 seconds only on parameter tab
   const interval = setInterval(() => {
-    if (activeTab === "parameter" || activeTab === "prompts") {
+    if (activeTab === "parameter") {
       fetchParamFilterStatuses();
     }
   }, 5000);
-  
+
   return () => clearInterval(interval);
-}, [dataSources, activeTab]);
+}, [dataSources]);
 
   const fetchFilterStatuses = async () => {
   if (!boardId || dataSources.length === 0) return;
@@ -1677,6 +1695,69 @@ useEffect(() => {
     setShowPromptsModal(true);
   };
 
+  const handleGenerateSuggestions = async () => {
+    if (!suggSelectedSource) return;
+    setSuggLoading(true);
+    setSuggPrompts([]);
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/prompt-suggestions/source/${suggSelectedSource}`,
+        { headers: { 'X-API-Key': EXCEL_API_KEY } }
+      );
+      if (!res.ok) { setSuggPrompts([]); return; }
+      const data = await res.json();
+      // API returns { suggestions_flat: [{prompt_text, category, ...}], suggestions_by_category: {...} }
+      const flat: any[] = Array.isArray(data)
+        ? data
+        : (data.suggestions_flat || data.suggestions || data.prompts || data.data || []);
+      const list: string[] = flat.map((s: any) =>
+        typeof s === 'string' ? s : (s.prompt_text || s.suggestion || s.prompt || s.text || '')
+      ).filter(Boolean);
+      setSuggPrompts(list);
+    } catch {
+      setSuggPrompts([]);
+    } finally {
+      setSuggLoading(false);
+    }
+  };
+
+  const handleSuggPromptClick = (text: string) => {
+    promptEnRef.current = text;
+    setNewPromptName(text);
+    setTranslatedPromptInput('');
+    setShowSuggModal(false);
+    // Auto-expand textarea
+    setTimeout(() => {
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+        textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+        textareaRef.current.focus();
+      }
+    }, 50);
+  };
+
+  const handleCheckColumns = async () => {
+    setShowColumnMeta(true);
+    setColumnMetaLoading(true);
+    setColumnMetadata([]);
+    try {
+      const parsed = JSON.parse(sessionStorage.getItem('currentUserData') || '{}');
+      const userId = parsed.userId;
+      const orgId = parsed.orgId;
+      const res = await fetch(
+        `${API_BASE_URL}/rbac/data-sources/board/${boardId}/metadata?user_id=${userId}&org_id=${orgId}`,
+        { headers: { "X-API-Key": EXCEL_API_KEY } }
+      );
+      if (!res.ok) { setColumnMetadata([]); return; }
+      const data = await res.json();
+      setColumnMetadata(Array.isArray(data) ? data : (data.sources || data.data || []));
+    } catch {
+      setColumnMetadata([]);
+    } finally {
+      setColumnMetaLoading(false);
+    }
+  };
+
   const handleClosePromptsModal = () => {
     setSearchTerm('');
     setShowPromptsModal(false);
@@ -2085,12 +2166,16 @@ useEffect(() => {
   };
 
   const getChartData = (chart: ChartData, type: 'bar' | 'line') => {
+    const { values } = chart.data_format;
+    // Backend sends `values` nested per category ([[..], [..]]) for true
+    // multi-series charts, but flat ([..]) when there's only one series —
+    // indexing a flat array with [i] grabs a single number, not the series.
+    const isNested = Array.isArray(values) && Array.isArray(values[0]);
     return {
       labels: chart.data_format.labels,
       datasets: chart.data_format.categories.map((category, i) => ({
         label: category,
-        // ✅ FIX: use values[i] (inner array), not values (nested array)
-        data: chart.data_format.values[i],
+        data: isNested ? (values as number[][])[i] ?? [] : (values as number[]),
         backgroundColor: type === 'bar'
           ? chart.data_format.labels.map((_, idx) => CHART_COLORS[idx % CHART_COLORS.length])
           : CHART_COLORS[i % CHART_COLORS.length],
@@ -3652,7 +3737,7 @@ const SpeechRecognition =
 
 
   const handleRunPrompt = async () => {
-
+    setShowColumnMeta(false);
 
     // if (!hasReprompted) {
     //   // Show popup if user hasn't clicked reprompt first
@@ -3985,7 +4070,7 @@ const SpeechRecognition =
 
       // Show success toast message
       toast.success("Prompt deleted successfully!", {
-        position: "top-right",
+        position: "bottom-center",
         autoClose: 3000, // Close after 3 seconds
         hideProgressBar: false,
         closeOnClick: true,
@@ -4001,7 +4086,7 @@ const SpeechRecognition =
       console.error("Failed to delete prompt:", error);
       // Show error toast message
       toast.error("Failed to delete prompt. Please try again.", {
-        position: "top-right",
+        position: "bottom-center",
         autoClose: 3000, // Close after 3 seconds
         hideProgressBar: false,
         closeOnClick: true,
@@ -4121,6 +4206,8 @@ const SpeechRecognition =
         const ot = parts.join('');
         if (ot) setPromptOutputTypes(prev => ({ ...prev, [savedId]: ot }));
       }
+
+      toast.success(editPromptId ? "Prompt updated successfully!" : "Prompt saved successfully!");
 
       // Close modal and reset state
       setIsModalOpen(false);
@@ -4383,7 +4470,7 @@ const SpeechRecognition =
                     localStorage.setItem('activeScreenRole', 'consultant');
                     setActiveScreenRole('consultant');
                     setShowDropdown(false);
-                    router.push('/Consultant');
+                    router.push('/Container');
                   }}
                   className={`w-full text-left block px-4 py-2 text-sm ${activeScreenRole === 'consultant' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}
                 >
@@ -4570,7 +4657,7 @@ const SpeechRecognition =
                   <button
                     className="flex-shrink-0 py-1.5 px-3 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors text-xs font-medium whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
                     onClick={() => {
-                      if (isViewer) return;
+                      if (isViewer && !isEditorOrAnalyst) return;
                       setIsRunClicked(false);
                       setRunResult(null);
                       setNewPromptName('');
@@ -4578,12 +4665,12 @@ const SpeechRecognition =
                       setShowTopBtn(false);
                       setIsModalOpen(true);
                     }}
-                    disabled={isViewer}
+                    disabled={isViewer && !isEditorOrAnalyst}
                   >
                     {t("prompts.newPrompts")}
                   </button>
 
-                  <button
+                  {/* <button
                     className={`flex-shrink-0 py-1.5 px-3 rounded-md text-xs font-medium whitespace-nowrap flex items-center gap-1 transition-colors ${
                       isViewer || generateDone
                         ? 'bg-gray-300 text-gray-500 cursor-not-allowed opacity-40'
@@ -4600,7 +4687,7 @@ const SpeechRecognition =
                     ) : (
                       <>{t("prompts.promptsSuggestion")}</>
                     )}
-                  </button>
+                  </button> */}
 
                   {prompts.length === 0 ? (
                     <button
@@ -4758,9 +4845,9 @@ const SpeechRecognition =
                               </button>
                               <button
                                 className="text-gray-500 hover:text-blue-600 transition-colors p-0.5 disabled:opacity-40 disabled:cursor-not-allowed"
-                                onClick={() => !isViewer && handleEditPrompt(prompt)}
+                                onClick={() => !(isViewer && !isEditorOrAnalyst) && handleEditPrompt(prompt)}
                                 title="Edit"
-                                disabled={isViewer}
+                                disabled={isViewer && !isEditorOrAnalyst}
                               >
                                 <FaPen size={11} />
                               </button>
@@ -6832,12 +6919,21 @@ const SpeechRecognition =
                     el.style.height = `${el.scrollHeight}px`;
                   }}
                 />
-                {/* <button
-                  onClick={handleGeneratePrompt}
-                  className="absolute bottom-2 right-2 px-2.5 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-[11px] font-medium whitespace-nowrap shadow-sm"
+                {/* Prompt Suggestion button — pulsing to attract attention */}
+                <button
+                  onClick={() => { setShowSuggModal(true); setSuggPrompts([]); setSuggSelectedSource(''); }}
+                  className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 bg-violet-600 text-white rounded text-[10px] font-semibold shadow-md whitespace-nowrap"
+                  style={{ animation: 'suggPulse 2s ease-in-out infinite' }}
+                  title="Prompt Suggestions"
                 >
-                  Generate Prompts
-                </button> */}
+                  ✨ Prompt Suggestion
+                </button>
+                <style>{`
+                  @keyframes suggPulse {
+                    0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(124,58,237,0.5); }
+                    50% { transform: scale(1.07); box-shadow: 0 0 0 6px rgba(124,58,237,0); }
+                  }
+                `}</style>
               </div>
 
               {/* Action Buttons */}
@@ -6854,6 +6950,12 @@ const SpeechRecognition =
                   onClick={handleViewPromptsClick}
                 >
                   {t('runPrompt.viewPrompts')}
+                </button>
+                <button
+                  className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium whitespace-nowrap"
+                  onClick={handleCheckColumns}
+                >
+                  Check Column
                 </button>
                 <button
                   onClick={handleRePrompt}
@@ -6882,6 +6984,60 @@ const SpeechRecognition =
               {isLoading && (
                 <div className="flex justify-end mt-2">
                   <Spinner />
+                </div>
+              )}
+
+              {/* ── Column Metadata ── */}
+              {showColumnMeta && (
+                <div className="mt-2 border border-gray-200 rounded-lg overflow-hidden" style={{ width: 'fit-content', maxWidth: '100%' }}>
+                  <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-200">
+                    <span className="text-xs font-semibold text-gray-700">Data Source Columns</span>
+                    <button
+                      onClick={() => setShowColumnMeta(false)}
+                      className="text-gray-400 hover:text-gray-600 text-sm leading-none"
+                    >✕</button>
+                  </div>
+                  {columnMetaLoading ? (
+                    <div className="flex items-center justify-center py-6">
+                      <Spinner />
+                    </div>
+                  ) : columnMetadata.length === 0 ? (
+                    <p className="text-xs text-gray-400 text-center py-4 italic">No data sources found.</p>
+                  ) : (
+                    <div className="divide-y divide-gray-100 max-h-64 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+                      {columnMetadata.map((source: any, sIdx: number) => {
+                        const sourceName = source.source_name || source.table_name || source.name || `Source ${sIdx + 1}`;
+                        const cols: string[] = Array.isArray(source.columns) ? source.columns : [];
+                        return (
+                          <div key={sIdx} className="px-3 py-2">
+                            <div className="flex items-center gap-1.5 mb-1.5">
+                              <div className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
+                              <span className="text-xs font-semibold text-gray-800">{sourceName}</span>
+                              <span className="ml-auto text-[10px] text-gray-400">{cols.length} columns</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1 pl-3">
+                              {cols.map((col: any, cIdx: number) => {
+                                const colName = typeof col === 'string' ? col : (col.column_name || col.name || `col_${cIdx}`);
+                                const dataType = typeof col === 'object' ? (col.data_type || col.type || '') : '';
+                                return (
+                                  <span
+                                    key={cIdx}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-100 rounded text-[10px] font-medium"
+                                  >
+                                    {colName}
+                                    {dataType && <span className="text-blue-400 font-normal">({dataType})</span>}
+                                  </span>
+                                );
+                              })}
+                              {cols.length === 0 && (
+                                <span className="text-[10px] text-gray-400 italic">No columns</span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -7470,6 +7626,76 @@ const SpeechRecognition =
                       );
                     })}
                   </>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ── Prompt Suggestion Modal ── */}
+        {showSuggModal && (
+          <>
+            <div className="fixed inset-0 bg-black bg-opacity-30 z-[70]" onClick={() => setShowSuggModal(false)} />
+            <div className="fixed top-0 right-0 h-full w-80 bg-white shadow-2xl z-[80] flex flex-col">
+              {/* Header */}
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+                <div className="flex items-center gap-2">
+                  <span className="text-violet-600">✨</span>
+                  <span className="font-semibold text-sm text-gray-800">Prompt Suggestions</span>
+                </div>
+                <button onClick={() => setShowSuggModal(false)} className="text-gray-400 hover:text-gray-700 text-xl leading-none">×</button>
+              </div>
+
+              {/* Source selector + Generate */}
+              <div className="px-4 py-3 border-b border-gray-100 space-y-2">
+                <label className="text-xs font-medium text-gray-600">Select Data Source</label>
+                <select
+                  value={suggSelectedSource}
+                  onChange={e => { setSuggSelectedSource(e.target.value); setSuggPrompts([]); }}
+                  className="w-full px-3 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-400 bg-white"
+                >
+                  <option value="">-- Choose a source --</option>
+                  {dataSources.map((ds: any) => (
+                    <option key={ds.id} value={String(ds.id)}>
+                      {ds.source_name || ds.name || `Source ${ds.id}`}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={handleGenerateSuggestions}
+                  disabled={!suggSelectedSource || suggLoading}
+                  className="w-full py-1.5 bg-violet-600 text-white text-xs font-semibold rounded-md hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  {suggLoading ? (
+                    <span className="flex items-center justify-center gap-1.5">
+                      <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin inline-block" />
+                      Generating...
+                    </span>
+                  ) : 'Generate'}
+                </button>
+              </div>
+
+              {/* Suggestions list */}
+              <div className="flex-1 overflow-y-auto px-3 py-2" style={{ scrollbarWidth: 'thin', scrollbarColor: '#8b5cf6 #f1f1f1' }}>
+                {suggLoading ? null : suggPrompts.length === 0 && suggSelectedSource ? (
+                  <p className="text-xs text-gray-400 text-center py-8 italic">Click Generate to load suggestions.</p>
+                ) : suggPrompts.length === 0 ? (
+                  <p className="text-xs text-gray-400 text-center py-8 italic">Select a source to get started.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {suggPrompts.map((text, idx) => (
+                      <div
+                        key={idx}
+                        onClick={() => handleSuggPromptClick(text)}
+                        className="p-3 bg-white border border-gray-200 rounded-lg cursor-pointer hover:border-violet-400 hover:shadow-sm transition-all"
+                      >
+                        <div className="flex items-start gap-2">
+                          <span className="flex-shrink-0 w-5 h-5 rounded-full bg-violet-100 text-violet-700 text-[10px] font-bold flex items-center justify-center mt-0.5">{idx + 1}</span>
+                          <p className="text-xs text-gray-700 leading-relaxed">{text}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             </div>

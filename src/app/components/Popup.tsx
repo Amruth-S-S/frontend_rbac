@@ -136,7 +136,7 @@ const Popup: React.FC<PopupProps> = ({
 
   return (
     <div className="p-4">
-      <ToastContainer position="top-right" autoClose={3000} />
+      <ToastContainer position="bottom-center" autoClose={3000} />
       <h2 className="text-2xl font-bold mb-6 text-gray-900">
         {boardId ? 'Edit Board Name' : 'Create Board Name'}
       </h2>

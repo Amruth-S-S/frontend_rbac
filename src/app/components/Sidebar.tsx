@@ -123,7 +123,19 @@ const Sidebar: React.FC<SidebarProps> = ({ }) => {
   const sidebarRef = useRef(null);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [orgRole, setOrgRole] = useState<string>('');
-  const isViewer = orgRole === 'VIEWER';
+  const isViewer = orgRole === 'VIEWER' || orgRole === 'EDITOR' || orgRole === 'ANALYST';
+
+  // Permission label shown in the "My Board Access" modal — derived from the
+  // logged-in user's org role (VIEWER/ANALYST can only view, EDITOR can edit).
+  const accessPermission = (() => {
+    if (orgRole === 'VIEWER' || orgRole === 'ANALYST') {
+      return { label: 'View Only', Icon: Eye, className: 'bg-gray-100 text-gray-600 border-gray-200' };
+    }
+    if (orgRole === 'EDITOR') {
+      return { label: 'Can Edit', Icon: Edit3, className: 'bg-amber-100 text-amber-700 border-amber-200' };
+    }
+    return { label: 'Full Access', Icon: Shield, className: 'bg-green-100 text-green-700 border-green-200' };
+  })();
   const [showModal, setShowModal] = useState<boolean>(false);
 
   // ── Manage Access modal ───────────────────────────────────────────────────
@@ -169,6 +181,14 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
   const [selectedBoard, setSelectedBoard] = useState<SelectedBoard>(null);
   const router = useRouter();
   const pathname = usePathname();
+
+  // Which dashboard flavor (Consultant vs CXO) the user is currently browsing —
+  // stamped onto board links so GroupContainer shows the right label instead of
+  // trusting a leftover 'activeScreenRole' value from a previous session.
+  const currentScreenRole: 'consultant' | 'cxo' =
+    pathname.startsWith('/CXO') ? 'cxo'
+    : pathname.startsWith('/Container') || pathname.startsWith('/Consultant') || pathname.startsWith('/Dashboard') ? 'consultant'
+    : (typeof window !== 'undefined' && (localStorage.getItem('activeScreenRole') as 'consultant' | 'cxo' | null)) || 'consultant';
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [mainBoardName, setMainBoardName] = useState("");
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -1024,7 +1044,7 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
           transition: isMobile ? 'left 0.3s ease-in-out' : 'width 0.3s',
         }}
       >
-        <ToastContainer position="top-center" autoClose={3000} hideProgressBar={false} newestOnTop closeOnClick rtl={false} pauseOnFocusLoss draggable={false} pauseOnHover className="z-50" />
+        <ToastContainer position="bottom-center" autoClose={3000} hideProgressBar={false} newestOnTop closeOnClick rtl={false} pauseOnFocusLoss draggable={false} pauseOnHover className="z-50" />
 
         {/* ── Header ────────────────────────────────────────────────────────── */}
         <div className="relative bg-white border-b border-blue-500/50 shadow-md">
@@ -1192,7 +1212,7 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
                                     onClick={() => handleBoardClick(boardId)}
                                   >
                                     <Link
-                                      href={{ pathname: '/GroupContainer', query: { main_board_id: item.main_board_id, board_id: boardId } }}
+                                      href={{ pathname: '/GroupContainer', query: { main_board_id: item.main_board_id, board_id: boardId, screenRole: currentScreenRole } }}
                                       onClick={closeMobileMenu}
                                       className="flex-1 text-black text-xs font-medium truncate"
                                     >
@@ -1262,7 +1282,7 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
               className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold transition-colors border border-blue-200"
             >
               <Shield className="w-3.5 h-3.5 flex-shrink-0" />
-              Manage Access
+              My Board Access
             </button>
           </div>
         )}
@@ -1500,7 +1520,7 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
         {/* ── Manage Access Modal ───────────────────────────────────────────── */}
         {showAccessModal && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden">
               {/* Header */}
               <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-blue-600 to-blue-700">
                 <div className="flex items-center gap-3">
@@ -1538,75 +1558,90 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
                     <p className="text-xs text-gray-400">No boards assigned to you yet.</p>
                   </div>
                 ) : (
-                  <div className="space-y-3">
-                    {accessData.map((mainBoard: any, idx: number) => (
-                      <div key={idx} className="border border-gray-200 rounded-xl overflow-hidden">
-                        {/* Main board header */}
-                        <div className="px-3 py-2.5 bg-blue-50 border-b border-blue-100">
-                          <div className="flex items-center gap-2 mb-1.5">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
-                            <span className="text-xs font-bold text-blue-800 truncate flex-1">
-                              {mainBoard.main_board_name || mainBoard.name || `Main Board #${mainBoard.main_board_id}`}
-                            </span>
-                            {mainBoard.main_board_type && (
-                              <span className="text-[10px] px-2 py-0.5 bg-blue-200 text-blue-800 rounded-full font-semibold flex-shrink-0">
-                                {mainBoard.main_board_type}
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex flex-wrap gap-1.5 pl-5">
-                            {mainBoard.access_via && (
-                              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 bg-green-100 text-green-700 rounded-full border border-green-200 font-medium">
-                                <Shield className="w-2.5 h-2.5" /> {mainBoard.access_via}
-                              </span>
-                            )}
-                            {mainBoard.share_level && (
-                              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full border border-purple-200 font-medium">
-                                {mainBoard.share_level.replace(/_/g, ' ')}
-                              </span>
-                            )}
-                            {mainBoard.group_name && (
-                              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full border border-orange-200 font-medium">
-                                <Users className="w-2.5 h-2.5" /> {mainBoard.group_name}
-                              </span>
-                            )}
-                          </div>
-                        </div>
+                  <div className="border border-gray-200 rounded-xl overflow-hidden overflow-x-auto">
+                    <table className="w-full text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-200">
+                          <th className="text-left font-semibold text-gray-500 px-3 py-2 whitespace-nowrap">Main Board</th>
+                          <th className="text-left font-semibold text-gray-500 px-3 py-2 whitespace-nowrap">Board</th>
+                          <th className="text-left font-semibold text-gray-500 px-3 py-2 whitespace-nowrap">Access</th>
+                          <th className="text-left font-semibold text-gray-500 px-3 py-2 whitespace-nowrap">Permission</th>
+                          <th className="text-left font-semibold text-gray-500 px-3 py-2 whitespace-nowrap">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {accessData.map((mainBoard: any, idx: number) => {
+                          const boards = mainBoard.boards || [];
+                          const mainBoardLabel = mainBoard.main_board_name || mainBoard.name || `Main Board #${mainBoard.main_board_id}`;
+                          const mainAccess = mainBoard.access_via || null;
+                          const shareLabel = mainBoard.share_level ? mainBoard.share_level.replace(/_/g, ' ') : null;
 
-                        {/* Boards */}
-                        {(mainBoard.boards || []).length > 0 ? (
-                          <div className="divide-y divide-gray-100">
-                            {(mainBoard.boards || []).map((board: any, bIdx: number) => (
-                              <div key={bIdx} className="px-4 py-2.5 hover:bg-gray-50">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${board.is_active ? 'bg-green-500' : 'bg-gray-300'}`} />
-                                  <span className="text-xs text-gray-800 font-semibold truncate flex-1">
-                                    {board.board_name || board.name || `Board #${board.board_id}`}
-                                  </span>
-                                  <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${board.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                                    {board.is_active ? 'Active' : 'Inactive'}
-                                  </span>
-                                </div>
-                                <div className="flex flex-wrap gap-1 pl-3.5">
-                                  {board.access_via && (
-                                    <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 bg-green-50 text-green-600 rounded border border-green-100 font-medium">
-                                      <Shield className="w-2 h-2" /> {board.access_via}
-                                    </span>
-                                  )}
-                                  {board.group_name && (
-                                    <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 bg-orange-50 text-orange-600 rounded border border-orange-100 font-medium">
-                                      <Users className="w-2 h-2" /> {board.group_name}
-                                    </span>
-                                  )}
-                                </div>
+                          const mainBoardCell = (rowSpan: number) => (
+                            <td rowSpan={rowSpan} className="align-top px-3 py-2 border-r border-gray-100 bg-gray-50/40">
+                              <div className="flex items-center gap-1.5">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
+                                <span className="font-bold text-gray-800">{mainBoardLabel}</span>
                               </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="px-4 py-2.5 text-[11px] text-gray-400 italic">No boards</p>
-                        )}
-                      </div>
-                    ))}
+                              {mainBoard.group_name && (
+                                <div className="flex items-center gap-1 text-[10px] text-orange-600 mt-1 pl-5">
+                                  <Users className="w-2.5 h-2.5" /> {mainBoard.group_name}
+                                </div>
+                              )}
+                            </td>
+                          );
+
+                          if (boards.length === 0) {
+                            return (
+                              <tr key={idx} className="hover:bg-gray-50">
+                                {mainBoardCell(1)}
+                                <td className="px-3 py-2 text-gray-400 italic">No boards</td>
+                                <td className="px-3 py-2">
+                                  <div className="font-medium text-gray-700">{mainAccess || '—'}</div>
+                                  {shareLabel && <div className="text-[10px] text-purple-600">{shareLabel}</div>}
+                                </td>
+                                <td className="px-3 py-2">
+                                  <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium border ${accessPermission.className}`}>
+                                    <accessPermission.Icon className="w-2.5 h-2.5" /> {accessPermission.label}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 text-gray-300">—</td>
+                              </tr>
+                            );
+                          }
+
+                          return boards.map((board: any, bIdx: number) => (
+                            <tr key={`${idx}-${bIdx}`} className="hover:bg-gray-50">
+                              {bIdx === 0 && mainBoardCell(boards.length)}
+                              <td className="px-3 py-2">
+                                <span className="text-gray-700 font-medium">
+                                  {board.board_name || board.name || `Board #${board.board_id}`}
+                                </span>
+                                {board.group_name && (
+                                  <div className="flex items-center gap-1 text-[10px] text-orange-600 mt-0.5">
+                                    <Users className="w-2.5 h-2.5" /> {board.group_name}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="px-3 py-2">
+                                <div className="font-medium text-gray-700">{board.access_via || mainAccess || '—'}</div>
+                                {shareLabel && <div className="text-[10px] text-purple-600">{shareLabel}</div>}
+                              </td>
+                              <td className="px-3 py-2">
+                                <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium border ${accessPermission.className}`}>
+                                  <accessPermission.Icon className="w-2.5 h-2.5" /> {accessPermission.label}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2">
+                                <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium ${board.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full ${board.is_active ? 'bg-green-500' : 'bg-gray-400'}`} />
+                                  {board.is_active ? 'Active' : 'Inactive'}
+                                </span>
+                              </td>
+                            </tr>
+                          ));
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </div>

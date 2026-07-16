@@ -470,7 +470,7 @@ export default function UserList() {
 
   return (
     <div style={s.outer}>
-      <ToastContainer position="top-center" autoClose={3000} hideProgressBar />
+      <ToastContainer position="bottom-center" autoClose={3000} hideProgressBar />
 
       {/* ── Modals ── */}
       {showRegisterModal && (
@@ -514,7 +514,7 @@ export default function UserList() {
             {showRoleDropdown && (
               <div className="absolute right-0 mt-2 w-44 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50">
                 <button
-                  onClick={() => { localStorage.setItem('activeScreenRole', 'consultant'); setActiveScreenRole('consultant'); setShowRoleDropdown(false); router.push('/Consultant'); }}
+                  onClick={() => { localStorage.setItem('activeScreenRole', 'consultant'); setActiveScreenRole('consultant'); setShowRoleDropdown(false); router.push('/Container'); }}
                   className={`w-full text-left block px-4 py-2 text-sm hover:bg-gray-50 ${activeScreenRole === 'consultant' ? 'text-blue-600 font-semibold bg-blue-50' : 'text-gray-700'}`}>
                   {t('header.consultantRole')}
                 </button>

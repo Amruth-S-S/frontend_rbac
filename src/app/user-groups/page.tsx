@@ -100,7 +100,7 @@ function ToastContainer({ toasts, remove }: { toasts: Toast[]; remove: (id: numb
   const colors: Record<ToastType, string> = { success: "#22c55e", error: "#ef4444", info: "#3b82f6" };
   const icons:  Record<ToastType, string> = { success: "✅", error: "❌", info: "ℹ️" };
   return (
-    <div style={{ position: "fixed", top: 20, right: 20, zIndex: 9999, display: "flex", flexDirection: "column", gap: 10, maxWidth: 340, pointerEvents: "none" }}>
+    <div style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", zIndex: 9999, display: "flex", flexDirection: "column", alignItems: "center", gap: 10, maxWidth: 340, pointerEvents: "none" }}>
       {toasts.map(t => (
         <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 16px", borderRadius: 12, background: "#fff", borderLeft: `4px solid ${colors[t.type]}`, boxShadow: "0 6px 20px rgba(0,0,0,0.1)", pointerEvents: "all", animation: "slideIn 0.3s ease", fontFamily: "'Segoe UI',sans-serif" }}>
           <span style={{ fontSize: 16 }}>{icons[t.type]}</span>

@@ -172,8 +172,8 @@ export default function CreateOrganizationForm() {
 /* ─── Styles ─────────────────────────────────────────────────── */
 const toastStyles: Record<string, React.CSSProperties> = {
   container: {
-    position: "fixed", top: 20, right: 20, zIndex: 9999,
-    display: "flex", flexDirection: "column", gap: 10,
+    position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", zIndex: 9999,
+    display: "flex", flexDirection: "column", alignItems: "center", gap: 10,
     maxWidth: 360, width: "100%", pointerEvents: "none",
   },
   toast: {

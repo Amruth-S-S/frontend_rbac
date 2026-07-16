@@ -1744,12 +1744,16 @@ useEffect(() => {
   };
 
   const getChartData = (chart: ChartData, type: 'bar' | 'line') => {
+    const { values } = chart.data_format;
+    // Backend sends `values` nested per category ([[..], [..]]) for true
+    // multi-series charts, but flat ([..]) when there's only one series —
+    // indexing a flat array with [i] grabs a single number, not the series.
+    const isNested = Array.isArray(values) && Array.isArray(values[0]);
     return {
       labels: chart.data_format.labels,
       datasets: chart.data_format.categories.map((category, i) => ({
         label: category,
-        // ✅ FIX: use values[i] (inner array), not values (nested array)
-        data: chart.data_format.values[i],
+        data: isNested ? (values as number[][])[i] ?? [] : (values as number[]),
         backgroundColor: type === 'bar'
           ? chart.data_format.labels.map((_, idx) => CHART_COLORS[idx % CHART_COLORS.length])
           : CHART_COLORS[i % CHART_COLORS.length],
@@ -3560,7 +3564,7 @@ const SpeechRecognition =
 
       // Show success toast message
       toast.success("Prompt deleted successfully!", {
-        position: "top-right",
+        position: "bottom-center",
         autoClose: 3000, // Close after 3 seconds
         hideProgressBar: false,
         closeOnClick: true,
@@ -3576,7 +3580,7 @@ const SpeechRecognition =
       console.error("Failed to delete prompt:", error);
       // Show error toast message
       toast.error("Failed to delete prompt. Please try again.", {
-        position: "top-right",
+        position: "bottom-center",
         autoClose: 3000, // Close after 3 seconds
         hideProgressBar: false,
         closeOnClick: true,
@@ -3691,6 +3695,8 @@ const SpeechRecognition =
           )
           : [...prevPrompts, newPromptData]
       );
+
+      toast.success(editPromptId ? "Prompt updated successfully!" : "Prompt saved successfully!");
 
       // Close modal and reset state
       setIsModalOpen(false);

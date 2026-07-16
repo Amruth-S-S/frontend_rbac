@@ -34,7 +34,7 @@ function useToast() {
 
 function ToastContainer({ toasts, remove }: { toasts: Toast[]; remove: (id: number) => void }) {
   return (
-    <div style={{ position:"fixed", top:20, right:20, zIndex:9999, display:"flex", flexDirection:"column", gap:10, maxWidth:360, pointerEvents:"none" }}>
+    <div style={{ position:"fixed", bottom:20, left:"50%", transform:"translateX(-50%)", zIndex:9999, display:"flex", flexDirection:"column", alignItems:"center", gap:10, maxWidth:360, pointerEvents:"none" }}>
       {toasts.map(t => (
         <div key={t.id} style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"14px 16px", borderRadius:10, background:"#fff", borderLeft:`4px solid ${t.type==="success"?"#22c55e":"#ef4444"}`, boxShadow:"0 4px 20px rgba(0,0,0,0.1)", pointerEvents:"all", animation:"slideIn 0.3s ease", fontFamily:"'Segoe UI',sans-serif" }}>
           <div style={{ flex:1 }}>

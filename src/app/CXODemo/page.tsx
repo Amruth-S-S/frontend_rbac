@@ -240,13 +240,16 @@ function CXODemoContent() {
 
   const getChartData = (chart: ChartData, type: "bar" | "line") => {
     const { labels = [], categories, values = [] } = chart.data_format || {};
-    return { labels, datasets: (categories || []).map((cat, i) => ({ label: cat, data: Array.isArray((values as number[][])[i]) ? (values as number[][])[i] : [], backgroundColor: type === 'bar' ? labels.map((_, idx) => CHART_COLORS[idx % CHART_COLORS.length]) : CHART_COLORS[i % CHART_COLORS.length], borderColor: CHART_COLORS[i % CHART_COLORS.length], borderWidth: 2, fill: false, tension: 0.3 })) };
+    // Backend sends `values` nested per category ([[..], [..]]) for true
+    // multi-series charts, but flat ([..]) when there's only one series.
+    const isNested = Array.isArray(values) && Array.isArray((values as number[][])[0]);
+    return { labels, datasets: (categories || []).map((cat, i) => ({ label: cat, data: isNested ? ((values as number[][])[i] ?? []) : (values as number[]), backgroundColor: type === 'bar' ? labels.map((_, idx) => CHART_COLORS[idx % CHART_COLORS.length]) : CHART_COLORS[i % CHART_COLORS.length], borderColor: CHART_COLORS[i % CHART_COLORS.length], borderWidth: 2, fill: false, tension: 0.3 })) };
   };
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-100">
       {/* Toast notifications */}
-      <div className="fixed top-4 right-4 z-[200] flex flex-col gap-2">
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[200] flex flex-col gap-2">
         {toasts.map(t => (
           <div key={t.id} className={`flex items-center gap-2 px-4 py-2.5 rounded-lg shadow-lg text-white text-sm ${t.type === 'error' ? 'bg-red-500' : 'bg-blue-500'}`}>
             <span>⚠</span><span>{t.message}</span>

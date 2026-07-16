@@ -152,7 +152,7 @@ function GroupFormModal({
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
-    if (!name.trim()) { toast.error("Group name is required."); return; }
+    if (!name.trim()) { toast.error("Group role is required."); return; }
     setSaving(true);
     try {
       const url = mode === "create"
@@ -180,12 +180,12 @@ function GroupFormModal({
     <div style={m.overlay} onClick={onClose}>
       <div style={{ ...m.box, maxWidth: 460 }} onClick={e => e.stopPropagation()}>
         <div style={m.header}>
-          <h3 style={m.title}>{mode === "create" ? "Create Group" : "Edit Group"}</h3>
+          <h3 style={m.title}>{mode === "create" ? "Create Role" : "Edit Group"}</h3>
           <button style={m.closeBtn} onClick={onClose}>✕</button>
         </div>
 
         <div style={{ marginBottom: 16 }}>
-          <label style={m.label}>Group Name <span style={{ color: "#ef4444" }}>*</span></label>
+          <label style={m.label}>Group Role <span style={{ color: "#ef4444" }}>*</span></label>
           <input
             style={m.input}
             placeholder="e.g. Finance Team"
@@ -207,7 +207,7 @@ function GroupFormModal({
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 18 }}>
           <button style={m.cancelBtn} onClick={onClose} disabled={saving}>Cancel</button>
           <button style={m.saveBtn} onClick={handleSave} disabled={saving}>
-            {saving ? "Saving…" : mode === "create" ? "Create Group" : "Save Changes"}
+            {saving ? "Saving…" : mode === "create" ? "Create Role" : "Save Changes"}
           </button>
         </div>
       </div>
@@ -2612,7 +2612,7 @@ export default function GroupsPage() {
 
   return (
     <div style={s.outer}>
-      <ToastContainer position="top-center" autoClose={3000} hideProgressBar style={{ zIndex: 99999 }} />
+      <ToastContainer position="bottom-center" autoClose={3000} hideProgressBar style={{ zIndex: 99999 }} />
 
       <header className="bg-white p-3 shadow-sm">
         <div className="flex justify-end items-center gap-2 max-w-screen-xl mx-auto">
@@ -2637,7 +2637,7 @@ export default function GroupsPage() {
             {showRoleDropdown && (
               <div ref={roleDropdownRef} className="absolute right-0 mt-2 w-44 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50">
                 <button
-                  onClick={() => { localStorage.setItem("activeScreenRole", "consultant"); setActiveScreenRole("consultant"); setShowRoleDropdown(false); router.push("/Consultant"); }}
+                  onClick={() => { localStorage.setItem("activeScreenRole", "consultant"); setActiveScreenRole("consultant"); setShowRoleDropdown(false); router.push("/Container"); }}
                   className={`w-full text-left block px-4 py-2 text-sm hover:bg-gray-50 ${activeScreenRole === "consultant" ? "text-blue-600 font-semibold bg-blue-50" : "text-gray-700"}`}>
                   {t("header.consultantRole")}
                 </button>
@@ -2712,8 +2712,8 @@ export default function GroupsPage() {
 
       <div style={s.header}>
         <div>
-          <h1 style={s.pageTitle}>Groups</h1>
-          <p style={s.pageSub}>Organize your organization's members into groups</p>
+          <h1 style={s.pageTitle}>Roles</h1>
+          <p style={s.pageSub}>Organize your organization's members into roles</p>
         </div>
         {orgId && (
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
@@ -2725,7 +2725,7 @@ export default function GroupsPage() {
               onClick={() => !isAdmin && !isViewer && setModalMode("create")}
               disabled={isAdmin || isViewer}
               title={isAdmin ? "Admins cannot create groups" : isViewer ? "Viewers cannot create groups" : undefined}
-            >+ Create Group</button>
+            >+ Create Role</button>
           </div>
         )}
       </div>
@@ -2763,11 +2763,11 @@ export default function GroupsPage() {
               onClick={() => !isAdmin && !isViewer && setModalMode("create")}
               disabled={isAdmin || isViewer}
               title={isAdmin ? "Admins cannot create groups" : isViewer ? "Viewers cannot create groups" : undefined}
-            >+ Create Group</button>
+            >+ Create Role</button>
           </div>
         ) : displayedGroups.length === 0 ? (
           <div style={s.empty}>
-            <p style={{ color: "#94a3b8", fontSize: 14 }}>No groups match your search.</p>
+            <p style={{ color: "#94a3b8", fontSize: 14 }}>No roles match your search.</p>
           </div>
         ) : (
           <div style={s.tableScroll}>
@@ -2800,10 +2800,10 @@ export default function GroupsPage() {
                         <button style={s.manageBtn} onClick={() => setManageGroup(group)} title="Manage members">
                           <Users size={14} style={{ marginRight: 6 }} /> Manage Members
                         </button>
-<button style={isViewer ? { ...s.iconBtn, opacity: 0.4, cursor: 'not-allowed' } : s.iconBtn} onClick={() => !isViewer && (setEditingGroup(group), setModalMode("edit"))} title="Edit group" disabled={isViewer}>
+<button style={(isViewer || isAdmin) ? { ...s.iconBtn, opacity: 0.4, cursor: 'not-allowed' } : s.iconBtn} onClick={() => !(isViewer || isAdmin) && (setEditingGroup(group), setModalMode("edit"))} title={isAdmin ? "Admins cannot edit groups" : "Edit group"} disabled={isViewer || isAdmin}>
                           <Edit2 size={14} />
                         </button>
-                        <button style={isViewer ? { ...s.iconBtn, ...s.iconBtnDanger, opacity: 0.4, cursor: 'not-allowed' } : { ...s.iconBtn, ...s.iconBtnDanger }} onClick={() => !isViewer && setDeletingGroup(group)} title="Delete group" disabled={isViewer}>
+                        <button style={(isViewer || isAdmin) ? { ...s.iconBtn, ...s.iconBtnDanger, opacity: 0.4, cursor: 'not-allowed' } : { ...s.iconBtn, ...s.iconBtnDanger }} onClick={() => !(isViewer || isAdmin) && setDeletingGroup(group)} title={isAdmin ? "Admins cannot delete groups" : "Delete group"} disabled={isViewer || isAdmin}>
                           <Trash2 size={14} />
                         </button>
                       </div>
