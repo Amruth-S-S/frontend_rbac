@@ -602,7 +602,7 @@ export default function Login() {
 
       case 'phone-verify':
         return (
-          <div style={{ padding: '20px 15px', textAlign: 'center', background: '#fff', borderRadius: '16px', width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
+          <div style={{ textAlign: 'center', width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
             <h3 style={{ color: '#313b96', marginBottom: '8px', fontSize: '28px', fontWeight: '700' }}>Verify OTP</h3>
             <p style={{ color: '#6b7280', marginBottom: '35px', fontSize: '15px', lineHeight: '1.6' }}>Enter your email and the 6-digit code sent to your inbox</p>
             <form onSubmit={e => { e.preventDefault(); handleVerifyOtp(); }}>
@@ -714,7 +714,7 @@ export default function Login() {
 
       case 'signup-verify':
         return (
-         <div style={{ padding: '25px 20px', textAlign: 'center', background: '#fff', borderRadius: '16px', minWidth: 'auto', maxWidth: '100%', margin: '0 auto' }}>
+         <div style={{ textAlign: 'center', width: '100%', margin: '0 auto' }}>
             <h3 style={{ color: '#313b96', marginBottom: '8px', fontSize: '28px', fontWeight: '700' }}>Verify Your Email</h3>
             <p style={{ marginBottom: '35px', color: '#6b7280', fontSize: '15px', lineHeight: '1.6' }}>Enter your email and the 6-digit code sent to your inbox</p>
             <form onSubmit={handleVerifySignupOtp}>
@@ -774,7 +774,7 @@ export default function Login() {
 
       case 'forgot-reset':
         return (
-          <div style={{ padding: '25px 20px', textAlign: 'center', background: '#fff', borderRadius: '16px', minWidth: 'auto', maxWidth: '100%', margin: '0 auto' }}>
+          <div style={{ textAlign: 'center', width: '100%', margin: '0 auto' }}>
             <h3 style={{ color: '#313b96', marginBottom: '8px', fontSize: '28px', fontWeight: '700' }}>Set New Password</h3>
             <p style={{ marginBottom: '35px', color: '#6b7280', fontSize: '15px', lineHeight: '1.6' }}>Enter your email, OTP, and new password</p>
             <form onSubmit={handleResetPassword}>
@@ -846,7 +846,7 @@ export default function Login() {
       {loading && <div className="spinner-overlay"><Spinner /></div>}
       <div className="image-section">
         <div className="overlay">
-          <h1>Global Business Solutions <br />with <span>AI Agent</span></h1>
+          <h1>Global Business Solutions <br />with <span>AI Analytics</span></h1>
           <div className={`form-container ${['signup', 'signup-verify'].includes(currentForm) ? 'signup-mode' : ''}`}>
             <Image src={loginImage} alt="Login" className="logo" />
             {(['email-login', 'phone-entry', 'phone-verify', 'signup', 'signup-verify'] as FormState[]).includes(currentForm) && (

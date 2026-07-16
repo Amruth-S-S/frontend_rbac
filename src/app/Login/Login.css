@@ -36,62 +36,64 @@ body, html {
 
 .overlay {
     position: absolute;
-    bottom: 0;
-    left: 0;
+    inset: 0;
     width: 100%;
-    height: 50%;
-    background: rgba(0, 47, 108, 0.7);
+    height: 100%;
+    background: linear-gradient(100deg, rgba(8, 12, 36, 0.82) 0%, rgba(8, 12, 36, 0.55) 40%, rgba(8, 12, 36, 0.15) 68%);
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: center;
-    justify-content: center;
-    padding: 20px;
+    justify-content: space-between;
+    gap: 40px;
+    padding: 40px 90px;
     box-sizing: border-box;
-    text-align: center;
+    text-align: left;
 }
 
 .overlay h1 {
     color: white;
-    font-size: 2.5rem;
-    line-height: 1.2;
-    margin-bottom: 200px;
-    margin-left: -500px;
+    font-size: 2.6rem;
+    line-height: 1.25;
+    font-weight: 700;
+    max-width: 460px;
+    margin: 0;
     font-style: inherit;
+    text-shadow: 0 4px 30px rgba(0, 0, 0, 0.35);
 }
 
 .overlay h1 span {
-    color: #f8f9f9;
+    background: linear-gradient(135deg, #93c5fd 0%, #c4b5fd 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
     font-style: italic;
 }
 
 .form-container {
     height: auto;
-    max-height: 92vh;
+    max-height: 88vh;
     min-height: 300px;
-    margin-left: -500px;
-    max-width: 380px;
+    max-width: 400px;
     width: 100%;
-    background: #fff;
-    padding: 30px;
-    border-radius: 8px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.82);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    padding: 36px 34px;
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    box-shadow: 0 25px 70px rgba(8, 12, 36, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.6);
     text-align: center;
-    margin-top: -80px;
-    position: absolute;
-    right: 130px;
-    top: 30%;
-    transform: translateY(-50%);
+    position: relative;
     overflow-y: auto;
     overflow-x: hidden;
-       /* scrollbar-width: none;         
-    -ms-overflow-style: none;  */
 }
 
 .form-container.signup-mode {
     max-width: min(480px, 92vw);
     max-height: none;
     overflow: visible;
-    padding: 22px 26px;
+    padding: 30px 32px;
     text-align: left;
 }
 
@@ -138,22 +140,35 @@ body, html {
 
 .input-group input {
     width: 100%;
-    padding: 10px;
-    padding-right: 40px;
-    font-size: 1rem;
-    border: 1px solid #ccc;
-    border-radius: 4px;
+    padding: 12px 40px 12px 14px;
+    font-size: 0.95rem;
+    border: 1.5px solid rgba(148, 163, 184, 0.4);
+    border-radius: 12px;
     line-height: 1.5;
     box-sizing: border-box;
+    background: rgba(255, 255, 255, 0.65);
+    color: #1e293b;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.input-group input::placeholder {
+    color: #94a3b8;
+}
+
+.input-group input:focus {
+    outline: none;
+    border-color: #313b96;
+    background: #fff;
+    box-shadow: 0 0 0 4px rgba(49, 59, 150, 0.12);
 }
 
 .input-group i {
     position: absolute;
-    right: 10px;
+    right: 12px;
     top: 70%;
     transform: translateY(-50%);
-    font-size: 1.2rem;
-    color: #999;
+    font-size: 1.1rem;
+    color: #94a3b8;
     cursor: pointer;
 }
 
@@ -173,17 +188,29 @@ body, html {
 
 button[type="submit"] {
     width: 100%;
-    padding: 10px;
-    background: #313b96;
+    padding: 14px;
+    background: linear-gradient(135deg, #313b96 0%, #4c1d95 100%);
     border: none;
     color: white;
     font-size: 1rem;
-    border-radius: 4px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    border-radius: 12px;
     cursor: pointer;
+    box-shadow: 0 8px 20px rgba(49, 59, 150, 0.35);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 button[type="submit"]:hover {
-    background: #313b96;
+    transform: translateY(-2px);
+    box-shadow: 0 12px 28px rgba(49, 59, 150, 0.45);
+}
+
+button[type="submit"]:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
 }
 
 .footer {
@@ -206,50 +233,67 @@ button[type="submit"]:hover {
 .form-container button[type="submit"],
 .form-container button[type="button"] {
     width: 100%;
-    padding: 10px;
-    background: #313b96;
+    padding: 14px;
+    background: linear-gradient(135deg, #313b96 0%, #4c1d95 100%);
     border: none;
     color: white;
     font-size: 1rem;
-    border-radius: 4px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    border-radius: 12px;
     cursor: pointer;
+    box-shadow: 0 8px 20px rgba(49, 59, 150, 0.35);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .form-container button[type="submit"]:hover,
 .form-container button[type="button"]:hover {
-    background: #313b96;
+    transform: translateY(-2px);
+    box-shadow: 0 12px 28px rgba(49, 59, 150, 0.45);
+}
+
+.form-container button[type="submit"]:disabled,
+.form-container button[type="button"]:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
 }
 
 /* Tab Navigation */
 .tab-navigation {
     display: flex;
-    margin-bottom: 20px;
-    border-bottom: 1px solid #ddd;
+    margin-bottom: 24px;
+    background: rgba(148, 163, 184, 0.18);
+    padding: 4px;
+    border-radius: 12px;
+    border: none;
+    gap: 4px;
 }
 
 .tab-button {
     flex: 1;
-    padding: 12px 0;
+    padding: 10px 0;
     background: none;
     border: none;
+    border-radius: 9px;
     cursor: pointer;
-    font-weight: bold;
-    color: #666;
+    font-weight: 600;
+    font-size: 0.85rem;
+    letter-spacing: 0.03em;
+    color: #64748b;
     position: relative;
+    transition: all 0.25s ease;
 }
 
 .tab-button.active {
-    color: #313b96;
+    color: #fff;
+    background: linear-gradient(135deg, #313b96 0%, #4c1d95 100%);
+    box-shadow: 0 4px 14px rgba(49, 59, 150, 0.35);
 }
 
 .tab-button.active::after {
-    content: '';
-    position: absolute;
-    bottom: -1px;
-    left: 0;
-    width: 100%;
-    height: 3px;
-    background-color: #313b96;
+    content: none;
 }
 
 /* Signup Form Styles */
@@ -315,19 +359,22 @@ button[type="submit"]:hover {
 
 .create-account-btn {
     width: 100%;
-    padding: 12px;
-    background-color: #313b96;
+    padding: 14px;
+    background: linear-gradient(135deg, #313b96 0%, #4c1d95 100%);
     color: white;
     border: none;
-    border-radius: 4px;
-    font-weight: bold;
+    border-radius: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
     margin-top: 20px;
     cursor: pointer;
-    transition: background-color 0.3s;
+    box-shadow: 0 8px 20px rgba(49, 59, 150, 0.35);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .create-account-btn:hover {
-    background-color: #252d7a;
+    transform: translateY(-2px);
+    box-shadow: 0 12px 28px rgba(49, 59, 150, 0.45);
 }
 
 .create-account-btn:disabled {
@@ -401,11 +448,22 @@ button[type="submit"]:hover {
 .form-group input,
 .form-group select {
     width: 100%;
-    padding: 8px 12px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
+    padding: 9px 12px;
+    border: 1.5px solid rgba(148, 163, 184, 0.4);
+    border-radius: 10px;
     font-size: 13px;
     box-sizing: border-box;
+    background: rgba(255, 255, 255, 0.65);
+    color: #1e293b;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+    outline: none;
+    border-color: #313b96;
+    background: #fff;
+    box-shadow: 0 0 0 3px rgba(49, 59, 150, 0.12);
 }
 
 .password-input {
@@ -438,28 +496,36 @@ button[type="submit"]:hover {
 
 .submit-btn {
     width: 100%;
-    padding: 10px;
-    background-color: #313b96;
+    padding: 13px;
+    background: linear-gradient(135deg, #313b96 0%, #4c1d95 100%);
     color: white;
     border: none;
-    border-radius: 4px;
+    border-radius: 12px;
     font-size: 14px;
     font-weight: 600;
+    letter-spacing: 0.02em;
     margin-top: 10px;
     cursor: pointer;
+    box-shadow: 0 8px 20px rgba(49, 59, 150, 0.35);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.submit-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 28px rgba(49, 59, 150, 0.45);
 }
 
 .switch-auth {
     text-align: center;
     font-size: 12px;
-    color: #666;
+    color: #64748b;
     margin-top: 15px;
 }
 
 .switch-auth span {
-    color: #313b96;
+    color: #4c1d95;
     cursor: pointer;
-    font-weight: 500;
+    font-weight: 600;
 }
 
 /* Spinner overlay */
