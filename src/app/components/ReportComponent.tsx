@@ -9,7 +9,8 @@ import {
 } from 'react-icons/fa';
 import { MdArrowDropDown } from 'react-icons/md';
 
-const API_BASE = 'https://temp-database.vercel.app';
+const API_BASE = 'https://filter-data-isc-35486280762.us-central1.run.app';
+const API_HEADERS = { 'x-api-key': 'ytsyxvtywfqvg@1209567TEAHBjhbwxuywbPo()*&%$Rssx' };
 const PER_PAGE = 20;
 
 // ── Types ─────────────────────────────────────────────────────
@@ -1369,7 +1370,7 @@ export default function ReportComponent() {
     setTablesLoading(true);
     setTablesError('');
     try {
-      const res = await fetch(`${API_BASE}/tables/`);
+      const res = await fetch(`${API_BASE}/tables/`, { headers: API_HEADERS });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setTables(extractTableNames(data));
@@ -1386,7 +1387,7 @@ export default function ReportComponent() {
   useEffect(() => {
     if (!filters.filterColumn || !selectedTable) { setUniqueValues([]); return; }
     setUniqueLoading(true);
-    fetch(`${API_BASE}/tables/${encodeURIComponent(selectedTable)}/unique-values/?column=${encodeURIComponent(filters.filterColumn)}`)
+    fetch(`${API_BASE}/tables/${encodeURIComponent(selectedTable)}/unique-values/?column=${encodeURIComponent(filters.filterColumn)}`, { headers: API_HEADERS })
       .then(r => r.ok ? r.json() : { values: [] })
       .then(data => setUniqueValues((data.values ?? []).map(String).sort()))
       .catch(() => setUniqueValues([]))
@@ -1425,7 +1426,8 @@ export default function ReportComponent() {
       }
 
       const res = await fetch(
-        `${API_BASE}/tables/${encodeURIComponent(tableName)}/data/?${p}`
+        `${API_BASE}/tables/${encodeURIComponent(tableName)}/data/?${p}`,
+        { headers: API_HEADERS }
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
@@ -1478,7 +1480,7 @@ export default function ReportComponent() {
   const handleMonthlySubmit = async (params: Record<string, string>) => {
     setModalLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/monthly_provision/?${new URLSearchParams(params)}`);
+      const res = await fetch(`${API_BASE}/monthly_provision/?${new URLSearchParams(params)}`, { headers: API_HEADERS });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setMonthlyRows(extractRows(await res.json()));
       setActiveModal(null);          // close form modal
@@ -1494,7 +1496,7 @@ export default function ReportComponent() {
   const handleOutstandingSubmit = async (params: Record<string, string>) => {
     setModalLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/outstanding_report_data/?${new URLSearchParams(params)}`);
+      const res = await fetch(`${API_BASE}/outstanding_report_data/?${new URLSearchParams(params)}`, { headers: API_HEADERS });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setOutstandingRows(extractRows(await res.json()));
       setActiveModal(null);               // close form modal
@@ -1800,14 +1802,14 @@ export default function ReportComponent() {
             onClose={() => { setTableRows([]); setTableColumns([]); setMonthlyRows(null); setOutstandingRows(null); setLedgerNames([]); setSelectedTable(null); setShowFilters(false); }}
             headerActions={!tableLoading && tableRows.length > 0 ? (
               <div className="flex items-center gap-1.5">
-                <button onClick={() => { setMonthlyRows(null); setShowResultModal(null); setActiveModal('monthly'); }}
+                {/* <button onClick={() => { setMonthlyRows(null); setShowResultModal(null); setActiveModal('monthly'); }}
                   className="flex items-center gap-1 px-2 py-1 bg-violet-600 text-white text-xs rounded hover:bg-violet-700 transition-colors whitespace-nowrap">
                   <FaCalendarAlt size={9} /> Monthly Provision
-                </button>
-                <button onClick={() => { setOutstandingRows(null); setShowResultModal(null); setActiveModal('outstanding'); }}
+                </button> */}
+                {/* <button onClick={() => { setOutstandingRows(null); setShowResultModal(null); setActiveModal('outstanding'); }}
                   className="flex items-center gap-1 px-2 py-1 bg-emerald-600 text-white text-xs rounded hover:bg-emerald-700 transition-colors whitespace-nowrap">
                   <FaChartBar size={9} /> Outstanding Report
-                </button>
+                </button> */}
               </div>
             ) : null}
           />

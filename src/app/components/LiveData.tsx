@@ -11,13 +11,13 @@ import {
 } from 'react-icons/fa'
 import { toast } from 'react-toastify';
 
-const LIVE_API_BASE = 'https://tuneeelin-g-tally.vercel.app';
-const API_HEADERS = { 'x-api-key': '7904685929' };
+const LIVE_API_BASE = 'https://isc-tally-live-35486280762.us-central1.run.app';
+const API_HEADERS = { 'x-api-key': 'necjhbejnu%@#987*(hbhexbw7815)dataliveactive@3417hbjbexexjja@A' };
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const DAYS   = ['Su','Mo','Tu','We','Th','Fr','Sa'];
 const REPORT_NAMES = ['Sales Register', 'Purchase Register', 'Funds Flow', 'Cash Flow'];
-const PERIOD_OPTIONS = ['Day', 'Week', 'Monthly', 'Yearly'];
-const LEDGER_PERIOD_OPTIONS = ['Day', 'Week', 'Monthly', 'Yearly'];
+const PERIOD_OPTIONS = ['Day', 'Week', 'Month', 'Yearly'];
+const LEDGER_PERIOD_OPTIONS = ['Day', 'Week', 'Month', 'Yearly'];
 
 type Row = Record<string, string | number | null | undefined>;
 
@@ -499,9 +499,9 @@ const STOCK_APIS: ApiDef[] = [
   { key: 'godown',     label: 'Godown Summary',         endpoint: '/godown-summary',          icon: <FaWarehouse size={12} /> },
   { key: 'stockcat',   label: 'Stock Category Summary', endpoint: '/stock-category-summary',  icon: <FaLayerGroup size={12} /> },
   { key: 'stockgroup', label: 'Stock Group Summary',    endpoint: '/stock-group-summary',     icon: <FaCubes size={12} /> },
-  { key: 'stockanalysis', label: 'Stock Analysis',      endpoint: '/stock-analysis',          icon: <FaChartBar size={12} />, hasStockItemName: true },
+  // { key: 'stockanalysis', label: 'Stock Analysis',      endpoint: '/stock-analysis',          icon: <FaChartBar size={12} />, hasStockItemName: true },
   { key: 'movement',   label: 'Movement Analysis',      endpoint: '/movement-analysis',       icon: <FaRandom size={12} /> },
-  { key: 'stockquery', label: 'Stock Purchase History', endpoint: '/stock-Query',             icon: <FaHistory size={12} />, hasStockItemName: true, stockItemKey: 'stock_item' },
+  { key: 'stockquery', label: 'Stock Query', endpoint: '/stock-Query',             icon: <FaHistory size={12} />, hasStockItemName: true, stockItemKey: 'stock_item' },
 ];
 
 const LEDGER_APIS: ApiDef[] = [
