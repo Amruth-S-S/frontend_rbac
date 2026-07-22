@@ -917,8 +917,9 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
         if (!userId) userId = sessionStorage.getItem("loggedInUserId") || localStorage.getItem('loggedInUserId') || '';
       }
       if (!userId) { toast.error('User ID not found. Please log in again.'); return; }
+      if (!orgId || orgId <= 0) { toast.error('Could not determine your organization. Please reload and try again.'); return; }
 
-      const response = await fetch(`${API_BASE_URL}/main-boards/boards/${boardId}?user_id=${userId}`, {
+      const response = await fetch(`${API_BASE_URL}/rbac/boards/${boardId}?user_id=${userId}&org_id=${orgId}`, {
         method: 'GET', headers: { 'Accept': 'application/json', 'X-API-Key': EXCEL_API_KEY },
       });
 
