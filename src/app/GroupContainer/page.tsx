@@ -188,11 +188,15 @@ function GroupContainerPage() {
   const mainBoardId = searchParams.get("main_board_id");
   const [isViewer, setIsViewer] = useState(false);
   const [isEditorOrAnalyst, setIsEditorOrAnalyst] = useState(false);
+  // US-based users don't get the Reports / Live Data / KPI Updates tabs.
+  const [hideUsRestrictedTabs, setHideUsRestrictedTabs] = useState(false);
   useEffect(() => {
     try {
-      const role = JSON.parse(sessionStorage.getItem('currentUserData') || '{}').orgRole;
+      const parsed = JSON.parse(sessionStorage.getItem('currentUserData') || '{}');
+      const role = parsed.orgRole;
       setIsViewer(role === 'VIEWER' || role === 'EDITOR' || role === 'ANALYST');
       setIsEditorOrAnalyst(role === 'EDITOR' || role === 'ANALYST');
+      setHideUsRestrictedTabs(parsed.country === 'United States');
     } catch {}
   }, []);
   // type Prompt = {
@@ -272,6 +276,7 @@ function GroupContainerPage() {
       el.style.height = `${el.scrollHeight}px`;
     }
   }, [translatedPromptInput, newPromptName, isModalOpen]);
+  const promptDisplayRef = useRef<HTMLTextAreaElement | null>(null);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const getCurrentMonthYear = () => {
     const now = new Date();
@@ -298,6 +303,13 @@ function GroupContainerPage() {
   // const [selectedMonth, setSelectedMonth] = useState('');
   const [selectedPrompt, setSelectedPrompt] = useState("");
   const [isResultModalOpen, setIsResultModalOpen] = useState(false);
+  useEffect(() => {
+    const el = promptDisplayRef.current;
+    if (el && isResultModalOpen) {
+      el.style.height = 'auto';
+      el.style.height = `${el.scrollHeight}px`;
+    }
+  }, [translatedPromptDisplay, selectedPrompt, isResultModalOpen]);
   const [, setLoadingPromptPlay] = useState<string | null>(null);
   const [loadingPromptsRepository,] = useState(false);
   const [activeTab, setActiveTab] = useState("prompts"); // State to manage active tab
@@ -766,6 +778,7 @@ useEffect(() => {
       toast.success(`Table "${selectedPgTable.table_name}" added as data source! (Slot ${data.slot_number}/${data.total_slots})`);
       fetchDataSources();
       setShowAddDataSourceModal(false);
+      setIsViewTablesModalOpen(false);
       setSelectedPgTable(null);
       setAddDataSourceForm({ source_name: "", description: "", row_limit: 100000 });
     } catch (error: any) {
@@ -1071,6 +1084,42 @@ useEffect(() => {
     setShowExportModal(false);
   };
 
+  // Minimal RFC4180-style CSV tokenizer — handles quoted fields with embedded
+  // commas, newlines, and "" escaped quotes, which the exported file relies on
+  // (e.g. `Created At` renders as `7/22/2026, 2:05:00 PM`, comma and all).
+  const parseCsvRows = (content: string): string[][] => {
+    const rows: string[][] = [];
+    let row: string[] = [];
+    let field = '';
+    let inQuotes = false;
+    for (let i = 0; i < content.length; i++) {
+      const char = content[i];
+      if (inQuotes) {
+        if (char === '"') {
+          if (content[i + 1] === '"') { field += '"'; i++; }
+          else { inQuotes = false; }
+        } else {
+          field += char;
+        }
+      } else if (char === '"') {
+        inQuotes = true;
+      } else if (char === ',') {
+        row.push(field);
+        field = '';
+      } else if (char === '\n' || char === '\r') {
+        if (char === '\r' && content[i + 1] === '\n') i++;
+        row.push(field);
+        rows.push(row);
+        row = [];
+        field = '';
+      } else {
+        field += char;
+      }
+    }
+    if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
+    return rows.filter(r => r.some(c => c.trim() !== ''));
+  };
+
   const handleImportPrompts = async (fileArg?: File) => {
     const file = fileArg ?? importFile;
     if (!file) {
@@ -1091,20 +1140,22 @@ useEffect(() => {
 
       // Parse based on file type
       if (file.name.endsWith('.csv')) {
-        // Parse CSV
-        const lines = fileContent.split('\n').slice(1); // Skip header
-        const parsed = lines
-          .filter(line => line.trim())
-          .map(line => {
-            const match = line.match(/^\d+,(".*?"|[^,]*),(".*?"|[^,]*)/);
-            if (match) {
-              const title = match[1].replace(/^"|"$/g, '').replace(/""/g, '"');
-              const text = match[2].replace(/^"|"$/g, '').replace(/""/g, '"');
-              return { prompt_title: title, prompt_text: text };
-            }
-            return null;
-          })
-          .filter((p): p is { prompt_text: string; prompt_title: string } => p !== null);
+        // Parse CSV — locate the "Prompt Text" (and optional "Title") columns by
+        // header name so this doesn't depend on a fixed column order/count.
+        const rows = parseCsvRows(fileContent);
+        if (rows.length > 1) {
+          const header = rows[0].map(h => h.trim().toLowerCase());
+          const textIdx = header.findIndex(h => h.includes('prompt text') || h === 'prompt' || h.includes('text'));
+          const titleIdx = header.findIndex(h => h.includes('title'));
+          promptsToImport = rows.slice(1)
+            .map(cols => {
+              const text = (textIdx >= 0 ? cols[textIdx] : '')?.trim();
+              if (!text) return null;
+              const title = (titleIdx >= 0 ? cols[titleIdx] : '')?.trim();
+              return { prompt_text: text, prompt_title: title || 'Imported Prompt' };
+            })
+            .filter((p): p is { prompt_text: string; prompt_title: string } => p !== null);
+        }
       } else {
         // Parse TXT
         const sections = fileContent.split('='.repeat(80));
@@ -1772,81 +1823,34 @@ useEffect(() => {
     confidence: number;
   }
 
-  const [showGeneratePromptModal, setShowGeneratePromptModal] = useState(false);
-  const [generatedSuggestions, setGeneratedSuggestions] = useState<PromptSuggestion[]>([]);
-  const [generateLoading, setGenerateLoading] = useState(false);
-  const [generateError, setGenerateError] = useState<string | null>(null);
-  const [generateSearchTerm, setGenerateSearchTerm] = useState('');
-  const [generateSourceName, setGenerateSourceName] = useState('');
+  const [showGenerateSourceModal, setShowGenerateSourceModal] = useState(false);
+  const [selectedGenerateSourceId, setSelectedGenerateSourceId] = useState<string>('');
   const [generatedPromptIds, setGeneratedPromptIds] = useState<Set<string>>(new Set());
   const [isSavingGenerated, setIsSavingGenerated] = useState(false);
-  const [generateDone, setGenerateDone] = useState(false);
 
   // Load generated prompt IDs from localStorage when boardId is available
   useEffect(() => {
     if (!boardId) return;
     try {
       const stored = localStorage.getItem(`gen_prompt_ids_${boardId}`);
-      if (stored) {
-        setGeneratedPromptIds(new Set(JSON.parse(stored).map(String)));
-      }
+      setGeneratedPromptIds(stored ? new Set(JSON.parse(stored).map(String)) : new Set());
     } catch {}
   }, [boardId]);
 
-  // Persist generateDone across sessions — load from localStorage on mount
-  useEffect(() => {
-    if (!boardId) return;
-    try {
-      if (localStorage.getItem(`generate_done_${boardId}`) === 'true') {
-        setGenerateDone(true);
-      }
-    } catch {}
-  }, [boardId]);
-
-  const handleGeneratePrompt = async () => {
-    if (!dataSources || dataSources.length === 0) {
-      setGenerateError('No data source found. Please add a data source in Manage Tables first.');
-      setGeneratedSuggestions([]);
-      setShowGeneratePromptModal(true);
-      return;
-    }
-    const source = dataSources[0];
-    setGenerateSourceName(source.source_name || '');
-    setShowGeneratePromptModal(true);
-    setGenerateLoading(true);
-    setGenerateError(null);
-    setGeneratedSuggestions([]);
-    try {
-      const res = await fetch(`${API_BASE_URL}/prompt-suggestions/source/${source.id}`, {
-        headers: { Accept: 'application/json', 'X-API-Key': EXCEL_API_KEY },
-      });
-      if (!res.ok) throw new Error(`Error ${res.status}`);
-      const data = await res.json();
-      const byCategory: Record<string, PromptSuggestion[]> = data?.suggestions_by_category || {};
-      const all: PromptSuggestion[] = Object.values(byCategory).flat();
-      setGeneratedSuggestions(all);
-    } catch {
-      setGenerateError('Failed to generate prompt suggestions. Please try again.');
-    } finally {
-      setGenerateLoading(false);
-    }
-  };
-
-  const filteredGeneratedSuggestions = generatedSuggestions.filter(s =>
-    s.prompt_text.toLowerCase().includes(generateSearchTerm.toLowerCase()) ||
-    s.category.toLowerCase().includes(generateSearchTerm.toLowerCase())
-  );
-
-  const handleGenerateAndSavePrompts = async () => {
+  const handleGenerateAndSavePrompts = async (sourceId: string) => {
     if (!dataSources || dataSources.length === 0) {
       toast.error('No data source found. Please add a data source in Manage Tables first.');
+      return;
+    }
+    const source = dataSources.find((ds: any) => String(ds.id) === String(sourceId));
+    if (!source) {
+      toast.error('Please select a data source.');
       return;
     }
     if (!boardId) {
       toast.error('Board ID is missing.');
       return;
     }
-    const source = dataSources[0];
     setIsSavingGenerated(true);
     try {
       const res = await fetch(`${API_BASE_URL}/prompt-suggestions/source/${source.id}`, {
@@ -1907,8 +1911,8 @@ useEffect(() => {
           return next;
         });
         toast.success(`${savedPrompts.length} generated prompt${savedPrompts.length > 1 ? 's' : ''} saved!`);
-        setGenerateDone(true);
-        try { localStorage.setItem(`generate_done_${boardId}`, 'true'); } catch {}
+        setShowGenerateSourceModal(false);
+        setSelectedGenerateSourceId('');
       }
     } catch {
       toast.error('Failed to generate and save prompts. Please try again.');
@@ -4535,7 +4539,7 @@ const SpeechRecognition =
                   // { key: "timeline",   label: t("tabs.timelineSettings") },
                   { key: "kpi",           label: t("tabs.kpiUpdates") },
                   { key: "report",        label: t("tabs.reports") },
-                ].map((tab) => (
+                ].filter((tab) => !(hideUsRestrictedTabs && (tab.key === "report" || tab.key === "kpi"))).map((tab) => (
                   <button
                     key={tab.key}
                     className={`flex-shrink-0 px-3 py-1.5 rounded-md font-medium transition-all duration-200 text-xs whitespace-nowrap ${activeTab === tab.key
@@ -4547,7 +4551,7 @@ const SpeechRecognition =
                     {tab.label}
                   </button>
                 ))}
-                <LiveData />
+                {!hideUsRestrictedTabs && <LiveData />}
               </div>
 
               {/* Mobile: dropdown */}
@@ -4570,7 +4574,7 @@ const SpeechRecognition =
                       // { key: "timeline",   label: t("tabs.timelineSettings") },
                       { key: "kpi",           label: t("tabs.kpiUpdates") },
                       { key: "report",        label: t("tabs.reports") },
-                    ].find((tab) => tab.key === activeTab)?.label ?? t("header.selectScreen")}
+                    ].filter((tab) => !(hideUsRestrictedTabs && (tab.key === "report" || tab.key === "kpi"))).find((tab) => tab.key === activeTab)?.label ?? t("header.selectScreen")}
                   </span>
                   <span className="ml-2 text-gray-400 text-xs">{isMobileMenuOpen ? "▲" : "▼"}</span>
                 </button>
@@ -4591,7 +4595,7 @@ const SpeechRecognition =
                         // { key: "timeline",   label: t("tabs.timelineSettings") },
                         { key: "kpi",           label: t("tabs.kpiUpdates") },
                         { key: "report",        label: t("tabs.reports") },
-                      ].map((tab) => (
+                      ].filter((tab) => !(hideUsRestrictedTabs && (tab.key === "report" || tab.key === "kpi"))).map((tab) => (
                         <button
                           key={tab.key}
                           className={`w-full text-left px-3 py-2 rounded-md transition-colors text-xs ${activeTab === tab.key
@@ -4670,24 +4674,26 @@ const SpeechRecognition =
                     {t("prompts.newPrompts")}
                   </button>
 
-                  {/* <button
+                  <button
                     className={`flex-shrink-0 py-1.5 px-3 rounded-md text-xs font-medium whitespace-nowrap flex items-center gap-1 transition-colors ${
-                      isViewer || generateDone
+                      isViewer
                         ? 'bg-gray-300 text-gray-500 cursor-not-allowed opacity-40'
                         : 'bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-60'
                     }`}
-                    onClick={() => !isViewer && handleGenerateAndSavePrompts()}
-                    disabled={isViewer || isSavingGenerated || generateDone}
-                    title={isViewer ? 'View only' : generateDone ? 'Prompts already generated for this session' : 'Generate AI prompts'}
+                    onClick={() => {
+                      if (isViewer) return;
+                      setSelectedGenerateSourceId(dataSources.length === 1 ? String(dataSources[0].id) : '');
+                      setShowGenerateSourceModal(true);
+                    }}
+                    disabled={isViewer || isSavingGenerated}
+                    title={isViewer ? 'View only' : 'Generate AI prompts'}
                   >
                     {isSavingGenerated ? (
                       <><span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin inline-block" /> {t("prompts.generating")}</>
-                    ) : generateDone ? (
-                      <>{t("prompts.generated")}</>
                     ) : (
                       <>{t("prompts.promptsSuggestion")}</>
                     )}
-                  </button> */}
+                  </button>
 
                   {prompts.length === 0 ? (
                     <button
@@ -5266,10 +5272,11 @@ const SpeechRecognition =
                   </div>
 
                   <textarea
+                    ref={promptDisplayRef}
                     value={translatedPromptDisplay || selectedPrompt || ""}
                     readOnly
-                    rows={3}
-                    className="w-full p-2 border-2 border-blue-400 rounded text-sm resize-none bg-blue-50 text-gray-800 focus:outline-none"
+                    rows={1}
+                    className="w-full p-2 border-2 border-blue-400 rounded text-sm resize-none bg-blue-50 text-gray-800 focus:outline-none overflow-hidden"
                   />
 <br></br>
 <br></br>
@@ -7702,109 +7709,58 @@ const SpeechRecognition =
           </>
         )}
 
-        {/* Generate Prompt Modal */}
-        {showGeneratePromptModal && (
-          <>
-            <div
-              className="fixed inset-0 bg-black bg-opacity-30 z-[70]"
-              onClick={() => { setShowGeneratePromptModal(false); setGenerateSearchTerm(''); }}
-            />
-            <div className="fixed top-0 right-0 h-full bg-white shadow-2xl z-[80] flex flex-col" style={{ width: '420px' }}>
-              {/* Header */}
+        {/* Generate Prompt — Select Data Source Modal */}
+        {showGenerateSourceModal && (
+          <div className="fixed inset-0 bg-black/50 z-[80] flex items-center justify-center p-4" onClick={() => !isSavingGenerated && setShowGenerateSourceModal(false)}>
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-sm text-gray-800">Generate Prompt</span>
-                  {generateSourceName && (
-                    <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-[10px] font-semibold rounded-full">
-                      {generateSourceName}
-                    </span>
-                  )}
-                </div>
+                <span className="font-semibold text-sm text-gray-800">Generate Prompts</span>
                 <button
-                  onClick={() => { setShowGeneratePromptModal(false); setGenerateSearchTerm(''); }}
+                  onClick={() => !isSavingGenerated && setShowGenerateSourceModal(false)}
                   className="text-gray-400 hover:text-gray-700 text-xl leading-none"
                 >
                   ×
                 </button>
               </div>
 
-              {/* Search */}
-              <div className="px-3 py-2 border-b border-gray-100">
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="Search suggestions..."
-                    value={generateSearchTerm}
-                    onChange={(e) => setGenerateSearchTerm(e.target.value)}
-                    className="w-full pl-3 pr-7 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  />
-                  {generateSearchTerm && (
-                    <button
-                      onClick={() => setGenerateSearchTerm('')}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none"
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-              </div>
+              <div className="px-4 py-4">
+                <p className="text-xs text-gray-500 mb-3">Choose a data source to generate AI prompt suggestions for. Generated prompts are saved automatically and labeled G1, G2, …</p>
 
-              {/* Suggestions list */}
-              <div className="flex-1 overflow-y-auto px-3 py-2" style={{ scrollbarWidth: 'auto', scrollbarColor: '#93c5fd #f1f1f1' }}>
-                {generateLoading ? (
-                  <div className="flex flex-col items-center justify-center py-12 gap-3">
-                    <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                    <p className="text-xs text-gray-500">Generating prompt suggestions...</p>
-                  </div>
-                ) : generateError ? (
-                  <p className="text-xs text-red-500 p-2">{generateError}</p>
-                ) : filteredGeneratedSuggestions.length === 0 ? (
-                  <div className="text-center py-8 text-xs text-gray-500">
-                    {generateSearchTerm
-                      ? `No suggestions found for "${generateSearchTerm}"`
-                      : generatedSuggestions.length === 0
-                      ? 'No suggestions generated.'
-                      : 'No results.'}
-                    {generateSearchTerm && (
-                      <button onClick={() => setGenerateSearchTerm('')} className="block mx-auto mt-2 text-blue-500 underline">Clear search</button>
-                    )}
-                  </div>
+                {dataSources.length === 0 ? (
+                  <p className="text-xs text-red-500">No data source found. Please add a data source in Manage Tables first.</p>
                 ) : (
-                  <>
-                    {generateSearchTerm && (
-                      <div className="flex justify-between items-center mb-2 text-xs text-gray-500">
-                        <span>Found {filteredGeneratedSuggestions.length} suggestion{filteredGeneratedSuggestions.length !== 1 ? 's' : ''}</span>
-                        <button onClick={() => setGenerateSearchTerm('')} className="text-blue-500 underline">Clear</button>
-                      </div>
-                    )}
-                    {filteredGeneratedSuggestions.map((suggestion, index) => (
-                      <div
-                        key={index}
-                        onClick={() => {
-                          setNewPromptName(suggestion.prompt_text);
-                          setShowGeneratePromptModal(false);
-                          setGenerateSearchTerm('');
-                        }}
-                        className="mb-2 p-3 bg-white border border-gray-200 rounded-lg cursor-pointer hover:border-blue-400 hover:shadow-sm transition-all"
-                      >
-                        <div className="flex items-center gap-1.5 mb-1">
-                          <span className="text-xs font-bold text-blue-600">{index + 1}.</span>
-                        </div>
-                        <p className="text-xs text-gray-800 leading-relaxed">{suggestion.prompt_text}</p>
-                      </div>
+                  <select
+                    value={selectedGenerateSourceId}
+                    onChange={(e) => setSelectedGenerateSourceId(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400 text-gray-800"
+                  >
+                    <option value="" disabled>Select a data source…</option>
+                    {dataSources.map((ds: any) => (
+                      <option key={ds.id} value={ds.id}>{ds.source_name}</option>
                     ))}
-                  </>
+                  </select>
                 )}
               </div>
 
-              {/* Footer hint */}
-              {!generateLoading && filteredGeneratedSuggestions.length > 0 && (
-                <div className="px-4 py-2 border-t border-gray-100 bg-gray-50">
-                  <p className="text-[10px] text-gray-400 text-center">Click a suggestion to use it as your prompt</p>
-                </div>
-              )}
+              <div className="flex justify-end gap-2 px-4 py-3 border-t border-gray-100">
+                <button
+                  onClick={() => setShowGenerateSourceModal(false)}
+                  disabled={isSavingGenerated}
+                  className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleGenerateAndSavePrompts(selectedGenerateSourceId)}
+                  disabled={!selectedGenerateSourceId || isSavingGenerated}
+                  className="px-3 py-1.5 text-xs font-medium text-white bg-purple-600 rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                >
+                  {isSavingGenerated && <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin inline-block" />}
+                  {isSavingGenerated ? 'Generating...' : 'Generate'}
+                </button>
+              </div>
             </div>
-          </>
+          </div>
         )}
 
         {activeTab === "timeline" && (
@@ -7830,11 +7786,11 @@ const SpeechRecognition =
           <TallySetting />
         )}
 
-        {activeTab === "kpi" && (
+        {activeTab === "kpi" && !hideUsRestrictedTabs && (
           <KpiUpdates />
         )}
 
-        {activeTab === "report" && (
+        {activeTab === "report" && !hideUsRestrictedTabs && (
           <ReportComponent />
         )}
 

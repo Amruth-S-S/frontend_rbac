@@ -125,7 +125,7 @@ export default function Page() {
 
                 {/* Center: Nav links */}
                 <nav className="consultant-nav-links">
-                    <a href="/Dashboard" className="consultant-nav-link">Consultant</a>
+                    <a href="/Container" className="consultant-nav-link">Consultant</a>
                     <a href="/CXO" className="consultant-nav-link">CXO</a>
                 </nav>
 
@@ -171,7 +171,7 @@ export default function Page() {
                         <p><strong>Email:</strong> {userData.email || "N/A"}</p>
                     </div>
                     <div className="mobile-nav-links">
-                        <a href="/Dashboard" className="mobile-nav-link">Consultant</a>
+                        <a href="/Container" className="mobile-nav-link">Consultant</a>
                         <a href="/CXO" className="mobile-nav-link">CXO</a>
                     </div>
                     <button onClick={handleLogout} className="mobile-logout-button">Logout</button>

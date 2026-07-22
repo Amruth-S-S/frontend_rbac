@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
-import { toast, ToastContainer } from "react-toastify";
+import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { Search, Edit2, Trash2, ChevronUp, ChevronDown, ArrowUpDown } from "lucide-react";
 import Spinner from "../components/Spinner";
@@ -707,8 +707,6 @@ export default function OrganizationPage() {
 
   return (
     <div style={s.outer}>
-      <ToastContainer position="bottom-center" autoClose={3000} hideProgressBar />
-
       <header className="bg-white p-3 shadow-sm">
         <div className="flex justify-end items-center gap-2 max-w-screen-xl mx-auto">
           <LanguageSelector />

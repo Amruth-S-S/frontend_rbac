@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { toast, ToastContainer } from 'react-toastify';
+import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { useTranslation } from 'react-i18next';
 import * as XLSX from 'xlsx';
@@ -470,8 +470,6 @@ export default function UserList() {
 
   return (
     <div style={s.outer}>
-      <ToastContainer position="bottom-center" autoClose={3000} hideProgressBar />
-
       {/* ── Modals ── */}
       {showRegisterModal && (
         <RegisterUserModal

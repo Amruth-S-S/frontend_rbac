@@ -390,11 +390,11 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
       visible = [
         { id: 'users', label: 'User', href: '/UserList', roles: [] },
         { id: 'organization', label: 'Organization', href: '/Organization', roles: [] },
-        { id: 'org-groups', label: 'Groups', href: '/Groups', roles: [] },
+        { id: 'org-groups', label: 'Role', href: '/Groups', roles: [] },
       ];
     } else if (orgRole === 'ADMIN') {
       visible = [
-        { id: 'org-groups', label: 'Groups', href: '/Groups', roles: [] },
+        { id: 'org-groups', label: 'Role', href: '/Groups', roles: [] },
       ];
     } else if (orgRole === 'VIEWER' || orgRole === 'EDITOR' || orgRole === 'ANALYST') {
       visible = []; // no admin menus — only the boards tree is shown

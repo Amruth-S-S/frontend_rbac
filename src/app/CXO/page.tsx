@@ -119,6 +119,8 @@ export default function CXO() {
     userName: "",
   });
   const [isMounted, setIsMounted] = useState(false);
+  // US-based users don't get the Dashboard / Live Data tiles or sidebar entries.
+  const [hideUsRestrictedTabs, setHideUsRestrictedTabs] = useState(false);
 
   interface ChartData {
     chart_type: string;
@@ -256,6 +258,7 @@ export default function CXO() {
       if (sessionData) {
         const p = JSON.parse(sessionData);
         setUserData({ email: p.email || "", userId: p.userId || "", userRole: p.userRole || "", userName: p.userName || "" });
+        setHideUsRestrictedTabs(p.country === 'United States');
         return;
       }
       const local = {
@@ -931,8 +934,8 @@ export default function CXO() {
             };
 
             // compute visible items based on search
-            const dashboardVisible = !q || 'dashboard'.includes(q);
-            const liveDataVisible = !q || 'live data'.includes(q);
+            const dashboardVisible = !hideUsRestrictedTabs && (!q || 'dashboard'.includes(q));
+            const liveDataVisible = !hideUsRestrictedTabs && (!q || 'live data'.includes(q));
             const demoMbFiltered = demoMainBoards.filter(mb => {
               if (!q) return true;
               if (mb.name.toLowerCase().includes(q)) return true;
@@ -1169,7 +1172,7 @@ export default function CXO() {
 
         {/* Content */}
         <div className="flex-1 overflow-auto p-8">
-          {cxoView === "dashboard" ? (
+          {cxoView === "dashboard" && !hideUsRestrictedTabs ? (
             <>
               <div className="mb-4">
                 <button onClick={() => setCxoView("home")}
@@ -1179,7 +1182,7 @@ export default function CXO() {
               </div>
               <KPIDashboard />
             </>
-          ) : cxoView === "livedata" ? (
+          ) : cxoView === "livedata" && !hideUsRestrictedTabs ? (
             <LiveDataModal onClose={() => setCxoView("home")} />
           ) : (
             <div className="p-6">
@@ -1251,26 +1254,30 @@ export default function CXO() {
                 <div className="grid grid-cols-4 gap-4 pb-3">
 
                   {/* Dashboard */}
-                  <button
-                    onClick={() => setCxoView("dashboard")}
-                    className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col items-center gap-3 hover:shadow-md hover:border-teal-200 transition-all w-full"
-                  >
-                    <div className="w-16 h-16 rounded-full bg-teal-50 flex items-center justify-center">
-                      <LayoutDashboard className="w-8 h-8 text-teal-400" />
-                    </div>
-                    <span className="text-sm font-semibold text-center text-teal-500">Dashboard</span>
-                  </button>
+                  {!hideUsRestrictedTabs && (
+                    <button
+                      onClick={() => setCxoView("dashboard")}
+                      className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col items-center gap-3 hover:shadow-md hover:border-teal-200 transition-all w-full"
+                    >
+                      <div className="w-16 h-16 rounded-full bg-teal-50 flex items-center justify-center">
+                        <LayoutDashboard className="w-8 h-8 text-teal-400" />
+                      </div>
+                      <span className="text-sm font-semibold text-center text-teal-500">Dashboard</span>
+                    </button>
+                  )}
 
                   {/* Live Data */}
-                  <button
-                    onClick={() => setCxoView("livedata")}
-                    className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col items-center gap-3 hover:shadow-md hover:border-blue-200 transition-all w-full"
-                  >
-                    <div className="w-16 h-16 rounded-full bg-blue-50 flex items-center justify-center">
-                      <Database className="w-8 h-8 text-blue-400" />
-                    </div>
-                    <span className="text-sm font-semibold text-center text-blue-500">Live Data</span>
-                  </button>
+                  {!hideUsRestrictedTabs && (
+                    <button
+                      onClick={() => setCxoView("livedata")}
+                      className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col items-center gap-3 hover:shadow-md hover:border-blue-200 transition-all w-full"
+                    >
+                      <div className="w-16 h-16 rounded-full bg-blue-50 flex items-center justify-center">
+                        <Database className="w-8 h-8 text-blue-400" />
+                      </div>
+                      <span className="text-sm font-semibold text-center text-blue-500">Live Data</span>
+                    </button>
+                  )}
 
                   {/* Demo Reference tiles */}
                   {isDemoLoading ? (

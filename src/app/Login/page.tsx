@@ -219,8 +219,107 @@ const HoverButton: React.FC<{
   );
 };
 
+const CountrySelect: React.FC<{
+  value: string;
+  onChange: (val: string) => void;
+  options: string[];
+  placeholder?: string;
+}> = ({ value, onChange, options, placeholder = 'Select Country' }) => {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const wrapperRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setSearch('');
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const filtered = search
+    ? options.filter(o => o.toLowerCase().includes(search.toLowerCase()))
+    : options;
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '6px 8px', border: '1px solid #ddd', borderRadius: '6px',
+    fontSize: '12px', boxSizing: 'border-box', background: '#fff', cursor: 'pointer',
+    textAlign: 'left', color: value ? '#111827' : '#6b7280',
+  };
+
+  return (
+    <div ref={wrapperRef} style={{ position: 'relative' }}>
+      <button type="button" onClick={() => setOpen(o => !o)} style={inputStyle}>
+        {value || placeholder}
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 20,
+          background: '#fff', border: '1px solid #ddd', borderRadius: '6px',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.12)', overflow: 'hidden',
+        }}>
+          <input
+            autoFocus
+            type="text"
+            placeholder="Search country..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ width: '100%', padding: '6px 8px', border: 'none', borderBottom: '1px solid #eee', fontSize: '12px', boxSizing: 'border-box', outline: 'none' }}
+          />
+          <div style={{ maxHeight: '160px', overflowY: 'auto' }}>
+            {filtered.length === 0 && (
+              <div style={{ padding: '6px 8px', fontSize: '12px', color: '#9ca3af' }}>No matches</div>
+            )}
+            {filtered.map(option => (
+              <div
+                key={option}
+                onClick={() => { onChange(option); setOpen(false); setSearch(''); }}
+                style={{
+                  padding: '6px 8px', fontSize: '12px', cursor: 'pointer',
+                  background: option === value ? '#eef0fd' : '#fff',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = '#f3f4f6')}
+                onMouseLeave={e => (e.currentTarget.style.background = option === value ? '#eef0fd' : '#fff')}
+              >
+                {option}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 type FormState = 'email-login' | 'phone-entry' | 'phone-verify' | 'signup' | 'signup-verify' | 'forgot-email' | 'forgot-reset';
+
+const COUNTRIES = [
+  'Afghanistan', 'Albania', 'Algeria', 'Andorra', 'Angola', 'Argentina', 'Armenia', 'Australia',
+  'Austria', 'Azerbaijan', 'Bahamas', 'Bahrain', 'Bangladesh', 'Barbados', 'Belarus', 'Belgium',
+  'Belize', 'Benin', 'Bhutan', 'Bolivia', 'Bosnia and Herzegovina', 'Botswana', 'Brazil', 'Brunei',
+  'Bulgaria', 'Burkina Faso', 'Burundi', 'Cambodia', 'Cameroon', 'Canada', 'Chad', 'Chile', 'China',
+  'Colombia', 'Comoros', 'Costa Rica', 'Croatia', 'Cuba', 'Cyprus', 'Czech Republic',
+  'Democratic Republic of the Congo', 'Denmark', 'Djibouti', 'Dominican Republic', 'Ecuador', 'Egypt',
+  'El Salvador', 'Estonia', 'Eswatini', 'Ethiopia', 'Fiji', 'Finland', 'France', 'Gabon', 'Gambia',
+  'Georgia', 'Germany', 'Ghana', 'Greece', 'Guatemala', 'Guinea', 'Guyana', 'Haiti', 'Honduras',
+  'Hungary', 'Iceland', 'India', 'Indonesia', 'Iran', 'Iraq', 'Ireland', 'Israel', 'Italy', 'Jamaica',
+  'Japan', 'Jordan', 'Kazakhstan', 'Kenya', 'Kuwait', 'Kyrgyzstan', 'Laos', 'Latvia', 'Lebanon',
+  'Lesotho', 'Liberia', 'Libya', 'Liechtenstein', 'Lithuania', 'Luxembourg', 'Madagascar', 'Malawi',
+  'Malaysia', 'Maldives', 'Mali', 'Malta', 'Mauritania', 'Mauritius', 'Mexico', 'Moldova', 'Monaco',
+  'Mongolia', 'Montenegro', 'Morocco', 'Mozambique', 'Myanmar', 'Namibia', 'Nepal', 'Netherlands',
+  'New Zealand', 'Nicaragua', 'Niger', 'Nigeria', 'North Korea', 'North Macedonia', 'Norway', 'Oman',
+  'Pakistan', 'Panama', 'Papua New Guinea', 'Paraguay', 'Peru', 'Philippines', 'Poland', 'Portugal',
+  'Qatar', 'Republic of the Congo', 'Romania', 'Russia', 'Rwanda', 'Saudi Arabia', 'Senegal', 'Serbia',
+  'Sierra Leone', 'Singapore', 'Slovakia', 'Slovenia', 'Somalia', 'South Africa', 'South Korea',
+  'South Sudan', 'Spain', 'Sri Lanka', 'Sudan', 'Suriname', 'Sweden', 'Switzerland', 'Syria', 'Taiwan',
+  'Tajikistan', 'Tanzania', 'Thailand', 'Togo', 'Trinidad and Tobago', 'Tunisia', 'Turkey',
+  'Turkmenistan', 'Uganda', 'Ukraine', 'United Arab Emirates', 'United Kingdom', 'United States',
+  'Uruguay', 'Uzbekistan', 'Venezuela', 'Vietnam', 'Yemen', 'Zambia', 'Zimbabwe',
+];
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 export default function Login() {
@@ -347,25 +446,30 @@ export default function Login() {
     e.preventDefault();
     if (!email || !password) { toast.error('Please enter both email and password.'); return; }
 
-    // OTP verification step is disabled for now — /auth/login already returns the
-    // same AuthResponse shape as /auth/verify-login-otp, so we log in directly here.
-    // To re-enable OTP: after a successful triggerLogin, call triggerSendOtp and
-    // setCurrentForm('phone-verify') instead of writing sessionStorage below.
+    // Two-step login: validate the password via /auth/login first, then require
+    // an OTP (sent to the user's email) before actually establishing the session.
+    // The session itself is written in handleVerifyOtp once the OTP checks out.
     try {
-      const data: any = await triggerLogin({ email, password });
-      const userName = data.user_name ? data.user_name.trim() : 'Unknown User';
-      if (typeof window !== 'undefined') {
-        sessionStorage.setItem('currentUserData', JSON.stringify({
-          email: data.email, name: data.name, userId: data.user_id, userRole: data.role, userName,
-          orgId: extractOrgId(data),
-          orgRole: data.access?.org_role || data.org_role || data.role || '',
-          orgData: data.organization || null,
-        }));
-      }
-      toast.success('Login successful!');
-      setTimeout(() => router.push('/Consultant'), 1000);
+      await triggerLogin({ email, password });
     } catch (err: any) {
       toast.error(`Login failed: ${err.data?.message || 'Invalid credentials.'}`);
+      return;
+    }
+
+    try {
+      await triggerSendOtp({ email: email.trim().toLowerCase() });
+      setVerifyLoginEmail(email);
+      setOtp('');
+      setOtpError('');
+      setOtpAttempts(0);
+      setIsOtpBlocked(false);
+      setOtpBlockTime(null);
+      setOtpSuccess('OTP sent to your email. Please verify to complete login.');
+      setOtpExpiryTime(Date.now() + 10 * 60 * 1000);
+      setResendCooldown(60);
+      setCurrentForm('phone-verify');
+    } catch (err: any) {
+      toast.error(`Failed to send OTP: ${err.data?.message || 'Please try again.'}`);
     }
   };
 
@@ -401,12 +505,30 @@ export default function Login() {
       const data: any = await triggerVerifyOtp({ email: verifyLoginEmail.trim().toLowerCase(), otp_code: otp });
       setOtpAttempts(0); setOtpError('');
       const userName = data.user_name ? data.user_name.trim() : 'Unknown User';
+
+      // Country isn't always present on the auth response — fall back to the
+      // user's own profile (used elsewhere to gate country-specific features,
+      // e.g. hiding Reports/Live Data for US users in GroupContainer).
+      let userCountry: string = data.country || data.user?.country || '';
+      if (!userCountry && data.user_id) {
+        try {
+          const profileRes = await fetch(`${API_BASE_URL}/client-users/${data.user_id}`, {
+            headers: { Accept: 'application/json', 'X-API-Key': process.env.NEXT_PUBLIC_API_KEY || '' },
+          });
+          if (profileRes.ok) {
+            const profile = await profileRes.json();
+            userCountry = profile.country || '';
+          }
+        } catch { /* non-fatal — country gating just won't apply */ }
+      }
+
       if (typeof window !== 'undefined') {
         sessionStorage.setItem('currentUserData', JSON.stringify({
           email: data.email, name: data.name, userId: data.user_id, userRole: data.role, userName,
           orgId: extractOrgId(data),
           orgRole: data.access?.org_role || data.org_role || data.role || '',
           orgData: data.organization || null,
+          country: userCountry,
         }));
       }
       toast.success('OTP verified successfully!');
@@ -427,6 +549,7 @@ export default function Login() {
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!signupCountry) { toast.error('Please select your country'); return; }
     if (signupPassword !== signupConfirmPassword) { toast.error("Passwords don't match"); return; }
     if (signupPassword.length < 6) { toast.error('Password must be at least 6 characters long'); return; }
     try {
@@ -579,7 +702,7 @@ export default function Login() {
               <div className="forgot-password">
                 <span onClick={() => setCurrentForm('forgot-email')} style={{ cursor: 'pointer', color: '#313b96' }}>Forgot password?</span>
               </div>
-              <button type="submit" disabled={loginLoading}>Login now</button>
+              <button type="submit" disabled={loginLoading || sendOtpLoading}>{loginLoading ? 'Checking...' : sendOtpLoading ? 'Sending OTP...' : 'Login now'}</button>
             </form>
           </>
         );
@@ -597,6 +720,11 @@ export default function Login() {
             <button type="button" onClick={handleSendOtp} className="submit-button" disabled={sendOtpLoading || resendCooldown > 0 || isOtpBlocked}>
               {sendOtpLoading ? 'Sending...' : 'Send OTP'}
             </button>
+            <div style={{ marginTop: 16, textAlign: 'center' }}>
+              <button onClick={() => { setOtpError(''); setCurrentForm('email-login'); }} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: '14px', display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '8px 12px', borderRadius: '6px' }}>
+                <i className="fas fa-arrow-left" /> Back to Sign in
+              </button>
+            </div>
           </div>
         );
 
@@ -670,8 +798,7 @@ export default function Login() {
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#374151', marginBottom: '3px', textAlign: 'left' }}>Country</label>
-                <input type="text" placeholder="Country" value={signupCountry} onChange={e => setSignupCountry(e.target.value)} required
-                  style={{ width: '100%', padding: '6px 8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '12px', boxSizing: 'border-box' }} />
+                <CountrySelect value={signupCountry} onChange={setSignupCountry} options={COUNTRIES} />
               </div>
 
               {/* Row 3: Password | Confirm Password */}
