@@ -359,9 +359,9 @@ function AddMemberModal({
         </div>
 
         <div style={{ marginBottom: 8 }}>
-          <label style={m.label}>Organization Role <span style={{ color: "#ef4444" }}>*</span></label>
+          <label style={m.label}>Organization Authorization <span style={{ color: "#ef4444" }}>*</span></label>
           <select value={orgRole} onChange={e => setOrgRole(e.target.value)} style={{ ...m.input, cursor: "pointer" }}>
-            <option value="">Select a role</option>
+            <option value="">Select a authorization</option>
             {ORG_ROLES.map(role => <option key={role} value={role}>{role}</option>)}
           </select>
         </div>

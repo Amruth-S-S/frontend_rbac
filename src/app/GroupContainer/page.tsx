@@ -46,6 +46,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import TallySetting from "../components/TallySetting";
 import ManageParameterSetting from "../components/Manageparametersetting";
 import KpiUpdates from "../components/KpiUpdates";
+import TransactionData from "../components/transactionData";
 import dynamic from "next/dynamic";
 const ReportComponent = dynamic(() => import("../components/ReportComponent"), { ssr: false });
 const LiveData = dynamic(() => import("../components/LiveData"), { ssr: false });
@@ -461,6 +462,15 @@ function GroupContainerPage() {
   const [selectedPgTable, setSelectedPgTable] = useState<any | null>(null);
   const [showAddDataSourceModal, setShowAddDataSourceModal] = useState(false);
   const [showTopBtn, setShowTopBtn] = useState(false);
+  const [showMainTopBtn, setShowMainTopBtn] = useState(false);
+  // The outer content wrapper below is `min-h-screen` (grows with content rather
+  // than capping at the viewport), so the browser window scrolls, not the div —
+  // track window scroll instead of relying on the div's own onScroll.
+  useEffect(() => {
+    const handleWindowScroll = () => setShowMainTopBtn(window.scrollY > 200);
+    window.addEventListener('scroll', handleWindowScroll);
+    return () => window.removeEventListener('scroll', handleWindowScroll);
+  }, []);
   const [resultTab, setResultTab] = useState('message');
   const [columnMetadata, setColumnMetadata] = useState<any[]>([]);
   const [columnMetaLoading, setColumnMetaLoading] = useState(false);
@@ -4438,7 +4448,10 @@ const SpeechRecognition =
   return (
 
 
-    <div className="flex-1 overflow-y-auto bg-gray-200 rounded-2xl shadow-lg border border-gray-200 min-h-screen">
+    <div
+      id="group-container-main-scroll"
+      className="flex-1 overflow-y-auto bg-gray-200 rounded-2xl shadow-lg border border-gray-200 min-h-screen"
+    >
       <header className="bg-white p-3 shadow-sm">
         <div className="flex justify-end items-center gap-2 max-w-screen-xl mx-auto">
           {/* Language Selector */}
@@ -4538,8 +4551,9 @@ const SpeechRecognition =
                   // { key: "parameter",  label: t("tabs.parameterSettings") },
                   // { key: "timeline",   label: t("tabs.timelineSettings") },
                   { key: "kpi",           label: t("tabs.kpiUpdates") },
+                  { key: "transactionData", label: "Transaction Data" },
                   { key: "report",        label: t("tabs.reports") },
-                ].filter((tab) => !(hideUsRestrictedTabs && (tab.key === "report" || tab.key === "kpi"))).map((tab) => (
+                ].filter((tab) => !(hideUsRestrictedTabs && (tab.key === "report" || tab.key === "kpi" || tab.key === "transactionData"))).map((tab) => (
                   <button
                     key={tab.key}
                     className={`flex-shrink-0 px-3 py-1.5 rounded-md font-medium transition-all duration-200 text-xs whitespace-nowrap ${activeTab === tab.key
@@ -4573,8 +4587,9 @@ const SpeechRecognition =
                       // { key: "parameter",  label: t("tabs.parameterSettings") },
                       // { key: "timeline",   label: t("tabs.timelineSettings") },
                       { key: "kpi",           label: t("tabs.kpiUpdates") },
+                      { key: "transactionData", label: "Transaction Data" },
                       { key: "report",        label: t("tabs.reports") },
-                    ].filter((tab) => !(hideUsRestrictedTabs && (tab.key === "report" || tab.key === "kpi"))).find((tab) => tab.key === activeTab)?.label ?? t("header.selectScreen")}
+                    ].filter((tab) => !(hideUsRestrictedTabs && (tab.key === "report" || tab.key === "kpi" || tab.key === "transactionData"))).find((tab) => tab.key === activeTab)?.label ?? t("header.selectScreen")}
                   </span>
                   <span className="ml-2 text-gray-400 text-xs">{isMobileMenuOpen ? "▲" : "▼"}</span>
                 </button>
@@ -4594,8 +4609,9 @@ const SpeechRecognition =
                         // { key: "parameter",  label: t("tabs.parameterSettings") },
                         // { key: "timeline",   label: t("tabs.timelineSettings") },
                         { key: "kpi",           label: t("tabs.kpiUpdates") },
+                        { key: "transactionData", label: "Transaction Data" },
                         { key: "report",        label: t("tabs.reports") },
-                      ].filter((tab) => !(hideUsRestrictedTabs && (tab.key === "report" || tab.key === "kpi"))).map((tab) => (
+                      ].filter((tab) => !(hideUsRestrictedTabs && (tab.key === "report" || tab.key === "kpi" || tab.key === "transactionData"))).map((tab) => (
                         <button
                           key={tab.key}
                           className={`w-full text-left px-3 py-2 rounded-md transition-colors text-xs ${activeTab === tab.key
@@ -7790,11 +7806,25 @@ const SpeechRecognition =
           <KpiUpdates />
         )}
 
+        {activeTab === "transactionData" && !hideUsRestrictedTabs && (
+          <TransactionData />
+        )}
+
         {activeTab === "report" && !hideUsRestrictedTabs && (
           <ReportComponent />
         )}
 
       </div>
+
+      {/* Scroll to Top button — only after scrolling 200px down the page */}
+      {showMainTopBtn && (
+        <button
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          className="fixed bottom-6 right-6 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-4 py-2 rounded-full shadow-lg z-[60] transition-all"
+        >
+          ↑ Top
+        </button>
+      )}
     </div >
   );
 
