@@ -29,11 +29,12 @@ interface ExtractTabState {
   tableFilter: string;
   sortColumn: string | null;
   sortDir: 'asc' | 'desc';
+  activeSection: number;
 }
 
 const emptyTabState = (): ExtractTabState => ({
   source: '', fileName: '', loading: false, result: null, error: null,
-  tableFilter: '', sortColumn: null, sortDir: 'asc',
+  tableFilter: '', sortColumn: null, sortDir: 'asc', activeSection: 0,
 });
 
 const TABS: { key: ExtractKind; label: string; description: string }[] = [
@@ -47,20 +48,46 @@ const TABS: { key: ExtractKind; label: string; description: string }[] = [
 
 type TableRow = Record<string, unknown>;
 
-// The extraction endpoints return a JSON array of flat objects — parse that
-// shape out so it can be rendered as a table; anything else (plain text,
-// a single object, an empty array) falls back to the raw JSON/text view.
-const parseResultRows = (result: string | null): TableRow[] | null => {
+interface ResultSection {
+  title: string;
+  rows: TableRow[];
+}
+
+const isFlatRowArray = (value: unknown): value is TableRow[] =>
+  Array.isArray(value) && value.length > 0 && value.every(row => row !== null && typeof row === 'object' && !Array.isArray(row));
+
+const titleCase = (key: string) => key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
+// Most extraction endpoints (BRS, GST, Ledger, Provisions) return a flat JSON
+// array of row objects — one table. Bills (and potentially others) return a
+// nested shape instead, e.g. { bill_types: { "New Ref": [...], ... }, outstanding: [...] }
+// — walk one level deep and turn every array-of-row-objects found into its own
+// labeled table section. Anything with no tabular data anywhere falls back to
+// the raw JSON/text view.
+const parseResultSections = (result: string | null): ResultSection[] | null => {
   if (!result) return null;
-  try {
-    const parsed = JSON.parse(result);
-    if (Array.isArray(parsed) && parsed.length > 0 && parsed.every(row => row !== null && typeof row === 'object' && !Array.isArray(row))) {
-      return parsed as TableRow[];
-    }
-    return null;
-  } catch {
-    return null;
+  let parsed: unknown;
+  try { parsed = JSON.parse(result); } catch { return null; }
+
+  if (isFlatRowArray(parsed)) return [{ title: '', rows: parsed }];
+
+  if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    const sections: ResultSection[] = [];
+    Object.entries(parsed as Record<string, unknown>).forEach(([key, value]) => {
+      if (isFlatRowArray(value)) {
+        sections.push({ title: titleCase(key), rows: value });
+      } else if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+        Object.entries(value as Record<string, unknown>).forEach(([nestedKey, nestedValue]) => {
+          if (isFlatRowArray(nestedValue)) {
+            sections.push({ title: `${titleCase(key)}: ${nestedKey}`, rows: nestedValue });
+          }
+        });
+      }
+    });
+    return sections.length > 0 ? sections : null;
   }
+
+  return null;
 };
 
 const getColumnsFromRows = (rows: TableRow[]): string[] => {
@@ -242,6 +269,7 @@ export default function TransactionData() {
       tableFilter: '',
       sortColumn: null,
       sortDir: 'asc',
+      activeSection: 0,
     }));
   };
 
@@ -254,7 +282,7 @@ export default function TransactionData() {
     if (!state.source) { showToast('error', 'Please select a source file'); return; }
     if (!state.fileName.trim()) { showToast('error', 'Please enter a file name'); return; }
 
-    setCurrentState(prev => ({ ...prev, loading: true, result: null, error: null, tableFilter: '', sortColumn: null, sortDir: 'asc' }));
+    setCurrentState(prev => ({ ...prev, loading: true, result: null, error: null, tableFilter: '', sortColumn: null, sortDir: 'asc', activeSection: 0 }));
     try {
       const params = new URLSearchParams({ source: state.source, file_name: state.fileName.trim() });
       const res = await fetch(`/api/tally/extract/${activeTab}?${params.toString()}`, {
@@ -287,6 +315,10 @@ export default function TransactionData() {
     }));
   };
 
+  const handleSectionChange = (index: number) => {
+    setCurrentState(prev => ({ ...prev, activeSection: index }));
+  };
+
   const copyResult = async () => {
     if (!currentState.result) return;
     try {
@@ -302,20 +334,26 @@ export default function TransactionData() {
     tableScrollRef.current?.scrollBy({ left: direction === 'left' ? -260 : 260, behavior: 'smooth' });
   };
 
-  // ─── Table view of the current tab's result (falls back to raw JSON when the response isn't a flat array of objects) ──
-  const resultRows = useMemo(() => parseResultRows(currentState.result), [currentState.result]);
-  const resultColumns = useMemo(() => (resultRows ? getColumnsFromRows(resultRows) : []), [resultRows]);
-  const filteredSortedRows = useMemo(() => {
-    if (!resultRows) return [];
+  // ─── Table view(s) of the current tab's result (falls back to raw JSON when there's no tabular data) ──
+  const resultSections = useMemo(() => parseResultSections(currentState.result), [currentState.result]);
+  const processedSections = useMemo(() => {
+    if (!resultSections) return [];
     const q = currentState.tableFilter.trim().toLowerCase();
-    const rows = q
-      ? resultRows.filter(row => resultColumns.some(col => formatCell(row[col]).toLowerCase().includes(q)))
-      : resultRows;
-    if (!currentState.sortColumn) return rows;
-    const col = currentState.sortColumn;
-    const dir = currentState.sortDir === 'asc' ? 1 : -1;
-    return [...rows].sort((a, b) => compareValues(a[col], b[col]) * dir);
-  }, [resultRows, resultColumns, currentState.tableFilter, currentState.sortColumn, currentState.sortDir]);
+    return resultSections.map(section => {
+      const columns = getColumnsFromRows(section.rows);
+      let rows = q
+        ? section.rows.filter(row => columns.some(col => formatCell(row[col]).toLowerCase().includes(q)))
+        : section.rows;
+      if (currentState.sortColumn && columns.includes(currentState.sortColumn)) {
+        const col = currentState.sortColumn;
+        const dir = currentState.sortDir === 'asc' ? 1 : -1;
+        rows = [...rows].sort((a, b) => compareValues(a[col], b[col]) * dir);
+      }
+      return { title: section.title, columns, rows };
+    });
+  }, [resultSections, currentState.tableFilter, currentState.sortColumn, currentState.sortDir]);
+  const totalRawRows = useMemo(() => (resultSections ? resultSections.reduce((sum, s) => sum + s.rows.length, 0) : 0), [resultSections]);
+  const totalFilteredRows = useMemo(() => processedSections.reduce((sum, s) => sum + s.rows.length, 0), [processedSections]);
 
   return (
     <div className="w-full max-w-5xl mx-auto p-4 sm:p-6">
@@ -443,11 +481,15 @@ export default function TransactionData() {
               <div className="flex items-center justify-between mb-1.5 flex-wrap gap-2">
                 <div className={`flex items-center gap-1.5 text-xs font-semibold ${currentState.error ? 'text-red-600' : 'text-emerald-600'}`}>
                   {currentState.error ? <AlertCircle className="w-3.5 h-3.5" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                  {currentState.error ? 'Error' : resultRows ? `Result — ${filteredSortedRows.length} of ${resultRows.length} rows` : 'Result'}
+                  {currentState.error
+                    ? 'Error'
+                    : resultSections
+                      ? `Result — ${totalFilteredRows} of ${totalRawRows} rows${processedSections.length > 1 ? ` across ${processedSections.length} tables` : ''}`
+                      : 'Result'}
                 </div>
 
                 <div className="flex items-center gap-3">
-                  {resultRows && (
+                  {resultSections && (
                     <div className="relative">
                       <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2" />
                       <input
@@ -471,7 +513,7 @@ export default function TransactionData() {
                 <pre className="text-xs rounded-lg p-3 max-h-64 overflow-auto whitespace-pre-wrap break-words border bg-red-50 border-red-200 text-red-700">
                   {currentState.error}
                 </pre>
-              ) : resultRows ? (
+              ) : resultSections ? (
                 <>
                   <style>{`
                     .tx-table-scroll::-webkit-scrollbar { height: 12px; width: 12px; }
@@ -479,54 +521,81 @@ export default function TransactionData() {
                     .tx-table-scroll::-webkit-scrollbar-thumb { background: #2563eb; border-radius: 6px; border: 2px solid #eff6ff; }
                     .tx-table-scroll::-webkit-scrollbar-thumb:hover { background: #1d4ed8; }
                   `}</style>
-                  {/* Fixed to ~8 rows tall so the horizontal scrollbar always sits right here, not below a page-scroll's worth of rows */}
-                  <div
-                    className="tx-table-scroll border border-gray-200 rounded-lg overflow-auto h-80"
-                    style={{ scrollbarWidth: 'auto', scrollbarColor: '#2563eb #eff6ff' }}
-                  >
-                    <table className="min-w-full text-xs border-collapse">
-                    <thead className="sticky top-0 z-10">
-                      <tr>
-                        {resultColumns.map(col => {
-                          const isSorted = currentState.sortColumn === col;
-                          return (
-                            <th
-                              key={col}
-                              onClick={() => handleSort(col)}
-                              className="bg-gray-100 text-left font-semibold text-gray-700 px-3 py-2 border-b border-gray-200 whitespace-nowrap cursor-pointer select-none hover:bg-gray-200 transition-colors"
-                            >
-                              <span className="flex items-center gap-1">
-                                {col}
-                                {isSorted
-                                  ? (currentState.sortDir === 'asc' ? <ArrowUp className="w-3 h-3 text-blue-600" /> : <ArrowDown className="w-3 h-3 text-blue-600" />)
-                                  : <ArrowUpDown className="w-3 h-3 text-gray-300" />}
-                              </span>
-                            </th>
-                          );
-                        })}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredSortedRows.length === 0 ? (
-                        <tr>
-                          <td colSpan={resultColumns.length} className="text-center py-6 text-gray-400">
-                            No rows match &quot;{currentState.tableFilter}&quot;
-                          </td>
-                        </tr>
-                      ) : (
-                        filteredSortedRows.map((row, idx) => (
-                          <tr key={idx} className={idx % 2 === 0 ? 'bg-white hover:bg-blue-50' : 'bg-gray-50 hover:bg-blue-50'}>
-                            {resultColumns.map(col => (
-                              <td key={col} className="px-3 py-1.5 border-b border-gray-100 text-gray-700 whitespace-nowrap">
-                                {formatCell(row[col])}
-                              </td>
+                  {(() => {
+                    const activeIdx = Math.min(currentState.activeSection, processedSections.length - 1);
+                    const section = processedSections[activeIdx];
+                    if (!section) return null;
+                    return (
+                      <div>
+                        {processedSections.length > 1 && (
+                          <div className="flex items-center gap-1 mb-3 overflow-x-auto pb-0.5">
+                            {processedSections.map((s, idx) => (
+                              <button
+                                key={s.title || idx}
+                                onClick={() => handleSectionChange(idx)}
+                                className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors ${
+                                  idx === activeIdx
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                }`}
+                              >
+                                {s.title || 'Result'} <span className="opacity-70">({s.rows.length})</span>
+                              </button>
                             ))}
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                  </div>
+                          </div>
+                        )}
+                        {/* Fixed to ~8 rows tall so the horizontal scrollbar always sits right here, not below a page-scroll's worth of rows */}
+                        <div
+                          ref={tableScrollRef}
+                          className="tx-table-scroll border border-gray-200 rounded-lg overflow-auto h-80"
+                          style={{ scrollbarWidth: 'auto', scrollbarColor: '#2563eb #eff6ff' }}
+                        >
+                          <table className="min-w-full text-xs border-collapse">
+                            <thead className="sticky top-0 z-10">
+                              <tr>
+                                {section.columns.map(col => {
+                                  const isSorted = currentState.sortColumn === col;
+                                  return (
+                                    <th
+                                      key={col}
+                                      onClick={() => handleSort(col)}
+                                      className="bg-gray-100 text-left font-semibold text-gray-700 px-3 py-2 border-b border-gray-200 whitespace-nowrap cursor-pointer select-none hover:bg-gray-200 transition-colors"
+                                    >
+                                      <span className="flex items-center gap-1">
+                                        {col}
+                                        {isSorted
+                                          ? (currentState.sortDir === 'asc' ? <ArrowUp className="w-3 h-3 text-blue-600" /> : <ArrowDown className="w-3 h-3 text-blue-600" />)
+                                          : <ArrowUpDown className="w-3 h-3 text-gray-300" />}
+                                      </span>
+                                    </th>
+                                  );
+                                })}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {section.rows.length === 0 ? (
+                                <tr>
+                                  <td colSpan={section.columns.length} className="text-center py-6 text-gray-400">
+                                    No rows match &quot;{currentState.tableFilter}&quot;
+                                  </td>
+                                </tr>
+                              ) : (
+                                section.rows.map((row, idx) => (
+                                  <tr key={idx} className={idx % 2 === 0 ? 'bg-white hover:bg-blue-50' : 'bg-gray-50 hover:bg-blue-50'}>
+                                    {section.columns.map(col => (
+                                      <td key={col} className="px-3 py-1.5 border-b border-gray-100 text-gray-700 whitespace-nowrap">
+                                        {formatCell(row[col])}
+                                      </td>
+                                    ))}
+                                  </tr>
+                                ))
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </>
               ) : (
                 <pre className="text-xs rounded-lg p-3 max-h-64 overflow-auto whitespace-pre-wrap break-words border bg-gray-900 border-gray-800 text-emerald-300">

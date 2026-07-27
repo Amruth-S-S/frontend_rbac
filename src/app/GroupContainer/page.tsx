@@ -20,7 +20,7 @@ import React from "react";
 import { saveAs } from 'file-saver';
 import * as XLSX from 'xlsx';
 // import { useDropzone } from "react-dropzone";
-import { PencilIcon, TrashIcon, PlusIcon, CheckIcon, ChevronUpIcon, ChevronDownIcon, Edit, Sparkles, LayoutGrid, MousePointerClick } from 'lucide-react';
+import { PencilIcon, TrashIcon, PlusIcon, CheckIcon, ChevronUpIcon, ChevronDownIcon, Edit, Sparkles, LayoutGrid, MousePointerClick, MessageCircle } from 'lucide-react';
 import { Pie, Bar, Line } from "react-chartjs-2";
 import { MdArrowDropDown, MdArrowDropUp } from 'react-icons/md';
 import {
@@ -376,6 +376,8 @@ function GroupContainerPage() {
   ]);
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [emailData, setEmailData] = useState({ email: '', subject: '', message: '', tableOption: 'limited', reportType: '' });
+  const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
+  const [whatsappData, setWhatsappData] = useState({ phoneNumber: '', message: '', tableOption: 'limited', reportType: '' });
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [activeScreenRole, setActiveScreenRole] = useState<'consultant' | 'cxo'>('consultant');
@@ -1653,6 +1655,54 @@ useEffect(() => {
       toast.error(`Failed to send email: ${errorMessage}`);
     } finally {
       setShowEmailModal(false);
+      setShowDownloadModal(false);
+    }
+  };
+
+
+  const sendViaWhatsApp = async (includeTable: boolean | undefined, tableOption: string | undefined) => {
+    if (!whatsappData.phoneNumber) {
+      toast.error('Please enter a recipient WhatsApp number');
+      return;
+    }
+    try {
+      // Generate PPT client-side using PptxGenJS (same as download/email, avoids CORS/backend issues)
+      const pptBase64 = await downloadPPT(
+        includeTable ?? true,
+        tableOption ?? 'limited',
+        true
+      ) as string;
+
+      if (!pptBase64) {
+        throw new Error('Failed to generate PPT — please check that there is chart/table data available.');
+      }
+
+      // Send via Next.js API route (calls Twilio's WhatsApp API server-side, no CORS)
+      const response = await fetch('/api/send-report-whatsapp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phoneNumber: whatsappData.phoneNumber,
+          message: whatsappData.message || '',
+          reportType: includeTable ? 'complete' : 'charts-only',
+          tableOption: tableOption || 'limited',
+          pptBase64,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || result.error || `HTTP ${response.status}`);
+      }
+
+      toast.success('WhatsApp message sent successfully!');
+    } catch (error) {
+      console.error('Error sending WhatsApp message:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      toast.error(`Failed to send WhatsApp message: ${errorMessage}`);
+    } finally {
+      setShowWhatsAppModal(false);
       setShowDownloadModal(false);
     }
   };
@@ -5438,17 +5488,17 @@ const SpeechRecognition =
                                 </button> */}
                                 {showDownloadModal && (
                                   <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                                    <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full">
+                                    <div className="bg-white p-6 rounded-lg shadow-xl max-w-lg w-full">
                                       <h3 className="text-xl font-bold text-blue-700 mb-4">Download Report Options</h3>
                                       <p className="font-bold mb-2">Charts Only:</p>
                                       <p className="mb-4">Please select the type of report you would like to download:</p>
-                                      <div className="flex gap-2">
+                                      <div className="grid grid-cols-3 gap-2">
                                         <button
                                           onClick={() => {
                                             setShowDownloadModal(false);
                                             downloadPPT(false, 'limited');
                                           }}
-                                          className="flex-1 py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 transition-colors"
+                                          className="py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 transition-colors text-sm"
                                         >
                                           Download
                                         </button>
@@ -5463,9 +5513,24 @@ const SpeechRecognition =
                                             }));
                                             setShowEmailModal(true);
                                           }}
-                                          className="flex-1 py-2 bg-green-600 text-white rounded font-medium hover:bg-green-700 transition-colors"
+                                          className="py-2 bg-green-600 text-white rounded font-medium hover:bg-green-700 transition-colors text-sm"
                                         >
                                           Send via Email
+                                        </button>
+                                        <button
+                                          onClick={() => {
+                                            const selectedOptionElement = document.querySelector('input[name="tableRows"]:checked');
+                                            const selectedOption = selectedOptionElement ? (selectedOptionElement as HTMLInputElement).value : 'limited';
+                                            setWhatsappData(prev => ({
+                                              ...prev,
+                                              reportType: 'complete',
+                                              tableOption: selectedOption
+                                            }));
+                                            setShowWhatsAppModal(true);
+                                          }}
+                                          className="py-2 bg-[#25D366] text-white rounded font-medium hover:bg-[#1ebe5d] transition-colors text-sm flex items-center justify-center gap-1"
+                                        >
+                                          <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
                                         </button>
                                       </div>
 
@@ -5496,7 +5561,7 @@ const SpeechRecognition =
                                             <label htmlFor="allRows">All table rows</label>
                                           </div>
                                         </div>
-                                        <div className="flex gap-2">
+                                        <div className="grid grid-cols-3 gap-2">
                                           <button
                                             onClick={() => {
                                               const selectedOptionElement = document.querySelector('input[name="tableRows"]:checked');
@@ -5504,7 +5569,7 @@ const SpeechRecognition =
                                               setShowDownloadModal(false);
                                               downloadPPT(true, selectedOption);
                                             }}
-                                            className="flex-1 py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 transition-colors"
+                                            className="py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 transition-colors text-sm"
                                           >
                                             Download
                                           </button>
@@ -5519,9 +5584,24 @@ const SpeechRecognition =
                                               }));
                                               setShowEmailModal(true);
                                             }}
-                                            className="flex-1 py-2 bg-green-600 text-white rounded font-medium hover:bg-green-700 transition-colors"
+                                            className="py-2 bg-green-600 text-white rounded font-medium hover:bg-green-700 transition-colors text-sm"
                                           >
                                             Send via Email
+                                          </button>
+                                          <button
+                                            onClick={() => {
+                                              const selectedOptionElement = document.querySelector('input[name="tableRows"]:checked');
+                                              const selectedOption = selectedOptionElement ? (selectedOptionElement as HTMLInputElement).value : 'limited';
+                                              setWhatsappData(prev => ({
+                                                ...prev,
+                                                reportType: 'complete',
+                                                tableOption: selectedOption
+                                              }));
+                                              setShowWhatsAppModal(true);
+                                            }}
+                                            className="py-2 bg-[#25D366] text-white rounded font-medium hover:bg-[#1ebe5d] transition-colors text-sm flex items-center justify-center gap-1"
+                                          >
+                                            <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
                                           </button>
                                         </div>
                                       </div>
@@ -5634,6 +5714,102 @@ const SpeechRecognition =
                                             onClick={() => {
                                               setShowEmailModal(false);
                                               setEmailData({ email: '', subject: '', message: '', tableOption: 'limited', reportType: '' });
+                                            }}
+                                            className="flex-1 py-2 bg-gray-200 text-gray-800 rounded border border-gray-300 hover:bg-gray-300 transition-colors"
+                                          >
+                                            Cancel
+                                          </button>
+                                        </div>
+                                      </form>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* WhatsApp Modal */}
+                                {showWhatsAppModal && (
+                                  <div
+                                    className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center"
+                                    style={{ zIndex: 9999 }}
+                                  >
+                                    <div className="bg-white p-6 rounded-lg shadow-xl max-w-lg w-full mx-4">
+                                      <h3 className="text-xl font-bold text-[#25D366] mb-4">Send Report via WhatsApp</h3>
+
+                                      <div className="mb-4 p-3 bg-blue-50 border-l-4 border-blue-400 rounded">
+                                        <p className="text-sm text-blue-800">
+                                          <strong>Report Type:</strong> {whatsappData.reportType === 'charts-only' ? 'Charts Only' : 'Complete Report'}
+                                          {whatsappData.reportType === 'complete' && (
+                                            <><br /><strong>Table Data:</strong> {whatsappData.tableOption === 'all' ? 'All rows' : 'First 20 rows only'}</>
+                                          )}
+                                        </p>
+                                      </div>
+
+                                      <form className="space-y-4">
+                                        <div>
+                                          <label htmlFor="whatsappNumber" className="block text-sm font-medium text-gray-700 mb-1">
+                                            Recipient WhatsApp Number *
+                                          </label>
+                                          <input
+                                            type="tel"
+                                            id="whatsappNumber"
+                                            value={whatsappData.phoneNumber}
+                                            onChange={(e) => setWhatsappData(prev => ({ ...prev, phoneNumber: e.target.value }))}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#25D366] focus:border-transparent"
+                                            placeholder="+919876543210"
+                                            required
+                                          />
+                                          <p className="mt-1 text-xs text-gray-400">Include the country code, e.g. +91 for India.</p>
+                                        </div>
+
+                                        <div>
+                                          <label htmlFor="whatsappMessage" className="block text-sm font-medium text-gray-700 mb-1">
+                                            Additional Message (Optional)
+                                          </label>
+                                          <textarea
+                                            id="whatsappMessage"
+                                            value={whatsappData.message}
+                                            onChange={(e) => setWhatsappData(prev => ({ ...prev, message: e.target.value }))}
+                                            rows={4}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#25D366] focus:border-transparent"
+                                            placeholder="Enter any additional message..."
+                                          />
+                                        </div>
+
+                                        <div className="bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded">
+                                          <div className="flex">
+                                            <div className="flex-shrink-0">
+                                              <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                                                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                              </svg>
+                                            </div>
+                                            <div className="ml-3">
+                                              <p className="text-sm text-yellow-700">
+                                                The report will be sent as a WhatsApp document attachment to this number via our WhatsApp Business integration.
+                                              </p>
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        <div className="flex gap-3 pt-2">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              if (!whatsappData.phoneNumber) {
+                                                toast.error('Please enter a recipient WhatsApp number');
+                                                return;
+                                              }
+                                              const includeTable = whatsappData.reportType === 'complete';
+                                              const tableOption = whatsappData.tableOption || 'limited';
+                                              sendViaWhatsApp(includeTable, tableOption);
+                                            }}
+                                            className="flex-1 py-2 bg-[#25D366] text-white rounded font-medium hover:bg-[#1ebe5d] transition-colors"
+                                          >
+                                            Send WhatsApp
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setShowWhatsAppModal(false);
+                                              setWhatsappData({ phoneNumber: '', message: '', tableOption: 'limited', reportType: '' });
                                             }}
                                             className="flex-1 py-2 bg-gray-200 text-gray-800 rounded border border-gray-300 hover:bg-gray-300 transition-colors"
                                           >
@@ -7203,17 +7379,17 @@ const SpeechRecognition =
                               <div>
                                 {showDownloadModal && (
                                   <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                                    <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full">
+                                    <div className="bg-white p-6 rounded-lg shadow-xl max-w-lg w-full">
                                       <h3 className="text-xl font-bold text-blue-700 mb-4">Download Report Options</h3>
                                       <p className="font-bold mb-2">Charts Only:</p>
                                       <p className="mb-4">Please select the type of report you would like to download:</p>
-                                      <div className="flex gap-2">
+                                      <div className="grid grid-cols-3 gap-2">
                                         <button
                                           onClick={() => {
                                             setShowDownloadModal(false);
                                             downloadPPT(false, 'limited');
                                           }}
-                                          className="flex-1 py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 transition-colors"
+                                          className="py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 transition-colors text-sm"
                                         >
                                           Download
                                         </button>
@@ -7228,9 +7404,24 @@ const SpeechRecognition =
                                             }));
                                             setShowEmailModal(true);
                                           }}
-                                          className="flex-1 py-2 bg-green-600 text-white rounded font-medium hover:bg-green-700 transition-colors"
+                                          className="py-2 bg-green-600 text-white rounded font-medium hover:bg-green-700 transition-colors text-sm"
                                         >
                                           Send via Email
+                                        </button>
+                                        <button
+                                          onClick={() => {
+                                            const selectedOptionElement = document.querySelector('input[name="tableRows"]:checked');
+                                            const selectedOption = selectedOptionElement ? (selectedOptionElement as HTMLInputElement).value : 'limited';
+                                            setWhatsappData(prev => ({
+                                              ...prev,
+                                              reportType: 'complete',
+                                              tableOption: selectedOption
+                                            }));
+                                            setShowWhatsAppModal(true);
+                                          }}
+                                          className="py-2 bg-[#25D366] text-white rounded font-medium hover:bg-[#1ebe5d] transition-colors text-sm flex items-center justify-center gap-1"
+                                        >
+                                          <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
                                         </button>
                                       </div>
 
@@ -7261,7 +7452,7 @@ const SpeechRecognition =
                                             <label htmlFor="allRows">All table rows</label>
                                           </div>
                                         </div>
-                                        <div className="flex gap-2">
+                                        <div className="grid grid-cols-3 gap-2">
                                           <button
                                             onClick={() => {
                                               const selectedOptionElement = document.querySelector('input[name="tableRows"]:checked');
@@ -7269,7 +7460,7 @@ const SpeechRecognition =
                                               setShowDownloadModal(false);
                                               downloadPPT(true, selectedOption);
                                             }}
-                                            className="flex-1 py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 transition-colors"
+                                            className="py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 transition-colors text-sm"
                                           >
                                             Download
                                           </button>
@@ -7284,9 +7475,24 @@ const SpeechRecognition =
                                               }));
                                               setShowEmailModal(true);
                                             }}
-                                            className="flex-1 py-2 bg-green-600 text-white rounded font-medium hover:bg-green-700 transition-colors"
+                                            className="py-2 bg-green-600 text-white rounded font-medium hover:bg-green-700 transition-colors text-sm"
                                           >
                                             Send via Email
+                                          </button>
+                                          <button
+                                            onClick={() => {
+                                              const selectedOptionElement = document.querySelector('input[name="tableRows"]:checked');
+                                              const selectedOption = selectedOptionElement ? (selectedOptionElement as HTMLInputElement).value : 'limited';
+                                              setWhatsappData(prev => ({
+                                                ...prev,
+                                                reportType: 'complete',
+                                                tableOption: selectedOption
+                                              }));
+                                              setShowWhatsAppModal(true);
+                                            }}
+                                            className="py-2 bg-[#25D366] text-white rounded font-medium hover:bg-[#1ebe5d] transition-colors text-sm flex items-center justify-center gap-1"
+                                          >
+                                            <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
                                           </button>
                                         </div>
                                       </div>
@@ -7399,6 +7605,102 @@ const SpeechRecognition =
                                             onClick={() => {
                                               setShowEmailModal(false);
                                               setEmailData({ email: '', subject: '', message: '', tableOption: 'limited', reportType: '' });
+                                            }}
+                                            className="flex-1 py-2 bg-gray-200 text-gray-800 rounded border border-gray-300 hover:bg-gray-300 transition-colors"
+                                          >
+                                            Cancel
+                                          </button>
+                                        </div>
+                                      </form>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* WhatsApp Modal */}
+                                {showWhatsAppModal && (
+                                  <div
+                                    className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center"
+                                    style={{ zIndex: 9999 }}
+                                  >
+                                    <div className="bg-white p-6 rounded-lg shadow-xl max-w-lg w-full mx-4">
+                                      <h3 className="text-xl font-bold text-[#25D366] mb-4">Send Report via WhatsApp</h3>
+
+                                      <div className="mb-4 p-3 bg-blue-50 border-l-4 border-blue-400 rounded">
+                                        <p className="text-sm text-blue-800">
+                                          <strong>Report Type:</strong> {whatsappData.reportType === 'charts-only' ? 'Charts Only' : 'Complete Report'}
+                                          {whatsappData.reportType === 'complete' && (
+                                            <><br /><strong>Table Data:</strong> {whatsappData.tableOption === 'all' ? 'All rows' : 'First 20 rows only'}</>
+                                          )}
+                                        </p>
+                                      </div>
+
+                                      <form className="space-y-4">
+                                        <div>
+                                          <label htmlFor="whatsappNumber" className="block text-sm font-medium text-gray-700 mb-1">
+                                            Recipient WhatsApp Number *
+                                          </label>
+                                          <input
+                                            type="tel"
+                                            id="whatsappNumber"
+                                            value={whatsappData.phoneNumber}
+                                            onChange={(e) => setWhatsappData(prev => ({ ...prev, phoneNumber: e.target.value }))}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#25D366] focus:border-transparent"
+                                            placeholder="+919876543210"
+                                            required
+                                          />
+                                          <p className="mt-1 text-xs text-gray-400">Include the country code, e.g. +91 for India.</p>
+                                        </div>
+
+                                        <div>
+                                          <label htmlFor="whatsappMessage" className="block text-sm font-medium text-gray-700 mb-1">
+                                            Additional Message (Optional)
+                                          </label>
+                                          <textarea
+                                            id="whatsappMessage"
+                                            value={whatsappData.message}
+                                            onChange={(e) => setWhatsappData(prev => ({ ...prev, message: e.target.value }))}
+                                            rows={4}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#25D366] focus:border-transparent"
+                                            placeholder="Enter any additional message..."
+                                          />
+                                        </div>
+
+                                        <div className="bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded">
+                                          <div className="flex">
+                                            <div className="flex-shrink-0">
+                                              <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                                                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                              </svg>
+                                            </div>
+                                            <div className="ml-3">
+                                              <p className="text-sm text-yellow-700">
+                                                The report will be sent as a WhatsApp document attachment to this number via our WhatsApp Business integration.
+                                              </p>
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        <div className="flex gap-3 pt-2">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              if (!whatsappData.phoneNumber) {
+                                                toast.error('Please enter a recipient WhatsApp number');
+                                                return;
+                                              }
+                                              const includeTable = whatsappData.reportType === 'complete';
+                                              const tableOption = whatsappData.tableOption || 'limited';
+                                              sendViaWhatsApp(includeTable, tableOption);
+                                            }}
+                                            className="flex-1 py-2 bg-[#25D366] text-white rounded font-medium hover:bg-[#1ebe5d] transition-colors"
+                                          >
+                                            Send WhatsApp
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setShowWhatsAppModal(false);
+                                              setWhatsappData({ phoneNumber: '', message: '', tableOption: 'limited', reportType: '' });
                                             }}
                                             className="flex-1 py-2 bg-gray-200 text-gray-800 rounded border border-gray-300 hover:bg-gray-300 transition-colors"
                                           >
