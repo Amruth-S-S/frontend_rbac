@@ -448,7 +448,7 @@ export default function TransactionData() {
 
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-                File Name <span className="text-gray-400 font-normal">(saved to PostgreSQL as this table)</span>
+                File Name <span className="text-gray-400 font-normal"></span>
               </label>
               <input
                 type="text"
@@ -470,6 +470,9 @@ export default function TransactionData() {
               {currentState.loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
               Run {activeTab.toUpperCase()} Extraction
             </button>
+            {currentState.loading && (
+              <p className="mt-2 text-xs text-gray-500">Processing… large files can take 20–30 minutes or more. Please keep this tab open until it finishes.</p>
+            )}
           </div>
 
           {/* Result panel */}
