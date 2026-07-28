@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Upload, X, FolderOpen, FileSpreadsheet, PlayCircle, Loader2,
   CheckCircle2, AlertCircle, RefreshCw, Database, FileCode2, Copy, ChevronDown,
-  Search, ArrowUp, ArrowDown, ArrowUpDown, ChevronLeft, ChevronRight,
+  Search, ArrowUp, ArrowDown, ArrowUpDown,
 } from 'lucide-react';
 
 // The Tally → GCS → PostgreSQL extraction service (NEXT_PUBLIC_TALLY_API_BASE_URL)
@@ -330,9 +330,6 @@ export default function TransactionData() {
   const basename = (uri: string) => uri.split('/').filter(Boolean).pop() || uri;
 
   const tableScrollRef = useRef<HTMLDivElement>(null);
-  const scrollTable = (direction: 'left' | 'right') => {
-    tableScrollRef.current?.scrollBy({ left: direction === 'left' ? -260 : 260, behavior: 'smooth' });
-  };
 
   // ─── Table view(s) of the current tab's result (falls back to raw JSON when there's no tabular data) ──
   const resultSections = useMemo(() => parseResultSections(currentState.result), [currentState.result]);
@@ -544,10 +541,10 @@ export default function TransactionData() {
                             ))}
                           </div>
                         )}
-                        {/* Fixed to ~8 rows tall so the horizontal scrollbar always sits right here, not below a page-scroll's worth of rows */}
+                        {/* Caps at ~8 rows tall so long results still scroll here (not below a page-scroll's worth of rows), but shrinks to fit when there are only a few rows so the scrollbar hugs the actual data instead of floating below empty space */}
                         <div
                           ref={tableScrollRef}
-                          className="tx-table-scroll border border-gray-200 rounded-lg overflow-auto h-80"
+                          className="tx-table-scroll border border-gray-200 rounded-lg overflow-auto max-h-80"
                           style={{ scrollbarWidth: 'auto', scrollbarColor: '#2563eb #eff6ff' }}
                         >
                           <table className="min-w-full text-xs border-collapse">
