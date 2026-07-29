@@ -1,14 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ensureLongFetchTimeouts } from '../../undiciTimeout';
 
 const TALLY_BASE = process.env.NEXT_PUBLIC_TALLY_API_BASE_URL || '';
-ensureLongFetchTimeouts();
 
-// Large Tally files can take 25+ minutes to process — give the upstream
-// service plenty of room instead of letting Node's fetch default timeout cut
-// it short, and let this route run long if the host platform respects it.
-export const maxDuration = 2400;
-
+// The backend starts extraction in the background and responds immediately
+// with { job_id, status: "running", ... } — poll /api/tally/jobs/[jobId]
+// for the result instead of waiting on this request.
 export async function GET(req: NextRequest) {
   try {
     const source = req.nextUrl.searchParams.get('source') || '';
@@ -16,7 +12,7 @@ export async function GET(req: NextRequest) {
     const params = new URLSearchParams({ source, file_name: fileName });
     const res = await fetch(`${TALLY_BASE}/extract/provisions?${params.toString()}`, {
       headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(40 * 60 * 1000), // 40 minutes — large files take a while
+      signal: AbortSignal.timeout(30 * 1000),
     });
     const text = await res.text();
     return new NextResponse(text, {
@@ -26,7 +22,7 @@ export async function GET(req: NextRequest) {
   } catch (err) {
     const isTimeout = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
     const message = isTimeout
-      ? 'Provisions extraction is taking longer than 40 minutes and timed out. The file may be very large — try again or check with the extraction service.'
+      ? 'Provisions extraction did not start in time — the extraction service may be unavailable.'
       : `Provisions extraction failed: ${err instanceof Error ? err.message : String(err)}`;
     console.error('[extract/provisions]', err);
     return NextResponse.json({ error: message }, { status: isTimeout ? 504 : 500 });

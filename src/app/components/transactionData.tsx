@@ -146,6 +146,11 @@ export default function TransactionData() {
     brs: emptyTabState(), gst: emptyTabState(), provisions: emptyTabState(),
     ledger: emptyTabState(), bills: emptyTabState(), stock: emptyTabState(),
   }));
+  // Bumped each time a tab's extraction is (re)started, so a stale poll loop from a
+  // superseded run can tell it's no longer the latest and stop touching state.
+  const pollTokensRef = useRef<Record<ExtractKind, number>>({
+    brs: 0, gst: 0, provisions: 0, ledger: 0, bills: 0, stock: 0,
+  });
 
   const currentState = tabStates[activeTab];
   const setCurrentState = (updater: (prev: ExtractTabState) => ExtractTabState) => {
@@ -278,27 +283,75 @@ export default function TransactionData() {
   };
 
   const runExtraction = async () => {
-    const state = currentState;
+    const kind = activeTab;
+    const state = tabStates[kind];
     if (!state.source) { showToast('error', 'Please select a source file'); return; }
     if (!state.fileName.trim()) { showToast('error', 'Please enter a file name'); return; }
 
-    setCurrentState(prev => ({ ...prev, loading: true, result: null, error: null, tableFilter: '', sortColumn: null, sortDir: 'asc', activeSection: 0 }));
+    // Invalidate any poll loop still running from a previous submission on this tab.
+    const myToken = ++pollTokensRef.current[kind];
+    const applyToKind = (updater: (prev: ExtractTabState) => ExtractTabState) => {
+      if (pollTokensRef.current[kind] !== myToken) return;
+      setTabStates(prev => ({ ...prev, [kind]: updater(prev[kind]) }));
+    };
+
+    applyToKind(prev => ({ ...prev, loading: true, result: null, error: null, tableFilter: '', sortColumn: null, sortDir: 'asc', activeSection: 0 }));
+
     try {
       const params = new URLSearchParams({ source: state.source, file_name: state.fileName.trim() });
-      const res = await fetch(`/api/tally/extract/${activeTab}?${params.toString()}`, {
+      const res = await fetch(`/api/tally/extract/${kind}?${params.toString()}`, {
         headers: { Accept: 'application/json' },
       });
       const text = await res.text();
-      let formatted = text;
-      try { formatted = JSON.stringify(JSON.parse(text), null, 2); } catch { /* plain text response */ }
+      let parsed: any = null;
+      try { parsed = JSON.parse(text); } catch { /* not JSON */ }
 
-      if (!res.ok) throw new Error(formatted || `Extraction failed (${res.status})`);
+      if (!res.ok) throw new Error((parsed && (parsed.error || parsed.detail)) || text || `Extraction failed (${res.status})`);
 
-      setCurrentState(prev => ({ ...prev, loading: false, result: formatted }));
-      showToast('success', `${activeTab.toUpperCase()} extraction completed`);
+      const jobId: string | undefined = parsed?.job_id;
+      if (!jobId) {
+        // No job_id — treat the response as the final result directly.
+        const formatted = parsed !== null ? JSON.stringify(parsed, null, 2) : text;
+        applyToKind(prev => ({ ...prev, loading: false, result: formatted }));
+        showToast('success', `${kind.toUpperCase()} extraction completed`);
+        return;
+      }
+
+      // Job submitted — poll GET /api/tally/jobs/{job_id} until status is "done" or "error".
+      const poll = async () => {
+        if (pollTokensRef.current[kind] !== myToken) return;
+        try {
+          const jr = await fetch(`/api/tally/jobs/${encodeURIComponent(jobId)}`, {
+            headers: { Accept: 'application/json' },
+          });
+          const jtext = await jr.text();
+          let job: any;
+          try { job = JSON.parse(jtext); } catch { throw new Error(jtext || `Job status check failed (${jr.status})`); }
+          if (!jr.ok) throw new Error(job?.error || job?.detail || `Job status check failed (${jr.status})`);
+
+          if (job.status === 'running') {
+            setTimeout(poll, 3000);
+            return;
+          }
+          if (job.status === 'error') {
+            const msg = job.error || `${kind.toUpperCase()} extraction failed`;
+            applyToKind(prev => ({ ...prev, loading: false, error: msg }));
+            showToast('error', msg);
+            return;
+          }
+          // status === 'done'
+          applyToKind(prev => ({ ...prev, loading: false, result: JSON.stringify(job.result, null, 2) }));
+          showToast('success', `${kind.toUpperCase()} extraction completed`);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : 'Job status check failed';
+          applyToKind(prev => ({ ...prev, loading: false, error: msg }));
+          showToast('error', msg);
+        }
+      };
+      poll();
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Extraction failed';
-      setCurrentState(prev => ({ ...prev, loading: false, error: msg }));
+      applyToKind(prev => ({ ...prev, loading: false, error: msg }));
       showToast('error', msg);
     }
   };
