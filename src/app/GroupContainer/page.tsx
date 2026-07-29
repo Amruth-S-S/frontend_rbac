@@ -647,8 +647,11 @@ useEffect(() => {
 
 useEffect(() => {
   if (dataSources.length === 0) return;
+  // Only needed on tabs that actually show the filter status badge —
+  // skip it on "tables" (Manage Tables) so that tab only fires add/get data-source calls.
+  if (activeTab !== "prompts" && activeTab !== "parameter") return;
 
-  fetchParamFilterStatuses(); // initial fetch when data sources load
+  fetchParamFilterStatuses(); // initial fetch when data sources load or tab switches
 
   // Poll every 5 seconds only on parameter tab
   const interval = setInterval(() => {
@@ -658,7 +661,7 @@ useEffect(() => {
   }, 5000);
 
   return () => clearInterval(interval);
-}, [dataSources]);
+}, [dataSources, activeTab]);
 
   const fetchFilterStatuses = async () => {
   if (!boardId || dataSources.length === 0) return;
@@ -848,10 +851,12 @@ useEffect(() => {
 
   // ADD THIS NEW ONE:
 useEffect(() => {
-  if (dataSources.length > 0) {
+  // Only needed on "prompts" (Manage Prompts) where filterStatusMap is shown —
+  // skip it on "tables" (Manage Tables) so that tab only fires add/get data-source calls.
+  if (dataSources.length > 0 && activeTab === "prompts") {
     fetchFilterStatuses();
   }
-}, [dataSources]);
+}, [dataSources, activeTab]);
 
 
   // Add this helper function near your other helpers
