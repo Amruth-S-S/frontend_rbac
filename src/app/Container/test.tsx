@@ -2378,7 +2378,7 @@ const handleViewTables = async () => {
     { key: "tables", label: "Manage Tables" },
     { key: "documentation", label: "AI Documentation" },
     { key: "tally", label: "Manage ETL" },
-    { key: "parameter", label: "Parameter Settings" },
+    { key: "parameter", label: "Parameters Settings" },
     // { key: "timeline", label: "Timeline Settings" },
   ];
 
