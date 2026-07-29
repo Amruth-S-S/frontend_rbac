@@ -1416,7 +1416,7 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
                     <input type="file" id="logo-upload" accept="image/*" onChange={handleFileChange} className="hidden" />
                     <label htmlFor="logo-upload" className="cursor-pointer flex flex-col items-center">
                       <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center mb-2"><Upload className="w-5 h-5 text-blue-600" /></div>
-                      <span className="text-xs font-medium text-gray-700 mb-1">{selectedFile ? selectedFile.name : 'Click to upload'}</span>
+                      <span className="text-xs font-medium text-gray-700 mb-1 w-full truncate text-center px-2" title={selectedFile ? selectedFile.name : undefined}>{selectedFile ? selectedFile.name : 'Click to upload'}</span>
                       <span className="text-xs text-gray-500">PNG, JPG, GIF, WebP, SVG up to 5MB</span>
                     </label>
                   </div>

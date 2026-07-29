@@ -51,6 +51,8 @@ steps:
       - '0'
       - '--max-instances'
       - '10'
+      - '--timeout'
+      - '3600'                             # 60 min (Cloud Run max) — Tally extraction runs can take 20-30+ min
       - '--allow-unauthenticated'          # public access (remove if you need auth)
     id: 'deploy-cloud-run'
     waitFor:

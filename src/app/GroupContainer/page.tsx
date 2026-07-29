@@ -488,7 +488,6 @@ function GroupContainerPage() {
   });
   const [isAddingDataSource, setIsAddingDataSource] = useState(false);
   const [data, setData] = useState<DocumentationItem[]>([]);
-  const [dataFiltered, setDataFiltered] = useState<DocumentationItem[]>([]);
 
   const [deleteDataSourceConfirm, setDeleteDataSourceConfirm] = useState<{
     isOpen: boolean;
@@ -1005,7 +1004,6 @@ useEffect(() => {
     // After successful upload, refresh so the row shows up with its current
     // approval status (and Approve button, if still pending).
     await fetchDataSources(); // refresh approved sources
-    await fetchRows();        // refresh info-objects list (whatever your rows fetch fn is)
   };
 
   const handleViewTables = async () => {
@@ -3015,166 +3013,6 @@ useEffect(() => {
     }
   }, [activeTab, fetchData]);
 
-  // NEW: Fetch from the old /ai-documentation/ endpoint, filtered by boardId
-  const fetchDataFiltered = useCallback(async () => {
-    if (!boardId) return;
-
-    setLoading(true);
-    try {
-      const response = await axios.get(
-        `${API_BASE_URL}/main-boards/boards/ai-documentation/`,
-        {
-          headers: {
-            "Content-Type": "application/json",
-            "X-API-Key": EXCEL_API_KEY,
-          },
-        }
-      );
-
-      // console.log("Fetched All Documentation:", response.data);
-
-      const filteredData = response.data.filter(
-        (item: { board_id: string }) => String(item.board_id) === String(boardId)
-      );
-
-      // console.log("Filtered Documentation:", filteredData);
-      setDataFiltered(filteredData);
-    } catch (error) {
-      console.error("Error fetching AI documentation (filtered):", error);
-    } finally {
-      setLoading(false);
-    }
-  }, [boardId]);
-
-  useEffect(() => {
-    if (boardId) {
-      fetchData();
-      fetchDataFiltered(); // ADD THIS
-    } else {
-      setLoading(false);
-    }
-  }, [boardId, fetchData, fetchDataFiltered]); // add fetchDataFiltered to deps
-
-  useEffect(() => {
-    // Only call fetchData if boardId exists
-    if (boardId) {
-      fetchData();
-    } else {
-      setLoading(false);
-      // If boardId does not exist, fetch all data or handle accordingly
-      // Uncomment the following line if you want to fetch all data when no boardId
-      // fetchData();
-    }
-  }, [boardId, fetchData]);
-
-  // Add this to load data immediately when component mounts
-  useEffect(() => {
-    // Force a re-trigger of the above useEffect if boardId exists
-    if (boardId) {
-      setLoading(true); // Trigger loading state
-    }
-  }, []); // Runs once on mount
-  const handleSaveFilteredClicks = async (id: string, boardId: string | null) => {
-    if (!id || !boardId) {
-      console.error("Missing parameters:", { id, boardId });
-      toast.error("Error: Missing required parameters.");
-      return;
-    }
-
-    try {
-      // Cast to any to handle extra fields (name, configuration_details) from old API
-      const source = dataFiltered.find((s) => String(s.id) === String(id)) as any;
-      if (!source) return;
-
-      // Build columns array — support both .columns array and legacy configuration_details object
-      const columns: { column_name: string; description: string }[] =
-        source.columns ||
-        Object.entries((source.configuration_details as Record<string, string>) || {}).map(([k, v]) => ({
-          column_name: k,
-          description: String(v),
-        }));
-
-      // Build updated configuration_details from editValues
-      const updatedDetails: Record<string, string> = {};
-      columns.forEach((col) => {
-        updatedDetails[col.column_name] =
-          editValues[id]?.[col.column_name] ?? col.description;
-      });
-
-      const payload = {
-        board_id: parseInt(boardId),
-        column_count: columns.length,
-        configuration_details: JSON.stringify(updatedDetails),
-        data_source_id: source.data_source_id,
-        name: (source.source_name as string) || (source.name as string),
-        source_type: source.source_type,
-      };
-
-      // console.log("PUT payload (filtered):", payload);
-
-      const response = await fetch(
-        `${API_BASE_URL}/main-boards/boards/ai-documentation/${id}`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            "X-API-Key": EXCEL_API_KEY,
-          },
-          body: JSON.stringify(payload),
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error("Error details:", errorData);
-        toast.error(`Error: ${JSON.stringify(errorData)}`);
-        return;
-      }
-
-      const result = await response.json();
-      // console.log("Update successful:", result);
-
-      // Update local dataFiltered state with edited descriptions
-      setDataFiltered((prevData) =>
-        prevData.map((item) => {
-          if (String(item.id) !== String(id)) return item;
-
-          const anyItem = item as any;
-          const updatedConfig: Record<string, string> = {};
-          columns.forEach((col) => {
-            updatedConfig[col.column_name] =
-              editValues[id]?.[col.column_name] ?? col.description;
-          });
-
-          return {
-            ...anyItem,
-            configuration_details: updatedConfig,
-            columns: anyItem.columns
-              ? anyItem.columns.map((col: any) => ({
-                ...col,
-                description:
-                  editValues[id]?.[col.column_name] ?? col.description,
-              }))
-              : undefined,
-          } as any;
-        })
-      );
-
-      // Clear edit state
-      setEditRowId(null);
-      setEditRowKey(null);
-      setEditValues((prev) => {
-        const updated = { ...prev };
-        delete updated[id];
-        return updated;
-      });
-
-      toast.success("Documentation updated successfully!");
-    } catch (error) {
-      console.error("Network or unexpected error:", error);
-      toast.error("A network error occurred. Check the console for details.");
-    }
-  };
   const [isListening, setIsListening] = useState(false);
 
 const handleVoiceInput = () => {
@@ -3377,70 +3215,7 @@ const SpeechRecognition =
 
 
   // Fetch table data for the specific board
-
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const response = await fetch(
-          `${API_BASE_URL}/main-boards/boards/data-management-table/get_all_tables_with_files`,
-          {
-            headers: {
-              "X-API-Key": EXCEL_API_KEY,
-            },
-          }
-        );
-
-        if (!response.ok) {
-          throw new Error("Failed to fetch data");
-        }
-
-        const data = await response.json();
-
-        // Filter the fetched data based on board_id
-        const filteredData = data.filter(
-          (row: { board_id: number }) => row.board_id === parseInt(boardId!)
-        );
-        setRows(filteredData); // Set the filtered data to the rows state
-      } catch (err) {
-        if (err instanceof Error) {
-          setError(err.message);
-        } else {
-          setError("An unknown error occurred");
-        }
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (view === "manage-tables" && boardId) {
-      fetchData();
-    }
-  }, [view, boardId]);
-
-
-  // Add this OUTSIDE the useEffect, as a standalone function
-  const fetchRows = async () => {
-    setLoading(true);
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/main-boards/boards/data-management-table/get_all_tables_with_files`,
-        {
-          headers: { "X-API-Key": EXCEL_API_KEY },
-        }
-      );
-      if (!response.ok) throw new Error("Failed to fetch data");
-      const data = await response.json();
-      const filteredData = data.filter(
-        (row: { board_id: number }) => row.board_id === parseInt(boardId!)
-      );
-      setRows(filteredData);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "An unknown error occurred");
-    } finally {
-      setLoading(false);
-    }
-  };
+  // get_all_tables_with_files call removed — Manage Tables no longer fetches rows.
 
 
   useEffect(() => {
