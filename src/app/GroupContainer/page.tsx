@@ -646,20 +646,12 @@ useEffect(() => {
 
 useEffect(() => {
   if (dataSources.length === 0) return;
-  // Only needed on tabs that actually show the filter status badge —
-  // skip it on "tables" (Manage Tables) so that tab only fires add/get data-source calls.
-  if (activeTab !== "prompts" && activeTab !== "parameter") return;
+  // Only needed on "prompts" (Manage Prompts) where the filter status badge is shown —
+  // "parameter" (Manage ETL) doesn't render anyFilterEnabled/paramFilterMap at all;
+  // ParameterSettings.tsx already fetches this same endpoint for that tab's own UI.
+  if (activeTab !== "prompts") return;
 
-  fetchParamFilterStatuses(); // initial fetch when data sources load or tab switches
-
-  // Poll every 5 seconds only on parameter tab
-  const interval = setInterval(() => {
-    if (activeTab === "parameter") {
-      fetchParamFilterStatuses();
-    }
-  }, 5000);
-
-  return () => clearInterval(interval);
+  fetchParamFilterStatuses();
 }, [dataSources, activeTab]);
 
   const fetchFilterStatuses = async () => {

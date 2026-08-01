@@ -75,9 +75,8 @@ interface ManageParameterSettingProps {
 
 // ─────────────────────────── COMPONENT ───────────────────────────
 export default function ManageParameterSetting(props: ManageParameterSettingProps = {}) {
-  const API_BASE = process.env.NEXT_PUBLIC_GBUSINESS_API_URL || "https://gbus-ger-demo-35486280762.us-central1.run.app";
-  const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
-
+  const API_BASE = process.env.NEXT_PUBLIC_GBUSINESS_API_URL || "https://gbus-rbac-35486280762.us-central1.run.app";
+  const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "KSgyfqwe@&!IBCwqregtyyqrtvTTXCTvbjjj>Custrbac&**&@$!989812005HbghbbwswswIPuyvar781";
   const getHeaders = (json = false) => {
     const h: Record<string, string> = { "X-API-Key": API_KEY };
     if (json) h["Content-Type"] = "application/json";
@@ -1188,7 +1187,7 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
   return (
     <div>
       {/* TOASTS */}
-      <div className="fixed top-4 right-4 z-[100] space-y-2">
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[100] flex flex-col items-center gap-2">
         {toasts.map(t => (
           <div key={t.id} className={`${toastColor(t.type)} text-white px-6 py-4 rounded-lg shadow-lg flex items-center gap-3 min-w-[300px] max-w-[500px] animate-slide-in`}>
             <div className="flex-shrink-0">{toastIcon(t.type)}</div>
