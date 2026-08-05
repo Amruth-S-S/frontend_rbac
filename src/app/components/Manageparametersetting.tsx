@@ -1205,8 +1205,8 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
               <Settings2 className="h-5 w-5 text-white" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-gray-900">Manage Parameter Settings</h1>
-              <p className="text-xs text-gray-500">Configure data source parameters and transformations</p>
+              <h1 className="text-lg font-bold text-gray-900">Manage Filter Settings</h1>
+              <p className="text-xs text-gray-500">Configure data source filter and transformations</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -1507,8 +1507,8 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-white/20 rounded-lg"><Settings2 className="h-6 w-6 text-white" /></div>
                 <div>
-                  <h3 className="text-lg font-bold text-white">Create Parameter Setting</h3>
-                  <p className="text-blue-200 text-sm">Configure a new data source parameter</p>
+                  <h3 className="text-lg font-bold text-white">Create Filter Setting</h3>
+                  <p className="text-blue-200 text-sm">Configure a new data source filter</p>
                 </div>
               </div>
               <button onClick={() => setShowCreateModal(false)} className="text-white/70 hover:text-white p-1"><X className="h-6 w-6" /></button>

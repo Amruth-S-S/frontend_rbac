@@ -4203,7 +4203,7 @@ const SpeechRecognition =
 
 
                   { key: "master",        label: t("tabs.masterData") },
-                                    { key: "parameter",      label: "Manage ETL" },
+                                    { key: "parameter",      label: "Manage Filter" },
                   // { key: "parameter",  label: t("tabs.parameterSettings") },
                   // { key: "timeline",   label: t("tabs.timelineSettings") },
                   // { key: "kpi",           label: t("tabs.kpiUpdates") },
