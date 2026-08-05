@@ -43,6 +43,15 @@ interface ExcelTableComponentProps {
   boardId?: string | null;
 }
 
+interface OrgSummary {
+  org_code: string;
+  name: string;
+  industry_type: string;
+  registered_country: string;
+  subscription: string;
+  is_active: boolean;
+}
+
 const FIELD_TYPES = ["char", "list", "number", "date", "boolean"];
 const FIELDS_PER_PAGE = 10;
 
@@ -65,6 +74,8 @@ const ExcelTableComponent = ({ boardId }: ExcelTableComponentProps) => {
 
   const [tables, setTables] = useState<TableData[]>([]);
   const [tablesLoading, setTablesLoading] = useState(false);
+  const [org, setOrg] = useState<OrgSummary | null>(null);
+  const [orgLoading, setOrgLoading] = useState(false);
   const [expandedTableId, setExpandedTableId] = useState<string | null>(null);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -160,6 +171,49 @@ const ExcelTableComponent = ({ boardId }: ExcelTableComponentProps) => {
     setEditingTableId(null);
     if (boardId && loggedInUserId) fetchTables();
   }, [boardId, loggedInUserId]);
+
+  useEffect(() => {
+    const fetchOrg = async () => {
+      setOrgLoading(true);
+      try {
+        // Prefer the org data cached at login — avoids an extra round trip
+        const raw = sessionStorage.getItem("currentUserData");
+        const cached = raw ? JSON.parse(raw)?.orgData : null;
+        if (cached?.id) {
+          setOrg({
+            org_code: cached.org_code || "",
+            name: cached.name || "",
+            industry_type: cached.industry_type || "",
+            registered_country: cached.registered_country || "",
+            subscription: cached.subscription || "",
+            is_active: cached.is_active !== undefined ? cached.is_active : true,
+          });
+          return;
+        }
+        if (!loggedInUserId) return;
+        const res = await fetch(
+          `${API_BASE_URL}/organizations/my-org?owner_user_id=${loggedInUserId}`,
+          { headers: { Accept: "application/json", "X-API-Key": API_KEY } },
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setOrg({
+            org_code: data.org_code || "",
+            name: data.name || "",
+            industry_type: data.industry_type || "",
+            registered_country: data.registered_country || "",
+            subscription: data.subscription || "",
+            is_active: data.is_active !== undefined ? data.is_active : true,
+          });
+        }
+      } catch {
+        // Organization list is a supplementary display — fail silently
+      } finally {
+        setOrgLoading(false);
+      }
+    };
+    fetchOrg();
+  }, [loggedInUserId]);
 
   useEffect(() => {
     if (editingCell && cellInputRef.current) {
@@ -959,6 +1013,48 @@ const ExcelTableComponent = ({ boardId }: ExcelTableComponentProps) => {
   return (
     <div className="p-3 bg-gray-50 min-h-full">
       <div className="max-w-full mx-auto space-y-3">
+        {/* ── Organization list (read-only) ── */}
+        {orgLoading ? (
+          <div className="flex justify-center items-center py-3">
+            <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+          </div>
+        ) : org ? (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
+            <table className="min-w-full">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  {["Org Code", "Name", "Industry", "Country", "Subscription", "Status"].map((col) => (
+                    <th
+                      key={col}
+                      className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase"
+                    >
+                      {col}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                <tr className="hover:bg-gray-50 transition-colors">
+                  <td className="px-3 py-2 text-xs font-semibold text-gray-800">{org.org_code}</td>
+                  <td className="px-3 py-2 text-xs font-semibold text-gray-800">{org.name}</td>
+                  <td className="px-3 py-2 text-xs text-gray-600">{org.industry_type}</td>
+                  <td className="px-3 py-2 text-xs text-gray-600">{org.registered_country}</td>
+                  <td className="px-3 py-2 text-xs text-gray-600">{org.subscription}</td>
+                  <td className="px-3 py-2">
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                        org.is_active ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                      }`}
+                    >
+                      {org.is_active ? "Active" : "Inactive"}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+
         {/* ── Top bar ── */}
         <div className="flex justify-end items-center my-2">
           <button

@@ -1238,7 +1238,7 @@ export default function ManageParameterSetting(props: ManageParameterSettingProp
               <Settings2 className="h-12 w-12 text-gray-300 mb-3" />
               <p className="text-gray-500 font-medium text-sm">
                 {parameterSettings.length === 0
-                  ? (!props.dataSources || props.dataSources.length === 0) ? "No active data sources found." : 'Click "+ Create" to add a new parameter setting'
+                  ? (!props.dataSources || props.dataSources.length === 0) ? "No active data sources found." : 'Click "+ Create" to add a new filter setting'
                   : "No results match your filter"}
               </p>
             </div>
