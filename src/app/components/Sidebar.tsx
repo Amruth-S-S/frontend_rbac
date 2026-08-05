@@ -155,7 +155,6 @@ const Sidebar: React.FC<SidebarProps> = ({ }) => {
   // Logo
   const [isLogoModalOpen, setIsLogoModalOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [logoDescription, setLogoDescription] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [currentLogo, setCurrentLogo] = useState<string | null>(null);
 
@@ -465,10 +464,16 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
     } catch { return ''; }
   };
 
-  // ── Fetch blob from /api/logo/{userId}/view ───────────────────────────────────
-  const fetchLogoBlob = async (userId: string): Promise<string | null> => {
+  // Logo is now organization-scoped (shared across every member of the org),
+  // not per-user — see /api/org-logo/* (replaces the old /api/logo/{userId}/*).
+  // Upload/delete are OWNER and SUPER_ADMIN only (also enforced server-side);
+  // viewing has no permission check.
+  const canManageOrgLogo = orgRole === 'OWNER' || orgRole === 'SUPER_ADMIN';
+
+  // ── Fetch blob from /api/org-logo/{orgId}/view ────────────────────────────────
+  const fetchLogoBlob = async (orgIdValue: number): Promise<string | null> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/logo/${userId}/view`, {
+      const response = await fetch(`${API_BASE_URL}/api/org-logo/${orgIdValue}/view`, {
         method: 'GET',
         headers: { 'X-API-Key': EXCEL_API_KEY },
       });
@@ -485,17 +490,16 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
   // ── Fetch logo metadata then image from server ────────────────────────────────
   // Rule: Never call setCurrentLogo(null) unless the server CONFIRMS no logo exists.
   const fetchCurrentLogo = async () => {
-    const userId = getStoredUserId();
-    if (!userId) return; // userId not ready — keep showing cached preview
+    if (!orgId || orgId <= 0) return; // orgId not resolved yet — keep showing cached preview
 
     try {
       // First, call the metadata endpoint to verify existence
-      const metadataRes = await fetch(`${API_BASE_URL}/api/logo/${userId}`, {
+      const metadataRes = await fetch(`${API_BASE_URL}/api/org-logo/${orgId}`, {
         method: 'GET',
         headers: { 'Accept': 'application/json', 'X-API-Key': EXCEL_API_KEY },
       });
 
-      // If the endpoint returns 404 or any error, the user has no logo
+      // If the endpoint returns 404 or any error, the org has no logo
       if (!metadataRes.ok) {
         setCurrentLogo(null);
         return;
@@ -511,7 +515,7 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
       }
 
       // Logo exists — fetch the actual image blob
-      const blobUrl = await fetchLogoBlob(userId);
+      const blobUrl = await fetchLogoBlob(orgId);
       if (blobUrl) {
         setCurrentLogo(blobUrl); // replace preview with real server image
       }
@@ -521,29 +525,28 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
     }
   };
 
-  // ── On mount: show cached preview for this user instantly ────────────────────
+  // ── Once orgId is resolved: show cached preview instantly, then refresh ──────
   const loadStoredLogo = () => {
-    const userId = getStoredUserId();
-    if (!userId) return; // no userId — server fetch will handle it via useEffect
+    if (!orgId || orgId <= 0) return; // orgId not ready yet
 
     try {
-      const cached = localStorage.getItem(`logo_cache_${userId}`);
+      const cached = localStorage.getItem(`org_logo_cache_${orgId}`);
       if (cached) {
         const d = JSON.parse(cached);
-        if (d.userId === userId && d.localUrl) {
+        if (d.orgId === orgId && d.localUrl) {
           setCurrentLogo(d.localUrl); // instant display, no network needed
         }
       }
-      // Note: DO NOT call fetchCurrentLogo() here.
-      // useEffect([userData.userId]) will do the server refresh once state loads.
     } catch { /* ignore corrupt cache */ }
   };
 
-  // ── Upload logo ───────────────────────────────────────────────────────────────
+  // ── Upload logo — OWNER/SUPER_ADMIN only ──────────────────────────────────────
   const handleLogoSubmit = async () => {
+    if (!canManageOrgLogo) { toast.error('Only the org Owner or Super Admin can update the logo.'); return; }
     if (!selectedFile) { toast.error('Please select a file'); return; }
     const userId = getStoredUserId();
     if (!userId) { toast.error('User not found. Please log in again.'); return; }
+    if (!orgId || orgId <= 0) { toast.error('Could not determine your organization. Please reload and try again.'); return; }
 
     setIsUploading(true);
     try {
@@ -557,9 +560,8 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
 
       const formData = new FormData();
       formData.append('file', selectedFile);
-      if (logoDescription.trim()) formData.append('description', logoDescription);
 
-      const response = await fetch(`${API_BASE_URL}/api/logo/upload/${userId}`, {
+      const response = await fetch(`${API_BASE_URL}/api/org-logo/upload/${orgId}?uploaded_by_user_id=${userId}`, {
         method: 'POST',
         headers: { 'X-API-Key': EXCEL_API_KEY },
         body: formData,
@@ -569,15 +571,16 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
         toast.success('Logo updated successfully!');
         handleLogoCancel();
         // Fetch the real blob and update display
-        const blobUrl = await fetchLogoBlob(userId);
+        const blobUrl = await fetchLogoBlob(orgId);
         setCurrentLogo(blobUrl || localUrl); // fall back to local preview if blob fails
-        // Save per-user cache
-        localStorage.setItem(`logo_cache_${userId}`, JSON.stringify({
+        // Save per-org cache (logo is shared org-wide, not per-user)
+        localStorage.setItem(`org_logo_cache_${orgId}`, JSON.stringify({
           localUrl,
           filename: selectedFile.name,
           uploadDate: new Date().toISOString(),
-          userId,
+          orgId,
         }));
+        localStorage.removeItem(`logo_cache_${userId}`); // remove legacy per-user cache
         localStorage.removeItem('currentLogoFile'); // remove legacy shared key
       } else {
         const err = await response.json().catch(() => ({}));
@@ -591,7 +594,7 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
     }
   };
 
-  const handleLogoCancel = () => { setIsLogoModalOpen(false); setSelectedFile(null); setLogoDescription(''); };
+  const handleLogoCancel = () => { setIsLogoModalOpen(false); setSelectedFile(null); };
 
   // ─── Sidebar resize ───────────────────────────────────────────────────────────
   const toggleSidebar = () => {
@@ -637,7 +640,8 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
         if (role) setUserRole(role);
       }
     } catch { /* ignore */ }
-    loadStoredLogo();
+    // Note: logo loading now happens once orgId resolves (see the orgId effect below) —
+    // the org isn't known yet at this point.
   }, []);
 
   // ─── Resolve org_id ───────────────────────────────────────────────────────────
@@ -710,10 +714,13 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
     if (orgId !== null) fetchGroupRefItems();
   }, [clientUserId, orgId]);
 
-  // ── Once userId is confirmed in state, fetch real blob from server ────────────
+  // ── Once orgId resolves: show cached preview instantly, then fetch the real blob ──
   useEffect(() => {
-    if (userData.userId) fetchCurrentLogo();
-  }, [userData.userId]);
+    if (orgId && orgId > 0) {
+      loadStoredLogo();
+      fetchCurrentLogo();
+    }
+  }, [orgId]);
 
   // ─── Create Main Board ────────────────────────────────────────────────────────
   const handleSave = async () => {
@@ -1064,18 +1071,21 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
                         onError={() => setCurrentLogo(null)}
                       />
                     </div>
-                    <button onClick={() => setIsLogoModalOpen(true)} className="absolute -top-1 -right-1 p-1 bg-blue-600 text-white rounded-full opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-blue-500 shadow-md">
-                      <Edit3 className="w-2.5 h-2.5" />
-                    </button>
+                    {/* Org logo — only the Owner/Super Admin may replace it (server enforces this too) */}
+                    {canManageOrgLogo && (
+                      <button onClick={() => setIsLogoModalOpen(true)} className="absolute -top-1 -right-1 p-1 bg-blue-600 text-white rounded-full opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-blue-500 shadow-md">
+                        <Edit3 className="w-2.5 h-2.5" />
+                      </button>
+                    )}
                   </div>
-                ) : (
+                ) : canManageOrgLogo ? (
                   <div className="flex items-center justify-center w-[120px] h-[42px] border-2 border-dashed border-blue-400/40 rounded-lg bg-blue-800/30 hover:bg-blue-700/40 transition-colors group">
                     <button onClick={() => setIsLogoModalOpen(true)} className="flex flex-col items-center text-black transition-colors">
                       <Upload className="w-4 h-4 mb-0.5" />
                       <span className="text-xs font-medium">{t('sidebar.uploadLogo')}</span>
                     </button>
                   </div>
-                )}
+                ) : null}
               </div>
             )}
             {!isMobile && (
@@ -1420,10 +1430,6 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
                       <span className="text-xs text-gray-500">PNG, JPG, GIF, WebP, SVG up to 5MB</span>
                     </label>
                   </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-2">Description (Optional)</label>
-                  <textarea value={logoDescription} onChange={e => setLogoDescription(e.target.value)} placeholder="Enter a description..." className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 resize-none" rows={2} />
                 </div>
               </div>
               <div className="flex justify-end gap-2 px-5 py-3 border-t bg-gray-50">

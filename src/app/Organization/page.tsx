@@ -817,7 +817,7 @@ export default function OrganizationPage() {
                   <td style={{ ...s.td, fontWeight: 600, color: "#1e293b" }}>{org.name}</td>
                   <td style={s.td}>{org.industry_type}</td>
                   <td style={s.td}>{org.registered_country}</td>
-                  <td style={s.td}>{org.subscription}{org.is_trial_active ? " (Trial)" : ""}</td>
+                  <td style={s.td}>{org.subscription}</td>
                   <td style={s.td}>
                     <span style={{ ...s.statusBadge, background: org.is_active ? "#dcfce7" : "#fee2e2", color: org.is_active ? "#16a34a" : "#dc2626" }}>
                       {org.is_active ? "● Active" : "● Inactive"}

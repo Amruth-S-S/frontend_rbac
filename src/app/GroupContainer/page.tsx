@@ -4206,7 +4206,7 @@ const SpeechRecognition =
                                     { key: "parameter",      label: "Manage ETL" },
                   // { key: "parameter",  label: t("tabs.parameterSettings") },
                   // { key: "timeline",   label: t("tabs.timelineSettings") },
-                  { key: "kpi",           label: t("tabs.kpiUpdates") },
+                  // { key: "kpi",           label: t("tabs.kpiUpdates") },
                   { key: "transactionData", label: "Transaction Data" },
                   { key: "report",        label: t("tabs.reports") },
                 ].filter((tab) => !(hideUsRestrictedTabs && (tab.key === "report" || tab.key === "kpi" || tab.key === "transactionData"))).map((tab) => (
@@ -4242,7 +4242,7 @@ const SpeechRecognition =
                       { key: "master",        label: t("tabs.masterData") },
                       // { key: "parameter",  label: t("tabs.parameterSettings") },
                       // { key: "timeline",   label: t("tabs.timelineSettings") },
-                      { key: "kpi",           label: t("tabs.kpiUpdates") },
+                      // { key: "kpi",           label: t("tabs.kpiUpdates") },
                       { key: "transactionData", label: "Transaction Data" },
                       { key: "report",        label: t("tabs.reports") },
                     ].filter((tab) => !(hideUsRestrictedTabs && (tab.key === "report" || tab.key === "kpi" || tab.key === "transactionData"))).find((tab) => tab.key === activeTab)?.label ?? t("header.selectScreen")}
