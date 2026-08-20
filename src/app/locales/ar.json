@@ -15,8 +15,8 @@
   },
 
   "header": {
-    "consultantRole": "دور المستشار",
-    "cxoRole": "دور CXO",
+    "consultantRole": "لوحة المستشار",
+    "cxoRole": "لوحة CXO",
     "selectScreen": "اختر الشاشة",
     "selectLanguage": "اختر اللغة",
     "consultant": "المستشار",

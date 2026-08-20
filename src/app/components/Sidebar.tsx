@@ -18,7 +18,6 @@ import {
   User,
   NotebookText,
   Edit3,
-  Upload,
   Menu,
   Settings,
   LogOut,
@@ -152,10 +151,7 @@ const Sidebar: React.FC<SidebarProps> = ({ }) => {
   const [isMobile, setIsMobile] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // Logo
-  const [isLogoModalOpen, setIsLogoModalOpen] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
+  // Logo — display only; uploading now lives on the Master Data tab (ExcelTableComponent).
   const [currentLogo, setCurrentLogo] = useState<string | null>(null);
 
   // Settings / Password
@@ -444,31 +440,10 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
     return () => document.removeEventListener('mousedown', h);
   }, []);
 
-  // ─── Logo ─────────────────────────────────────────────────────────────────────
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) setSelectedFile(file);
-  };
-
-  // ── Read userId reliably from storage (never from React state) ───────────────
-  const getStoredUserId = (): string => {
-    if (typeof window === 'undefined') return '';
-    try {
-      const s = sessionStorage.getItem('currentUserData');
-      if (s) {
-        const d = JSON.parse(s);
-        const id = d.userId || d.user_id || d.id || '';
-        if (id) return String(id);
-      }
-      return sessionStorage.getItem('loggedInUserId') || localStorage.getItem('loggedInUserId') || '';
-    } catch { return ''; }
-  };
-
   // Logo is now organization-scoped (shared across every member of the org),
   // not per-user — see /api/org-logo/* (replaces the old /api/logo/{userId}/*).
-  // Upload/delete are OWNER and SUPER_ADMIN only (also enforced server-side);
-  // viewing has no permission check.
-  const canManageOrgLogo = orgRole === 'OWNER' || orgRole === 'SUPER_ADMIN';
+  // Uploading (OWNER/SUPER_ADMIN only, enforced server-side) now lives on the
+  // Master Data tab (ExcelTableComponent) — this component only displays it.
 
   // ── Fetch blob from /api/org-logo/{orgId}/view ────────────────────────────────
   const fetchLogoBlob = async (orgIdValue: number): Promise<string | null> => {
@@ -539,62 +514,6 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
       }
     } catch { /* ignore corrupt cache */ }
   };
-
-  // ── Upload logo — OWNER/SUPER_ADMIN only ──────────────────────────────────────
-  const handleLogoSubmit = async () => {
-    if (!canManageOrgLogo) { toast.error('Only the org Owner or Super Admin can update the logo.'); return; }
-    if (!selectedFile) { toast.error('Please select a file'); return; }
-    const userId = getStoredUserId();
-    if (!userId) { toast.error('User not found. Please log in again.'); return; }
-    if (!orgId || orgId <= 0) { toast.error('Could not determine your organization. Please reload and try again.'); return; }
-
-    setIsUploading(true);
-    try {
-      // Show local preview immediately
-      const localUrl = await new Promise<string>(resolve => {
-        const reader = new FileReader();
-        reader.onload = e => resolve(e.target?.result as string);
-        reader.readAsDataURL(selectedFile);
-      });
-      setCurrentLogo(localUrl);
-
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-
-      const response = await fetch(`${API_BASE_URL}/api/org-logo/upload/${orgId}?uploaded_by_user_id=${userId}`, {
-        method: 'POST',
-        headers: { 'X-API-Key': EXCEL_API_KEY },
-        body: formData,
-      });
-
-      if (response.ok) {
-        toast.success('Logo updated successfully!');
-        handleLogoCancel();
-        // Fetch the real blob and update display
-        const blobUrl = await fetchLogoBlob(orgId);
-        setCurrentLogo(blobUrl || localUrl); // fall back to local preview if blob fails
-        // Save per-org cache (logo is shared org-wide, not per-user)
-        localStorage.setItem(`org_logo_cache_${orgId}`, JSON.stringify({
-          localUrl,
-          filename: selectedFile.name,
-          uploadDate: new Date().toISOString(),
-          orgId,
-        }));
-        localStorage.removeItem(`logo_cache_${userId}`); // remove legacy per-user cache
-        localStorage.removeItem('currentLogoFile'); // remove legacy shared key
-      } else {
-        const err = await response.json().catch(() => ({}));
-        toast.error(err.detail || err.message || 'Upload failed. Please try again.');
-        // Don't blank — keep the preview visible
-      }
-    } catch {
-      toast.error('Network error. Please check your connection.');
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const handleLogoCancel = () => { setIsLogoModalOpen(false); setSelectedFile(null); };
 
   // ─── Sidebar resize ───────────────────────────────────────────────────────────
   const toggleSidebar = () => {
@@ -720,6 +639,14 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
       loadStoredLogo();
       fetchCurrentLogo();
     }
+  }, [orgId]);
+
+  // ── Uploading happens on the Master Data tab — refresh here when it dispatches this ──
+  useEffect(() => {
+    const onLogoUpdated = () => fetchCurrentLogo();
+    window.addEventListener('org-logo-updated', onLogoUpdated);
+    return () => window.removeEventListener('org-logo-updated', onLogoUpdated);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
 
   // ─── Create Main Board ────────────────────────────────────────────────────────
@@ -1057,35 +984,19 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
         {/* ── Header ────────────────────────────────────────────────────────── */}
         <div className="relative bg-white border-b border-blue-500/50 shadow-md">
           <div className="px-3 py-2.5 flex justify-between items-center">
-            {(isSidebarOpen || isMobile) && (
-              <div className="relative group flex-1 min-w-0">
-                {currentLogo ? (
-                  <div className="relative">
-                    <div className="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-blue-400/20">
-                      <img
-                        src={currentLogo}
-                        alt="Logo"
-                        width={100}
-                        height={32}
-                        className="object-contain max-h-8"
-                        onError={() => setCurrentLogo(null)}
-                      />
-                    </div>
-                    {/* Org logo — only the Owner/Super Admin may replace it (server enforces this too) */}
-                    {canManageOrgLogo && (
-                      <button onClick={() => setIsLogoModalOpen(true)} className="absolute -top-1 -right-1 p-1 bg-blue-600 text-white rounded-full opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-blue-500 shadow-md">
-                        <Edit3 className="w-2.5 h-2.5" />
-                      </button>
-                    )}
-                  </div>
-                ) : canManageOrgLogo ? (
-                  <div className="flex items-center justify-center w-[120px] h-[42px] border-2 border-dashed border-blue-400/40 rounded-lg bg-blue-800/30 hover:bg-blue-700/40 transition-colors group">
-                    <button onClick={() => setIsLogoModalOpen(true)} className="flex flex-col items-center text-black transition-colors">
-                      <Upload className="w-4 h-4 mb-0.5" />
-                      <span className="text-xs font-medium">{t('sidebar.uploadLogo')}</span>
-                    </button>
-                  </div>
-                ) : null}
+            {/* Org logo — display only; uploading a new one happens on the Master Data tab */}
+            {(isSidebarOpen || isMobile) && currentLogo && (
+              <div className="flex-1 min-w-0">
+                <div className="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-blue-400/20 inline-block">
+                  <img
+                    src={currentLogo}
+                    alt="Logo"
+                    width={100}
+                    height={32}
+                    className="object-contain max-h-8"
+                    onError={() => setCurrentLogo(null)}
+                  />
+                </div>
               </div>
             )}
             {!isMobile && (
@@ -1405,37 +1316,6 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
                 <button onClick={() => { setIsSettingsModalOpen(false); setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' }); }} disabled={isUpdatingPassword} className="px-4 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">Cancel</button>
                 <button onClick={handlePasswordUpdate} disabled={isUpdatingPassword} className="px-4 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1.5">
                   {isUpdatingPassword ? (<><div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white" />Updating...</>) : 'Update Password'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── Logo Modal ────────────────────────────────────────────────────── */}
-        {isLogoModalOpen && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-            <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full mx-4 overflow-hidden">
-              <div className="flex justify-between items-center px-5 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-blue-100">
-                <h2 className="text-base font-bold text-gray-900">Edit Logo</h2>
-                <button onClick={handleLogoCancel} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full"><X className="w-4 h-4" /></button>
-              </div>
-              <div className="p-5 space-y-4">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-2">Upload New Logo</label>
-                  <div className="border-2 border-dashed border-gray-300 rounded-xl p-5 text-center hover:border-blue-400 transition-colors bg-gray-50">
-                    <input type="file" id="logo-upload" accept="image/*" onChange={handleFileChange} className="hidden" />
-                    <label htmlFor="logo-upload" className="cursor-pointer flex flex-col items-center">
-                      <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center mb-2"><Upload className="w-5 h-5 text-blue-600" /></div>
-                      <span className="text-xs font-medium text-gray-700 mb-1 w-full truncate text-center px-2" title={selectedFile ? selectedFile.name : undefined}>{selectedFile ? selectedFile.name : 'Click to upload'}</span>
-                      <span className="text-xs text-gray-500">PNG, JPG, GIF, WebP, SVG up to 5MB</span>
-                    </label>
-                  </div>
-                </div>
-              </div>
-              <div className="flex justify-end gap-2 px-5 py-3 border-t bg-gray-50">
-                <button onClick={handleLogoCancel} disabled={isUploading} className="px-4 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">Cancel</button>
-                <button onClick={handleLogoSubmit} disabled={isUploading || !selectedFile} className="px-4 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1.5">
-                  {isUploading ? (<><div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white" />Uploading...</>) : 'Submit'}
                 </button>
               </div>
             </div>

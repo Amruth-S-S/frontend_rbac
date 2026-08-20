@@ -15,8 +15,8 @@
   },
 
   "header": {
-    "consultantRole": "Berater-Rolle",
-    "cxoRole": "CXO-Rolle",
+    "consultantRole": "Berater-Panel",
+    "cxoRole": "CXO-Panel",
     "selectScreen": "Bildschirm auswählen",
     "selectLanguage": "Sprache auswählen",
     "consultant": "Berater",

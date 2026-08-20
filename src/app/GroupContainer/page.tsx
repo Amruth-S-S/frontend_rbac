@@ -14,7 +14,7 @@ import { useLanguage } from "../context/LanguageContext";
 import { translateBatch, translateText, formatNumber } from "../utils/translateService";
 // import { MdManageSearch } from "react-icons/md";
 import { FaPlay, FaPen, FaTrash, FaEdit, FaCheck, FaBan } from "react-icons/fa";
-import { FaFileUpload, FaCaretUp, FaCaretDown, FaUpload, FaTimes, FaComment, FaBars, FaSearch } from 'react-icons/fa';
+import { FaFileUpload, FaCaretUp, FaCaretDown, FaUpload, FaTimes, FaComment, FaBars, FaSearch, FaAlignLeft, FaAlignRight, FaChevronLeft, FaChevronRight } from 'react-icons/fa';
 import axios from "axios";
 import React from "react";
 import { saveAs } from 'file-saver';
@@ -42,6 +42,8 @@ import styles from "../CXO/CXO.module.css";
 import ExcelTableComponent from "../components/ExcelTableComponent";
 import TimelineSettings from "../components/TimelineSettings";
 import ParameterSettings from "../components/ParameterSettings";
+import CurrencySettings from "../components/CurrencySettings";
+import OrganizationSummary from "../components/OrganizationSummary";
 import { usePathname, useRouter } from 'next/navigation';
 import TallySetting from "../components/TallySetting";
 import ManageParameterSetting from "../components/Manageparametersetting";
@@ -237,6 +239,12 @@ function GroupContainerPage() {
   // const loggedInUserEmail = localStorage.getItem('loggedInUserEmail');
   // const [data, setData] = useState([]);
   const [newPromptName, setNewPromptName] = useState("");
+  const [newPromptTitle, setNewPromptTitle] = useState("");
+  // The title shown when a prompt is opened via the Play button (read-only "Prompt" result modal).
+  const [selectedPromptTitle, setSelectedPromptTitle] = useState("");
+  // Prompt headers, persisted via the comments API (declared early — read by a
+  // useEffect further up the component than where the rest of this feature lives).
+  const [promptHeaderMap, setPromptHeaderMap] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   // const [loadingManageTables, setLoadingManageTables] = useState(false);
   // const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -261,6 +269,7 @@ function GroupContainerPage() {
   const [tableSortCol, setTableSortCol] = useState<number | null>(null);
   const [tableSortDir, setTableSortDir] = useState<'asc' | 'desc'>('asc');
   const [resultTableSearch, setResultTableSearch] = useState('');
+  const [resultTableAlign, setResultTableAlign] = useState<'left' | 'right'>('left');
   const [colWidths, setColWidths] = useState<number[]>([]);
   const [view,] = useState("manage-tables");
   const [isRunClicked, setIsRunClicked] = useState(false);
@@ -315,6 +324,14 @@ function GroupContainerPage() {
   const [, setLoadingPromptPlay] = useState<string | null>(null);
   const [loadingPromptsRepository,] = useState(false);
   const [activeTab, setActiveTab] = useState("prompts"); // State to manage active tab
+  // Which panel the "Master Data" tab shows — the master-data tables, or currency settings.
+  const [masterDataView, setMasterDataView] = useState<"table" | "currency">("table");
+  // The tab bar scrolls horizontally once there are more tabs than fit — these
+  // arrow buttons make that discoverable instead of relying on a hidden native scrollbar.
+  const tabBarRef = useRef<HTMLDivElement>(null);
+  const scrollTabBar = (dir: 'left' | 'right') => {
+    tabBarRef.current?.scrollBy({ left: dir === 'left' ? -160 : 160, behavior: 'smooth' });
+  };
   const [returnTab, setReturnTab] = useState("prompts"); // Tab to return to when closing result modal
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [editRow, setEditRow] = useState<TableRow | null>(null);
@@ -551,17 +568,18 @@ useEffect(() => {
     setTranslatedTexts(map);
   });
 
-  // Also translate prompt_title (shown in the View Prompts drawer)
-  const titles = prompts.map((p) => p.prompt_title || '');
+  // Also translate the prompt header (shown in the View Prompts drawer) — stored
+  // via the comments API, not on the Prompt object itself, see promptHeaderMap.
+  const titles = prompts.map((p) => promptHeaderMap[p.id] || '');
   const hasAnyTitle = titles.some(t => t.trim() !== '');
   if (hasAnyTitle) {
     translateBatch(titles, language).then((translated) => {
       const map: Record<string, string> = {};
-      prompts.forEach((p, i) => { if (p.prompt_title) map[p.id] = translated[i] || titles[i]; });
+      prompts.forEach((p, i) => { if (promptHeaderMap[p.id]) map[p.id] = translated[i] || titles[i]; });
       setTranslatedTitles(map);
     });
   }
-}, [language, prompts]);
+}, [language, prompts, promptHeaderMap]);
 
 // Debounce: auto-translate the prompt input textarea when language is not English
 useEffect(() => {
@@ -1290,12 +1308,12 @@ useEffect(() => {
     } else {
       const query = searchTerm.toLowerCase();
       const filtered = prompts.filter(prompt =>
-        (prompt.prompt_title && prompt.prompt_title.toLowerCase().includes(query)) ||
+        (promptHeaderMap[prompt.id] && promptHeaderMap[prompt.id].toLowerCase().includes(query)) ||
         (prompt.prompt_text && prompt.prompt_text.toLowerCase().includes(query))
       );
       setFilteredPrompt(filtered);
     }
-  }, [prompts, searchTerm]);
+  }, [prompts, searchTerm, promptHeaderMap]);
 
   // Filter prompts based on search term
   const filteredPrompts = prompts.filter(prompt =>
@@ -1676,6 +1694,10 @@ useEffect(() => {
 
   const handleViewPromptsClick = () => {
     setShowPromptsModal(true);
+    // Populate header text for every prompt not already cached, in parallel.
+    prompts
+      .filter(p => !(p.id in promptHeaderMap))
+      .forEach(p => { fetchPromptHeader(p.id); });
   };
 
   const handleGenerateSuggestions = async () => {
@@ -1861,6 +1883,70 @@ useEffect(() => {
   const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
   const [commentText, setCommentText] = useState('');
 
+  // ─── Prompt header, persisted via the comments API ───────────────────────────
+  // The backend's Prompt model has no title field, so the header is stored as a
+  // specially-marked comment on the prompt instead (hidden from the regular
+  // Comments UI below). One header comment per prompt, identified by this prefix.
+  // (promptHeaderMap itself is declared earlier — a useEffect further up needs it.)
+  const HEADER_PREFIX = 'HEADER::';
+  // id of the header comment for whichever prompt is currently open in the
+  // create/edit modal — null means "no header comment exists yet, create one".
+  const [headerCommentId, setHeaderCommentId] = useState<number | null>(null);
+
+  const fetchPromptHeader = async (promptId: string): Promise<{ id: number; text: string } | null> => {
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/main-boards/boards/prompts/${promptId}/comments?order_by=created_at&order_dir=ASC`,
+        { headers: { "Content-Type": "application/json", "X-API-Key": EXCEL_API_KEY } }
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+      const comments: PromptComment[] = Array.isArray(data) ? data : data.comments || [];
+      const headerComment = comments.find(c => c.comment_text?.startsWith(HEADER_PREFIX));
+      // Cache a "" entry even when there's no header, so repeat lookups (e.g. reopening
+      // View Prompts) don't keep re-fetching prompts that simply have none.
+      const text = headerComment ? headerComment.comment_text.slice(HEADER_PREFIX.length) : "";
+      setPromptHeaderMap(prev => ({ ...prev, [promptId]: text }));
+      return headerComment ? { id: headerComment.id, text } : null;
+    } catch {
+      return null;
+    }
+  };
+
+  // Create, update, or delete the header comment for a prompt to match the
+  // current newPromptTitle value. Called right after the prompt itself is saved.
+  const savePromptHeaderComment = async (promptId: string, existingHeaderCommentId: number | null, headerText: string) => {
+    const trimmed = headerText.trim();
+    try {
+      if (trimmed) {
+        if (existingHeaderCommentId) {
+          const res = await fetch(
+            `${API_BASE_URL}/main-boards/boards/prompts/comments/${existingHeaderCommentId}?comment_text=${encodeURIComponent(HEADER_PREFIX + trimmed)}`,
+            { method: "PUT", headers: { "Content-Type": "application/json", "X-API-Key": EXCEL_API_KEY } }
+          );
+          if (!res.ok) throw new Error('Failed to update prompt header');
+        } else {
+          const res = await fetch(
+            `${API_BASE_URL}/main-boards/boards/prompts/${promptId}/comments?comment_text=${encodeURIComponent(HEADER_PREFIX + trimmed)}`,
+            { method: "POST", headers: { "Content-Type": "application/json", "X-API-Key": EXCEL_API_KEY } }
+          );
+          if (!res.ok) throw new Error('Failed to create prompt header');
+        }
+        setPromptHeaderMap(prev => ({ ...prev, [promptId]: trimmed }));
+      } else if (existingHeaderCommentId) {
+        // Header was cleared — remove the header comment entirely.
+        await fetch(
+          `${API_BASE_URL}/main-boards/boards/prompts/comments/${existingHeaderCommentId}`,
+          { method: "DELETE", headers: { "X-API-Key": EXCEL_API_KEY } }
+        );
+        setPromptHeaderMap(prev => { const next = { ...prev }; delete next[promptId]; return next; });
+      }
+    } catch (err) {
+      console.error('Error saving prompt header:', err);
+      toast.error('Prompt saved, but the header failed to save.');
+    }
+  };
+
 
   // Open comment modal and fetch comments for the prompt
   const handleCommentClick = async (promptId: string) => {
@@ -1909,7 +1995,8 @@ useEffect(() => {
   // Get comments for current prompt
   const getCurrentPromptComments = (): PromptComment[] => {
     if (!currentPromptId) return [];
-    return commentsMap[currentPromptId] || [];
+    // The prompt-header comment lives in the same list but isn't a real user comment.
+    return (commentsMap[currentPromptId] || []).filter(c => !c.comment_text?.startsWith(HEADER_PREFIX));
   };
 
 
@@ -3343,7 +3430,7 @@ const SpeechRecognition =
     }
 
     try {
-      const url = new URL(`${API_BASE_URL}/main-boards/boards/prompts/run_prompt_v4?`);
+      const url = new URL(`${API_BASE_URL}/main-boards/boards/prompts/run_prompt_v5?`);
       url.searchParams.append("input_text", promptText);
       url.searchParams.append("board_id", boardId);
       url.searchParams.append("user_name", "");
@@ -3403,6 +3490,8 @@ const SpeechRecognition =
     setLoadingPromptPlay(prompt.id);
     const promptText = prompt.prompt_text;
     setSelectedPrompt(promptText);
+    setSelectedPromptTitle(promptHeaderMap[prompt.id] || "");
+    fetchPromptHeader(prompt.id).then(h => setSelectedPromptTitle(h?.text || ""));
     setReturnTab(activeTab); // remember which tab triggered the play
 
     try {
@@ -3485,7 +3574,7 @@ const SpeechRecognition =
 
     try {
       const url = new URL(
-        `${API_BASE_URL}/main-boards/boards/prompts/run_prompt_v4?`
+        `${API_BASE_URL}/main-boards/boards/prompts/run_prompt_v5?`
       );
 
       // Append parameters
@@ -3708,10 +3797,15 @@ const SpeechRecognition =
 
 
 
-  const handleEditPrompt = (prompt: Prompt) => {
+  const handleEditPrompt = async (prompt: Prompt) => {
     setEditPromptId(prompt.id);
     setNewPromptName(prompt.prompt_text);
+    setNewPromptTitle(promptHeaderMap[prompt.id] || "");
+    setHeaderCommentId(null);
     setIsModalOpen(true);
+    const header = await fetchPromptHeader(prompt.id);
+    setNewPromptTitle(header?.text || "");
+    setHeaderCommentId(header?.id ?? null);
   };
 
 
@@ -3864,7 +3958,9 @@ const SpeechRecognition =
     // console.log("Logged-in User:", loggedInUserName);
     // console.log("User ID:", loggedInUserId);
 
-    // Prepare request body
+    // Prepare request body — no prompt_title here: the backend's Prompt model
+    // doesn't have that field, so the header is saved separately as a comment
+    // (see savePromptHeaderComment below, after this request succeeds).
     const promptData = {
       board_id: boardId,
       prompt_text: newPromptName.trim(),
@@ -3924,11 +4020,18 @@ const SpeechRecognition =
         if (ot) setPromptOutputTypes(prev => ({ ...prev, [savedId]: ot }));
       }
 
+      // Header has no home on the Prompt model itself — persist it as a comment.
+      if (savedId) {
+        await savePromptHeaderComment(savedId, headerCommentId, newPromptTitle);
+      }
+
       toast.success(editPromptId ? "Prompt updated successfully!" : "Prompt saved successfully!");
 
       // Close modal and reset state
       setIsModalOpen(false);
       setNewPromptName("");
+      setNewPromptTitle("");
+      setHeaderCommentId(null);
       setEditPromptId(null);
 
       // Redirect to "Manage Prompts" tab
@@ -4095,6 +4198,8 @@ const SpeechRecognition =
 
   const handleCloseModal = () => {
     setNewPromptName("");
+    setNewPromptTitle("");
+    setHeaderCommentId(null);
     setEditPromptId(null);
     setIsModalOpen(false);
     setShowTopBtn(false);
@@ -4248,7 +4353,15 @@ const SpeechRecognition =
               )}
 
               {/* Desktop: horizontal tabs */}
-              <div className="hidden md:flex gap-1 p-1 bg-gray-100 rounded-lg overflow-x-auto scrollbar-hide">
+              <div className="hidden md:flex items-center gap-1">
+                <button
+                  onClick={() => scrollTabBar('left')}
+                  className="flex-shrink-0 p-1.5 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                  aria-label="Scroll tabs left"
+                >
+                  <FaChevronLeft size={10} />
+                </button>
+                <div ref={tabBarRef} className="flex gap-0.5 p-1 bg-gray-100 rounded-lg overflow-x-auto scrollbar-hide">
                 {[
                   { key: "tables",        label: t("tabs.manageTables") },
                   { key: "documentation", label: t("tabs.aiDocumentation") },
@@ -4267,7 +4380,7 @@ const SpeechRecognition =
                 ].filter((tab) => !(hideUsRestrictedTabs && (tab.key === "report" || tab.key === "kpi" || tab.key === "transactionData"))).map((tab) => (
                   <button
                     key={tab.key}
-                    className={`flex-shrink-0 px-3 py-1.5 rounded-md font-medium transition-all duration-200 text-xs whitespace-nowrap ${activeTab === tab.key
+                    className={`flex-shrink-0 px-2 py-1.5 rounded-md font-medium transition-all duration-200 text-[11px] whitespace-nowrap ${activeTab === tab.key
                       ? "bg-white text-blue-600 shadow-sm"
                       : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
                       }`}
@@ -4277,6 +4390,14 @@ const SpeechRecognition =
                   </button>
                 ))}
                 {!hideUsRestrictedTabs && <LiveData />}
+                </div>
+                <button
+                  onClick={() => scrollTabBar('right')}
+                  className="flex-shrink-0 p-1.5 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                  aria-label="Scroll tabs right"
+                >
+                  <FaChevronRight size={10} />
+                </button>
               </div>
 
               {/* Mobile: dropdown */}
@@ -4392,6 +4513,9 @@ const SpeechRecognition =
                       setIsRunClicked(false);
                       setRunResult(null);
                       setNewPromptName('');
+                      setNewPromptTitle('');
+                      setHeaderCommentId(null);
+                      setEditPromptId(null);
                       setResultTab('message');
                       setShowTopBtn(false);
                       setIsModalOpen(true);
@@ -4998,6 +5122,9 @@ const SpeechRecognition =
                     </div>
                   </div>
 
+                  {selectedPromptTitle && (
+                    <p className="text-sm font-semibold text-gray-800 mb-1">{selectedPromptTitle}</p>
+                  )}
                   <textarea
                     ref={promptDisplayRef}
                     value={translatedPromptDisplay || selectedPrompt || ""}
@@ -5057,6 +5184,28 @@ const SpeechRecognition =
                         </div>
                       )}
 
+                      {resultTab === 'table' && runResult?.table && runResult.table.columns?.length > 0 && (
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <span className="text-xs font-medium text-gray-500 whitespace-nowrap">Alignment</span>
+                          <div className="flex items-center border border-gray-300 rounded overflow-hidden">
+                            <button
+                              onClick={() => setResultTableAlign('left')}
+                              className={`p-1.5 transition-colors ${resultTableAlign === 'left' ? 'bg-blue-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-100'}`}
+                              title="Align left"
+                            >
+                              <FaAlignLeft size={11} />
+                            </button>
+                            <button
+                              onClick={() => setResultTableAlign('right')}
+                              className={`p-1.5 transition-colors border-l border-gray-300 ${resultTableAlign === 'right' ? 'bg-blue-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-100'}`}
+                              title="Align right"
+                            >
+                              <FaAlignRight size={11} />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
                       <div className="flex gap-2">
                         {resultTab === 'table' && runResult?.table && runResult.table.columns?.length > 0 && (
                           <button
@@ -5106,10 +5255,10 @@ const SpeechRecognition =
                                       <th
                                         key={`col-header-${idx}-${col}`}
                                         style={{ width: colWidths[idx] || 200, minWidth: 100, position: 'relative', userSelect: 'none', boxSizing: 'border-box' }}
-                                        className="border-b border-r border-gray-300 text-left text-sm font-semibold text-gray-700 cursor-pointer hover:bg-gray-200"
+                                        className={`border-b border-r border-gray-300 ${resultTableAlign === 'right' ? 'text-right' : 'text-left'} text-sm font-semibold text-gray-700 cursor-pointer hover:bg-gray-200`}
                                         onClick={() => handleColSort(idx)}
                                       >
-                                        <span className="flex items-center gap-1 px-2 py-2 overflow-hidden">
+                                        <span className={`flex items-center gap-1 px-2 py-2 overflow-hidden ${resultTableAlign === 'right' ? 'justify-end' : ''}`}>
                                           <span className="truncate">{translatedResultColumns[idx] || col}</span>
                                           {tableSortCol === idx && (
                                             <span className="flex-shrink-0 text-blue-500 text-xs">
@@ -5131,7 +5280,7 @@ const SpeechRecognition =
                                     sortedTableData.map((row, rowIdx) => (
                                       <tr key={rowIdx} className={rowIdx % 2 === 0 ? 'bg-white hover:bg-blue-50' : 'bg-gray-50 hover:bg-blue-50'}>
                                         {row.map((cell, cellIdx) => (
-                                          <td key={cellIdx} style={{ width: colWidths[cellIdx] || 200, maxWidth: colWidths[cellIdx] || 200, overflow: 'hidden', textOverflow: 'ellipsis', boxSizing: 'border-box', whiteSpace: 'nowrap' }} className="px-2 py-2 border-b border-r border-gray-100 text-sm text-gray-700">
+                                          <td key={cellIdx} style={{ width: colWidths[cellIdx] || 200, maxWidth: colWidths[cellIdx] || 200, overflow: 'hidden', textOverflow: 'ellipsis', boxSizing: 'border-box', whiteSpace: 'nowrap' }} className={`px-2 py-2 border-b border-r border-gray-100 text-sm text-gray-700 ${resultTableAlign === 'right' ? 'text-right' : 'text-left'}`}>
                                             {cell}
                                           </td>
                                         ))}
@@ -6774,7 +6923,7 @@ const SpeechRecognition =
                   {t('runPrompt.back')}
                 </button>
                 <button
-                  onClick={() => { setNewPromptName(""); setRunResult(null); setIsRunClicked(false); }}
+                  onClick={() => { setNewPromptName(""); setNewPromptTitle(""); setRunResult(null); setIsRunClicked(false); }}
                   className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-md transition-colors border border-red-200"
                 >
                   {t('runPrompt.clear')}
@@ -6790,6 +6939,15 @@ const SpeechRecognition =
 
             {/* ── Scrollable Body ── */}
             <div id="run-prompt-scroll" className="flex-1 overflow-y-auto px-4 py-3" style={{scrollbarWidth:'thin', scrollbarColor:'#93c5fd #f1f1f1'}} onScroll={(e) => setShowTopBtn(e.currentTarget.scrollTop > 200)}>
+
+              {/* Prompt header — saved/loaded alongside the prompt text, shown wherever the prompt itself is shown */}
+              <input
+                type="text"
+                value={newPromptTitle}
+                onChange={(e) => setNewPromptTitle(e.target.value)}
+                placeholder="Prompt header (optional)"
+                className="w-full mb-2 p-2 border-2 border-blue-400 rounded text-xs font-semibold bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
 
               {/* Textarea */}
               <div className="relative">
@@ -6981,6 +7139,28 @@ const SpeechRecognition =
                       </div>
                     )}
 
+                    {resultTab === 'table' && runResult?.table && runResult.table.columns?.length > 0 && (
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <span className="text-xs font-medium text-gray-500 whitespace-nowrap">Alignment</span>
+                        <div className="flex items-center border border-gray-300 rounded overflow-hidden">
+                          <button
+                            onClick={() => setResultTableAlign('left')}
+                            className={`p-1.5 transition-colors ${resultTableAlign === 'left' ? 'bg-blue-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-100'}`}
+                            title="Align left"
+                          >
+                            <FaAlignLeft size={11} />
+                          </button>
+                          <button
+                            onClick={() => setResultTableAlign('right')}
+                            className={`p-1.5 transition-colors border-l border-gray-300 ${resultTableAlign === 'right' ? 'bg-blue-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-100'}`}
+                            title="Align right"
+                          >
+                            <FaAlignRight size={11} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="ml-auto flex gap-2">
                       {resultTab === 'table' && runResult?.table && runResult.table.columns?.length > 0 && (
                         <button
@@ -7033,10 +7213,10 @@ const SpeechRecognition =
                                       <th
                                         key={`col-header-${idx}-${col}`}
                                         style={{ width: colWidths[idx] || 150, minWidth: 60, position: 'relative', userSelect: 'none', boxSizing: 'border-box' }}
-                                        className="border-b border-r border-gray-300 text-left text-sm font-semibold text-gray-700 cursor-pointer hover:bg-gray-200"
+                                        className={`border-b border-r border-gray-300 ${resultTableAlign === 'right' ? 'text-right' : 'text-left'} text-sm font-semibold text-gray-700 cursor-pointer hover:bg-gray-200`}
                                         onClick={() => handleColSort(idx)}
                                       >
-                                        <span className="flex items-center gap-1 px-2 py-2 overflow-hidden">
+                                        <span className={`flex items-center gap-1 px-2 py-2 overflow-hidden ${resultTableAlign === 'right' ? 'justify-end' : ''}`}>
                                           <span className="truncate">{translatedResultColumns[idx] || col}</span>
                                           {tableSortCol === idx && (
                                             <span className="flex-shrink-0 text-blue-500 text-xs">
@@ -7058,7 +7238,7 @@ const SpeechRecognition =
                                     sortedTableData.map((row, rowIdx) => (
                                       <tr key={rowIdx} className={rowIdx % 2 === 0 ? 'bg-white hover:bg-blue-50' : 'bg-gray-50 hover:bg-blue-50'}>
                                         {row.map((cell, cellIdx) => (
-                                          <td key={cellIdx} style={{ width: colWidths[cellIdx] || 200, maxWidth: colWidths[cellIdx] || 200, overflow: 'hidden', textOverflow: 'ellipsis', boxSizing: 'border-box', whiteSpace: 'nowrap' }} className="px-2 py-2 border-b border-r border-gray-100 text-sm text-gray-700">
+                                          <td key={cellIdx} style={{ width: colWidths[cellIdx] || 200, maxWidth: colWidths[cellIdx] || 200, overflow: 'hidden', textOverflow: 'ellipsis', boxSizing: 'border-box', whiteSpace: 'nowrap' }} className={`px-2 py-2 border-b border-r border-gray-100 text-sm text-gray-700 ${resultTableAlign === 'right' ? 'text-right' : 'text-left'}`}>
                                             {cell}
                                           </td>
                                         ))}
@@ -7497,7 +7677,15 @@ const SpeechRecognition =
 
 
         {activeTab === "master" && (
-          <ExcelTableComponent boardId={boardId} />
+          <>
+            {/* Stays visible regardless of which sub-view (table / currency) is selected below */}
+            <OrganizationSummary />
+            {masterDataView === "table" ? (
+              <ExcelTableComponent boardId={boardId} onSwitchToCurrency={() => setMasterDataView("currency")} />
+            ) : (
+              <CurrencySettings boardId={boardId ?? ""} onSwitchToMasterData={() => setMasterDataView("table")} />
+            )}
+          </>
         )}
 
 
@@ -7666,7 +7854,7 @@ const SpeechRecognition =
                               </div>
                             )}
                           </div>
-                          {prompt.prompt_title && <p className="text-xs font-medium text-gray-700 mb-0.5">{translatedTitles[prompt.id] || prompt.prompt_title}</p>}
+                          {promptHeaderMap[prompt.id] && <p className="text-xs font-medium text-gray-700 mb-0.5">{translatedTitles[prompt.id] || promptHeaderMap[prompt.id]}</p>}
                           <p className="text-xs text-gray-500 line-clamp-2">{translatedTexts[prompt.id] || prompt.prompt_text}</p>
                         </div>
                       );

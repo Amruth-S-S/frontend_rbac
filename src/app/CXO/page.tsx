@@ -98,6 +98,10 @@ export default function CXO() {
   const [boardCheckLoading, setBoardCheckLoading] = useState<string | null>(null);
   const [, setCurrentPromptIndex] = useState(0);
   const [newPromptName, setNewPromptName] = useState('');
+  // The Prompt model has no title field on the backend, so the header is stored as
+  // a specially-marked comment on the prompt instead (see fetchPromptHeader below).
+  const [newPromptTitle, setNewPromptTitle] = useState('');
+  const [promptHeaderMap, setPromptHeaderMap] = useState<Record<string, string>>({});
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [activeTab, setActiveTab] = useState("prompts");
   const [cxoView, setCxoView] = useState<"home" | "dashboard" | "livedata">("home");
@@ -465,15 +469,15 @@ export default function CXO() {
       prompts.forEach((p, i) => { map[p.id] = translated[i] || texts[i]; });
       setTranslatedCxoTexts(map);
     });
-    const titles = prompts.map(p => p.prompt_title || '');
+    const titles = prompts.map(p => promptHeaderMap[p.id] || '');
     if (titles.some(t => t.trim() !== '')) {
       translateBatch(titles, language).then(translated => {
         const map: Record<string, string> = {};
-        prompts.forEach((p, i) => { if (p.prompt_title) map[p.id] = translated[i] || titles[i]; });
+        prompts.forEach((p, i) => { if (promptHeaderMap[p.id]) map[p.id] = translated[i] || titles[i]; });
         setTranslatedCxoTitles(map);
       });
     }
-  }, [language, prompts]);
+  }, [language, prompts, promptHeaderMap]);
 
   // Translate run result when language or runResult changes
   useEffect(() => {
@@ -580,13 +584,72 @@ export default function CXO() {
 
   const handleCloseBoardModal = () => {
     setShowBoardModal(false); setSelectedBoardId(null); setActiveTab("prompts");
-    setSelectedPrompt(null); setNewPromptName(''); setIsRunClicked(false); setRunResult(null);
+    setSelectedPrompt(null); setNewPromptName(''); setNewPromptTitle(''); setIsRunClicked(false); setRunResult(null);
     setIsDemoBoard(false); setSelectedDemoBoardId(null); setDemoBoardName('');
     setShowBoardDropdown(false);
   };
-  const handleViewPromptsClick = () => setShowPromptsModal(true);
+  const handleViewPromptsClick = () => {
+    setShowPromptsModal(true);
+    prompts.filter(p => !(p.id in promptHeaderMap)).forEach(p => { fetchPromptHeader(p.id); });
+  };
   const handleClosePromptsModal = () => { setShowPromptsModal(false); setCurrentPromptIndex(0); setSearchTerm(''); };
-  const handlePromptClick = (prompt: Prompt) => { setNewPromptName(prompt.prompt_text); setShowPromptsModal(false); textareaRef.current?.focus(); };
+  const HEADER_PREFIX = 'HEADER::';
+
+  const fetchPromptHeader = async (promptId: string): Promise<{ id: number; text: string } | null> => {
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/main-boards/boards/prompts/${promptId}/comments?order_by=created_at&order_dir=ASC`,
+        { headers: { "Content-Type": "application/json", "X-API-Key": EXCEL_API_KEY } }
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+      const comments: { id: number; comment_text: string }[] = Array.isArray(data) ? data : data.comments || [];
+      const headerComment = comments.find(c => c.comment_text?.startsWith(HEADER_PREFIX));
+      const text = headerComment ? headerComment.comment_text.slice(HEADER_PREFIX.length) : "";
+      setPromptHeaderMap(prev => ({ ...prev, [promptId]: text }));
+      return headerComment ? { id: headerComment.id, text } : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const savePromptHeaderComment = async (promptId: string, existingHeaderCommentId: number | null, headerText: string) => {
+    const trimmed = headerText.trim();
+    try {
+      if (trimmed) {
+        if (existingHeaderCommentId) {
+          await fetch(
+            `${API_BASE_URL}/main-boards/boards/prompts/comments/${existingHeaderCommentId}?comment_text=${encodeURIComponent(HEADER_PREFIX + trimmed)}`,
+            { method: "PUT", headers: { "Content-Type": "application/json", "X-API-Key": EXCEL_API_KEY } }
+          );
+        } else {
+          await fetch(
+            `${API_BASE_URL}/main-boards/boards/prompts/${promptId}/comments?comment_text=${encodeURIComponent(HEADER_PREFIX + trimmed)}`,
+            { method: "POST", headers: { "Content-Type": "application/json", "X-API-Key": EXCEL_API_KEY } }
+          );
+        }
+        setPromptHeaderMap(prev => ({ ...prev, [promptId]: trimmed }));
+      } else if (existingHeaderCommentId) {
+        await fetch(
+          `${API_BASE_URL}/main-boards/boards/prompts/comments/${existingHeaderCommentId}`,
+          { method: "DELETE", headers: { "X-API-Key": EXCEL_API_KEY } }
+        );
+        setPromptHeaderMap(prev => { const next = { ...prev }; delete next[promptId]; return next; });
+      }
+    } catch (err) {
+      console.error('Error saving prompt header:', err);
+    }
+  };
+
+  const handlePromptClick = (prompt: Prompt) => {
+    // Text/header are copied in for convenience only — Save always creates a brand
+    // new prompt (no update-in-place here), so no header-comment id is carried over.
+    setNewPromptName(prompt.prompt_text);
+    setNewPromptTitle(promptHeaderMap[prompt.id] || '');
+    setShowPromptsModal(false);
+    textareaRef.current?.focus();
+    fetchPromptHeader(prompt.id).then(h => setNewPromptTitle(h?.text || ''));
+  };
 
   const selectedMainBoard = navItems.find(i => i.main_board_id === selectedMainBoardId)
     ?? navItems.find(i => selectedBoardId != null && selectedBoardId in i.boards);
@@ -807,6 +870,12 @@ export default function CXO() {
       }
       const newPromptData = await response.json();
       setPrompts(prev => [...prev, newPromptData]);
+      // Header has no home on the Prompt model — persist it as a comment on the
+      // prompt that was just created (always a fresh comment — this always creates
+      // a new prompt, never updates one, so there's never an existing header to reuse).
+      if (newPromptData?.id) {
+        await savePromptHeaderComment(String(newPromptData.id), null, newPromptTitle);
+      }
       showToast('Prompt saved successfully!', 'info');
     } catch (error) {
       showToast('Network error: Failed to save the prompt.');
@@ -1423,11 +1492,22 @@ export default function CXO() {
                 ← Back
               </button>
               <button
-                onClick={() => { setNewPromptName(""); setRunResult(null); setIsRunClicked(false); }}
+                onClick={() => { setNewPromptName(""); setNewPromptTitle(""); setRunResult(null); setIsRunClicked(false); }}
                 className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-md transition-colors border border-red-200"
               >
                 Clear
               </button>
+            </div>
+
+            {/* Prompt header — saved/loaded alongside the prompt text, shown above it wherever the prompt is shown */}
+            <div className="mx-5 mb-2">
+              <input
+                type="text"
+                value={newPromptTitle}
+                onChange={e => setNewPromptTitle(e.target.value)}
+                placeholder="Prompt header (optional)"
+                className="w-full p-2 border-2 border-blue-400 rounded text-xs font-semibold bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
             </div>
 
             {/* Prompt toolbar */}
@@ -1648,7 +1728,9 @@ export default function CXO() {
                       <div className="flex items-start gap-2">
                         <span className={`text-xs font-bold flex-shrink-0 ${isGenerated ? 'text-blue-600' : 'text-blue-500'}`}>{label}.</span>
                         <div>
-                          <h4 className="text-xs font-semibold text-gray-800 leading-snug">{translatedCxoTitles[prompt.id] || prompt.prompt_title}</h4>
+                          {(translatedCxoTitles[prompt.id] || promptHeaderMap[prompt.id]) && (
+                            <h4 className="text-xs font-semibold text-gray-800 leading-snug">{translatedCxoTitles[prompt.id] || promptHeaderMap[prompt.id]}</h4>
+                          )}
                           <p className="text-[10px] text-gray-500 mt-0.5 line-clamp-3 leading-relaxed">{translatedCxoTexts[prompt.id] || prompt.prompt_text}</p>
                         </div>
                       </div>

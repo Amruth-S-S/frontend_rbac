@@ -13,6 +13,7 @@ import {
   Edit2,
   RefreshCw,
   Database,
+  Coins,
 } from "lucide-react";
 
 interface FieldData {
@@ -42,21 +43,15 @@ interface TableData {
 
 interface ExcelTableComponentProps {
   boardId?: string | null;
-}
-
-interface OrgSummary {
-  org_code: string;
-  name: string;
-  industry_type: string;
-  registered_country: string;
-  subscription: string;
-  is_active: boolean;
+  // When provided, a "Currency Settings" tab button is shown in the header
+  // that switches the panel over to the currency-settings view.
+  onSwitchToCurrency?: () => void;
 }
 
 const FIELD_TYPES = ["char", "list", "number", "date", "boolean"];
 const FIELDS_PER_PAGE = 10;
 
-const ExcelTableComponent = ({ boardId }: ExcelTableComponentProps) => {
+const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponentProps) => {
   const loggedInUserId = (() => {
     try {
       const d = sessionStorage.getItem("currentUserData");
@@ -73,10 +68,80 @@ const ExcelTableComponent = ({ boardId }: ExcelTableComponentProps) => {
     } catch { return false; }
   })();
 
+  // ─── Org logo upload (OWNER/SUPER_ADMIN only) — moved here from Sidebar, which
+  // now only displays the logo. See /api/org-logo/*. ────────────────────────────
+  const orgRole = (() => {
+    try {
+      const d = sessionStorage.getItem("currentUserData");
+      return d ? (JSON.parse(d).orgRole || "").toUpperCase() : "";
+    } catch { return ""; }
+  })();
+  const canManageOrgLogo = orgRole === 'OWNER' || orgRole === 'SUPER_ADMIN';
+
+  const [orgId, setOrgId] = useState<number | null>(null);
+  useEffect(() => {
+    if (!loggedInUserId) return;
+    try {
+      const s = sessionStorage.getItem('currentUserData');
+      if (s) {
+        const d = JSON.parse(s);
+        const stored = d.orgId ?? d.org_id ?? d.organizationId ?? d.organization_id;
+        if (stored) { setOrgId(Number(stored)); return; }
+      }
+      const direct = sessionStorage.getItem('organization_id') ?? sessionStorage.getItem('orgId');
+      if (direct) { setOrgId(Number(direct)); return; }
+    } catch { /* ignore */ }
+    fetch(`${API_BASE_URL}/organizations/my-org?owner_user_id=${loggedInUserId}`, {
+      headers: { Accept: 'application/json', 'X-API-Key': API_KEY },
+    })
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => setOrgId(data?.id ? Number(data.id) : (data?.org_id ? Number(data.org_id) : 0)))
+      .catch(() => setOrgId(0));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loggedInUserId]);
+
+  const [isLogoModalOpen, setIsLogoModalOpen] = useState(false);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+
+  const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) setLogoFile(file);
+  };
+  const closeLogoModal = () => { setIsLogoModalOpen(false); setLogoFile(null); };
+
+  const handleLogoUpload = async () => {
+    if (!logoFile) { showToast('Please select a file', 'error'); return; }
+    if (!loggedInUserId) { showToast('User not found. Please log in again.', 'error'); return; }
+    if (!orgId || orgId <= 0) { showToast('Could not determine your organization. Please reload and try again.', 'error'); return; }
+
+    setIsUploadingLogo(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', logoFile);
+      const response = await fetch(`${API_BASE_URL}/api/org-logo/upload/${orgId}?uploaded_by_user_id=${loggedInUserId}`, {
+        method: 'POST',
+        headers: { 'X-API-Key': API_KEY },
+        body: formData,
+      });
+      if (response.ok) {
+        showToast('Logo updated successfully!', 'success');
+        closeLogoModal();
+        // Sidebar owns the display — tell it to refetch.
+        window.dispatchEvent(new Event('org-logo-updated'));
+      } else {
+        const err = await response.json().catch(() => ({}));
+        showToast(err.detail || err.message || 'Upload failed. Please try again.', 'error');
+      }
+    } catch {
+      showToast('Network error. Please check your connection.', 'error');
+    } finally {
+      setIsUploadingLogo(false);
+    }
+  };
+
   const [tables, setTables] = useState<TableData[]>([]);
   const [tablesLoading, setTablesLoading] = useState(false);
-  const [org, setOrg] = useState<OrgSummary | null>(null);
-  const [orgLoading, setOrgLoading] = useState(false);
   const [expandedTableId, setExpandedTableId] = useState<string | null>(null);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -172,49 +237,6 @@ const ExcelTableComponent = ({ boardId }: ExcelTableComponentProps) => {
     setEditingTableId(null);
     if (boardId && loggedInUserId) fetchTables();
   }, [boardId, loggedInUserId]);
-
-  useEffect(() => {
-    const fetchOrg = async () => {
-      setOrgLoading(true);
-      try {
-        // Prefer the org data cached at login — avoids an extra round trip
-        const raw = sessionStorage.getItem("currentUserData");
-        const cached = raw ? JSON.parse(raw)?.orgData : null;
-        if (cached?.id) {
-          setOrg({
-            org_code: cached.org_code || "",
-            name: cached.name || "",
-            industry_type: cached.industry_type || "",
-            registered_country: cached.registered_country || "",
-            subscription: cached.subscription || "",
-            is_active: cached.is_active !== undefined ? cached.is_active : true,
-          });
-          return;
-        }
-        if (!loggedInUserId) return;
-        const res = await fetch(
-          `${API_BASE_URL}/organizations/my-org?owner_user_id=${loggedInUserId}`,
-          { headers: { Accept: "application/json", "X-API-Key": API_KEY } },
-        );
-        if (res.ok) {
-          const data = await res.json();
-          setOrg({
-            org_code: data.org_code || "",
-            name: data.name || "",
-            industry_type: data.industry_type || "",
-            registered_country: data.registered_country || "",
-            subscription: data.subscription || "",
-            is_active: data.is_active !== undefined ? data.is_active : true,
-          });
-        }
-      } catch {
-        // Organization list is a supplementary display — fail silently
-      } finally {
-        setOrgLoading(false);
-      }
-    };
-    fetchOrg();
-  }, [loggedInUserId]);
 
   useEffect(() => {
     if (editingCell && cellInputRef.current) {
@@ -1015,59 +1037,6 @@ const ExcelTableComponent = ({ boardId }: ExcelTableComponentProps) => {
     <div className="p-4 sm:p-6">
       <div className="max-w-full mx-auto space-y-5">
 
-        {/* ── Organization list (read-only) ── */}
-        {orgLoading ? (
-          <div className="flex justify-center items-center py-3">
-            <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
-          </div>
-        ) : org ? (
-          <div>
-            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-0.5">Organization</h3>
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
-              <table className="min-w-full table-fixed">
-                <colgroup>
-                  <col style={{ width: "14%" }} />
-                  <col style={{ width: "20%" }} />
-                  <col style={{ width: "16%" }} />
-                  <col style={{ width: "16%" }} />
-                  <col style={{ width: "16%" }} />
-                  <col style={{ width: "18%" }} />
-                </colgroup>
-                <thead className="bg-gray-50 border-b border-gray-200">
-                  <tr>
-                    {["Org Code", "Name", "Industry", "Country", "Subscription", "Status"].map((col) => (
-                      <th
-                        key={col}
-                        className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase truncate"
-                      >
-                        {col}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  <tr className="hover:bg-gray-50 transition-colors">
-                    <td className="px-3 py-2 text-xs font-semibold text-gray-800 truncate">{org.org_code}</td>
-                    <td className="px-3 py-2 text-xs font-semibold text-gray-800 truncate">{org.name}</td>
-                    <td className="px-3 py-2 text-xs text-gray-600 truncate">{org.industry_type}</td>
-                    <td className="px-3 py-2 text-xs text-gray-600 truncate">{org.registered_country}</td>
-                    <td className="px-3 py-2 text-xs text-gray-600 truncate">{org.subscription}</td>
-                    <td className="px-3 py-2">
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${
-                          org.is_active ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
-                        }`}
-                      >
-                        {org.is_active ? "Active" : "Inactive"}
-                      </span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ) : null}
-
         {/* ── Header ── */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -1079,20 +1048,79 @@ const ExcelTableComponent = ({ boardId }: ExcelTableComponentProps) => {
               <p className="text-xs text-gray-500">Custom master data tables for this board</p>
             </div>
           </div>
-          <button
-            onClick={() => !isViewer && openCreateModal()}
-            disabled={isViewer || !boardId || !loggedInUserId || tables.length > 0}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors flex-shrink-0 ${
-              isViewer || !boardId || !loggedInUserId || tables.length > 0
-                ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                : "bg-blue-600 text-white hover:bg-blue-700"
-            }`}
-            title={isViewer ? "View only" : tables.length > 0 ? "Delete the existing table to create a new one" : undefined}
-          >
-            <Plus className="w-4 h-4" />
-            {!boardId ? "Select Board First" : "Create Master Data"}
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
+            {onSwitchToCurrency && (
+              <button
+                onClick={onSwitchToCurrency}
+                className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 text-gray-600 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-all text-sm font-medium"
+              >
+                <Coins className="w-4 h-4" />
+                <span>Currency Settings</span>
+              </button>
+            )}
+            {canManageOrgLogo && (
+              <button
+                onClick={() => setIsLogoModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg hover:bg-blue-100 hover:border-blue-300 transition-all text-sm font-medium"
+              >
+                <Upload className="w-4 h-4" />
+                <span>Upload Logo</span>
+              </button>
+            )}
+            <button
+              onClick={fetchTables}
+              disabled={tablesLoading || !boardId || !loggedInUserId}
+              className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 text-gray-600 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-all disabled:opacity-50 text-sm font-medium"
+            >
+              <RefreshCw className={`w-4 h-4 ${tablesLoading ? "animate-spin text-blue-600" : ""}`} />
+              <span className="hidden sm:inline">Refresh</span>
+            </button>
+            <button
+              onClick={() => !isViewer && openCreateModal()}
+              disabled={isViewer || !boardId || !loggedInUserId || tables.length > 0}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors ${
+                isViewer || !boardId || !loggedInUserId || tables.length > 0
+                  ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                  : "bg-blue-600 text-white hover:bg-blue-700"
+              }`}
+              title={isViewer ? "View only" : tables.length > 0 ? "Delete the existing table to create a new one" : undefined}
+            >
+              <Plus className="w-4 h-4" />
+              {!boardId ? "Select Board First" : "Create Master Data"}
+            </button>
+          </div>
         </div>
+
+        {/* ── Upload Logo Modal ── */}
+        {isLogoModalOpen && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+            <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full mx-4 overflow-hidden">
+              <div className="flex justify-between items-center px-5 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-blue-100">
+                <h2 className="text-base font-bold text-gray-900">Upload Logo</h2>
+                <button onClick={closeLogoModal} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full"><X className="w-4 h-4" /></button>
+              </div>
+              <div className="p-5 space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-2">Organization Logo</label>
+                  <div className="border-2 border-dashed border-gray-300 rounded-xl p-5 text-center hover:border-blue-400 transition-colors bg-gray-50">
+                    <input type="file" id="org-logo-upload" accept="image/*" onChange={handleLogoFileChange} className="hidden" />
+                    <label htmlFor="org-logo-upload" className="cursor-pointer flex flex-col items-center">
+                      <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center mb-2"><Upload className="w-5 h-5 text-blue-600" /></div>
+                      <span className="text-xs font-medium text-gray-700 mb-1 w-full truncate text-center px-2" title={logoFile ? logoFile.name : undefined}>{logoFile ? logoFile.name : 'Click to upload'}</span>
+                      <span className="text-xs text-gray-500">PNG, JPG, GIF, WebP, SVG up to 5MB</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 px-5 py-3 border-t bg-gray-50">
+                <button onClick={closeLogoModal} disabled={isUploadingLogo} className="px-4 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+                <button onClick={handleLogoUpload} disabled={isUploadingLogo || !logoFile} className="px-4 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1.5">
+                  {isUploadingLogo ? (<><Loader2 className="h-3.5 w-3.5 animate-spin" />Uploading...</>) : 'Submit'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── Tables list ── */}
         <div>
