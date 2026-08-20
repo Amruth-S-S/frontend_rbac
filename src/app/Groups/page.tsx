@@ -180,12 +180,12 @@ function GroupFormModal({
     <div style={m.overlay} onClick={onClose}>
       <div style={{ ...m.box, maxWidth: 460 }} onClick={e => e.stopPropagation()}>
         <div style={m.header}>
-          <h3 style={m.title}>{mode === "create" ? "Create Role" : "Edit Group"}</h3>
+          <h3 style={m.title}>{mode === "create" ? "Create Role" : "Edit Role"}</h3>
           <button style={m.closeBtn} onClick={onClose}>✕</button>
         </div>
 
         <div style={{ marginBottom: 16 }}>
-          <label style={m.label}>Group Role <span style={{ color: "#ef4444" }}>*</span></label>
+          <label style={m.label}>Role <span style={{ color: "#ef4444" }}>*</span></label>
           <input
             style={m.input}
             placeholder="e.g. Finance Team"
@@ -1879,7 +1879,7 @@ function GroupAccessPanel({
           <div style={{ marginTop: 16 }}>
             <div style={{ fontWeight: 600, fontSize: 13, color: "#1e293b", marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <Lock size={13} color="#6366f1" /> Main Boards Shared With This Group
+                <Lock size={13} color="#6366f1" /> Main Boards Shared With This Role
               </span>
               <button style={gm.refreshBtn} onClick={fetchGroupShares} disabled={loadingGroupShares}>
                 <RefreshCw size={12} style={{ marginRight: 4 }} /> Refresh
@@ -1889,7 +1889,7 @@ function GroupAccessPanel({
               <div style={s.empty}><Spinner /></div>
             ) : groupShareMainBoards.length === 0 ? (
               <div style={{ ...s.empty, padding: "8px 20px" }}>
-                <p style={{ color: "#94a3b8", fontSize: 13 }}>No main boards shared with this group yet.</p>
+                <p style={{ color: "#94a3b8", fontSize: 13 }}>No main boards shared with this role yet.</p>
               </div>
             ) : (
               <div style={gm.tableScroll}>
@@ -1943,7 +1943,7 @@ function GroupAccessPanel({
           <div style={{ marginTop: 16 }}>
             <div style={{ fontWeight: 600, fontSize: 13, color: "#1e293b", marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <Lock size={13} color="#6366f1" /> Boards Shared With This Group
+                <Lock size={13} color="#6366f1" /> Boards Shared With This Role
               </span>
               <button style={gm.refreshBtn} onClick={fetchGroupShares} disabled={loadingGroupShares}>
                 <RefreshCw size={12} style={{ marginRight: 4 }} /> Refresh
@@ -1953,7 +1953,7 @@ function GroupAccessPanel({
               <div style={s.empty}><Spinner /></div>
             ) : groupShareBoards.length === 0 ? (
               <div style={{ ...s.empty, padding: "8px 20px" }}>
-                <p style={{ color: "#94a3b8", fontSize: 13 }}>No boards shared with this group yet.</p>
+                <p style={{ color: "#94a3b8", fontSize: 13 }}>No boards shared with this role yet.</p>
               </div>
             ) : (
               <div style={gm.tableScroll}>
@@ -2268,7 +2268,7 @@ function GroupMembersModal({
               <div>
                 <h3 style={gm.groupName}>{group.name}</h3>
                 <div style={gm.groupMeta}>
-                  <span>Group #{group.id} · Org #{orgId}</span>
+                  <span>Role #{group.id} · Org #{orgId}</span>
                   <span style={{ ...gm.statusBadge, ...(group.is_active ? gm.statusBadgeActive : gm.statusBadgeInactive) }}>
                     <span style={{ ...gm.statusDot, background: group.is_active ? "#16a34a" : "#94a3b8" }} />
                     {group.is_active ? "Active" : "Inactive"}
@@ -2303,7 +2303,7 @@ function GroupMembersModal({
               {/* Section header */}
               <div style={gm.sectionHeader}>
                 <div>
-                  <h4 style={gm.sectionTitle}>Group Members</h4>
+                  <h4 style={gm.sectionTitle}>Members</h4>
                   <p style={gm.sectionSub}>{members.length} member{members.length !== 1 ? "s" : ""}</p>
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
@@ -2335,7 +2335,7 @@ function GroupMembersModal({
                 ) : members.length === 0 ? (
                   <div style={s.empty}>
                     <span style={{ fontSize: 32 }}>👥</span>
-                    <p style={{ color: "#94a3b8", fontSize: 13, marginTop: 8 }}>No members in this group yet.</p>
+                    <p style={{ color: "#94a3b8", fontSize: 13, marginTop: 8 }}>No members in this role yet.</p>
                   </div>
                 ) : displayedMembers.length === 0 ? (
                   <div style={s.empty}>
@@ -2733,7 +2733,7 @@ export default function GroupsPage() {
           <Search size={16} style={{ color: "#94a3b8", marginRight: 8 }} />
           <input
             style={s.searchInput}
-            placeholder="Search groups by name or description…"
+            placeholder="Search role by name or description…"
             value={search}
             onChange={e => setSearch(e.target.value)}
           />

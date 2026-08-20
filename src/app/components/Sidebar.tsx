@@ -1111,13 +1111,13 @@ const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassw
 
         {/* ── Search bar ────────────────────────────────────────────────────── */}
         {(isSidebarOpen || isMobile) ? (
-          <div className="px-3 pb-2">
+          <div className="px-3 py-2">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 w-3.5 h-3.5" />
               <input
                 ref={searchInputRef} type="text" placeholder={t('sidebar.search')}
                 value={searchQuery} onChange={handleSearchChange}
-                className="w-full py-2 pl-8 pr-8 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white shadow-sm transition-all duration-200"
+                className="w-full py-2 pl-8 pr-8 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white transition-all duration-200"
               />
               {searchQuery && (
                 <button onClick={clearSearch} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full p-0.5 transition-all duration-200">

@@ -406,7 +406,7 @@ export default function TransactionData() {
   const totalFilteredRows = useMemo(() => processedSections.reduce((sum, s) => sum + s.rows.length, 0), [processedSections]);
 
   return (
-    <div className="w-full max-w-5xl mx-auto p-4 sm:p-6">
+    <div className="w-full max-w-[1400px] mx-auto p-4 sm:p-6">
       {/* Toasts */}
       <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[100] flex flex-col items-stretch gap-2 w-80">
         {toasts.map(t => (

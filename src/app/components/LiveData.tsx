@@ -11,8 +11,8 @@ import {
 } from 'react-icons/fa'
 import { toast } from 'react-toastify';
 
-const LIVE_API_BASE = 'https://isc-tally-live-35486280762.us-central1.run.app';
-const API_HEADERS = { 'x-api-key': 'necjhbejnu%@#987*(hbhexbw7815)dataliveactive@3417hbjbexexjja@A' };
+const LIVE_API_BASE = process.env.NEXT_PUBLIC_LIVE_API_BASE_URL || '';
+const API_HEADERS = { 'x-api-key': process.env.NEXT_PUBLIC_LIVE_API_KEY || '' };
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const DAYS   = ['Su','Mo','Tu','We','Th','Fr','Sa'];
 const REPORT_NAMES = ['Sales Register', 'Purchase Register', 'Funds Flow', 'Cash Flow'];
@@ -550,14 +550,14 @@ function ApiTabPanel({ apis }: { apis: ApiDef[] }) {
 
   const api = apis.find(a => a.key === activeApi)!;
 
-  // Populate the Stock Item Name dropdown from the stock_pro_tech table
+  // Populate the Stock Item Name dropdown from the Live_Stock table
   useEffect(() => {
     if (!api.hasStockItemName) return;
     let cancelled = false;
     setLoadingItems(true);
     (async () => {
       try {
-        const res = await fetch(`${LIVE_API_BASE}/tables/stock_pro_tech/data?limit=1000`, { headers: API_HEADERS });
+        const res = await fetch(`${LIVE_API_BASE}/tables/Live_Stock/data?limit=1000`, { headers: API_HEADERS });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
         const { rows: r, columns: c } = extractData(json);
@@ -588,7 +588,7 @@ function ApiTabPanel({ apis }: { apis: ApiDef[] }) {
     setLoadingLedgerNames(true);
     (async () => {
       try {
-        const res = await fetch(`${LIVE_API_BASE}/tables/leder_name/data?limit=1000`, { headers: API_HEADERS });
+        const res = await fetch(`${LIVE_API_BASE}/tables/Live_Ledger_Name/data?limit=1000`, { headers: API_HEADERS });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
         const { rows: r, columns: c } = extractData(json);
@@ -925,7 +925,7 @@ export default function LiveData() {
         className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-all duration-200 text-xs whitespace-nowrap text-gray-500 hover:text-gray-700 hover:bg-gray-50"
       >
         <FaDatabase size={11} className="text-blue-500" />
-        Live Data
+        Live Datas
       </button>
       {open && <LiveDataModal onClose={() => setOpen(false)} />}
     </>

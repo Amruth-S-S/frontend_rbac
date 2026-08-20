@@ -14,13 +14,13 @@ import { useLanguage } from "../context/LanguageContext";
 import { translateBatch, translateText, formatNumber } from "../utils/translateService";
 // import { MdManageSearch } from "react-icons/md";
 import { FaPlay, FaPen, FaTrash, FaEdit, FaCheck, FaBan } from "react-icons/fa";
-import { FaFileUpload, FaCaretUp, FaCaretDown, FaUpload, FaTimes, FaComment, FaBars } from 'react-icons/fa';
+import { FaFileUpload, FaCaretUp, FaCaretDown, FaUpload, FaTimes, FaComment, FaBars, FaSearch } from 'react-icons/fa';
 import axios from "axios";
 import React from "react";
 import { saveAs } from 'file-saver';
 import * as XLSX from 'xlsx';
 // import { useDropzone } from "react-dropzone";
-import { PencilIcon, TrashIcon, PlusIcon, CheckIcon, ChevronUpIcon, ChevronDownIcon, Edit, Sparkles, LayoutGrid, MousePointerClick, MessageCircle } from 'lucide-react';
+import { PencilIcon, TrashIcon, PlusIcon, CheckIcon, ChevronUpIcon, ChevronDownIcon, Edit, Sparkles, LayoutGrid, MousePointerClick, MessageCircle, Users } from 'lucide-react';
 import { Pie, Bar, Line } from "react-chartjs-2";
 import { MdArrowDropDown, MdArrowDropUp } from 'react-icons/md';
 import {
@@ -260,6 +260,7 @@ function GroupContainerPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [tableSortCol, setTableSortCol] = useState<number | null>(null);
   const [tableSortDir, setTableSortDir] = useState<'asc' | 'desc'>('asc');
+  const [resultTableSearch, setResultTableSearch] = useState('');
   const [colWidths, setColWidths] = useState<number[]>([]);
   const [view,] = useState("manage-tables");
   const [isRunClicked, setIsRunClicked] = useState(false);
@@ -375,6 +376,7 @@ function GroupContainerPage() {
     // }
   ]);
   const [showEmailModal, setShowEmailModal] = useState(false);
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [emailData, setEmailData] = useState({ email: '', subject: '', message: '', tableOption: 'limited', reportType: '' });
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
   const [whatsappData, setWhatsappData] = useState({ phoneNumber: '', message: '', tableOption: 'limited', reportType: '' });
@@ -1315,6 +1317,8 @@ useEffect(() => {
     role: "",
     orgId: "",
   });
+  // Name of the Role (group) the logged-in user's email belongs to — shown in the header.
+  const [userRoleName, setUserRoleName] = useState<string | null>(null);
 
 
 
@@ -1336,6 +1340,43 @@ useEffect(() => {
       }
     }
   }, []);
+
+  // Resolve which Role (group) the logged-in user's email belongs to, so the
+  // header can display it. Checks the org's groups, then each group's members,
+  // for an email match — there is no direct "my role" endpoint.
+  useEffect(() => {
+    if (!user.orgId || !user.id || !user.email) return;
+    let cancelled = false;
+    const resolveUserRole = async () => {
+      try {
+        const groupsRes = await fetch(
+          `${API_BASE_URL}/organizations/${user.orgId}/groups?requester_user_id=${user.id}`,
+          { headers: { Accept: "application/json", "X-API-Key": EXCEL_API_KEY } },
+        );
+        if (!groupsRes.ok) return;
+        const groups: { id: number; name: string }[] = await groupsRes.json();
+        const targetEmail = user.email.trim().toLowerCase();
+        for (const group of groups) {
+          if (cancelled) return;
+          const membersRes = await fetch(
+            `${API_BASE_URL}/organizations/${user.orgId}/groups/${group.id}/members?requester_user_id=${user.id}`,
+            { headers: { Accept: "application/json", "X-API-Key": EXCEL_API_KEY } },
+          );
+          if (!membersRes.ok) continue;
+          const members: { user_email?: string | null }[] = await membersRes.json();
+          if (members.some(m => (m.user_email || "").trim().toLowerCase() === targetEmail)) {
+            if (!cancelled) setUserRoleName(group.name);
+            return;
+          }
+        }
+        if (!cancelled) setUserRoleName(null);
+      } catch {
+        // Silent — role badge is a supplementary display
+      }
+    };
+    resolveUserRole();
+    return () => { cancelled = true; };
+  }, [user.orgId, user.id, user.email]);
 
 
   // Toggle dropdown visibility
@@ -1441,6 +1482,7 @@ useEffect(() => {
       toast.error('Please enter a recipient email address');
       return;
     }
+    setIsSendingEmail(true);
     try {
       // Generate PPT client-side using PptxGenJS (same as download, avoids CORS/backend issues)
       const pptBase64 = await downloadPPT(
@@ -1483,6 +1525,7 @@ useEffect(() => {
       const errorMessage = error instanceof Error ? error.message : String(error);
       toast.error(`Failed to send email: ${errorMessage}`);
     } finally {
+      setIsSendingEmail(false);
       setShowEmailModal(false);
       setShowDownloadModal(false);
     }
@@ -2941,7 +2984,11 @@ useEffect(() => {
 
   // Sorted table rows derived from runResult (or translated version)
   const sortedTableData = (() => {
-    const rows = (translatedResultData.length > 0 ? translatedResultData : runResult?.table?.data) ?? [];
+    let rows = (translatedResultData.length > 0 ? translatedResultData : runResult?.table?.data) ?? [];
+    const q = resultTableSearch.trim().toLowerCase();
+    if (q) {
+      rows = rows.filter((row: any[]) => row.some(cell => String(cell ?? '').toLowerCase().includes(q)));
+    }
     if (tableSortCol === null) return rows;
     return [...rows].sort((a, b) => {
       const av = a[tableSortCol] ?? '';
@@ -3313,7 +3360,7 @@ const SpeechRecognition =
 
       if (response?.data) {
         setRunResult(response.data);
-        setTableSortCol(null); setTableSortDir('asc'); setColWidths([]);
+        setTableSortCol(null); setTableSortDir('asc'); setColWidths([]); setResultTableSearch('');
 
       if (promptId) {
   const hasCharts = (response.data.charts ?? []).length > 0;
@@ -3469,7 +3516,7 @@ const SpeechRecognition =
       if (response?.data) {
         // console.log("Prompt run successfully:", response.data);
         setRunResult(response.data); // Set the result to display it
-        setTableSortCol(null); setTableSortDir('asc'); setColWidths([]);
+        setTableSortCol(null); setTableSortDir('asc'); setColWidths([]); setResultTableSearch('');
 
         const hasCharts = (response.data.charts ?? []).length > 0;
         const hasTable = response.data.table?.columns?.length > 0;
@@ -4110,6 +4157,14 @@ const SpeechRecognition =
     >
       <header className="bg-white p-3 shadow-sm">
         <div className="flex justify-end items-center gap-2 max-w-screen-xl mx-auto">
+          {/* Role badge — the group the logged-in user's email belongs to */}
+          {userRoleName && (
+            <span className="flex items-center gap-1.5 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-md">
+              <Users className="w-3.5 h-3.5" />
+              {userRoleName}
+            </span>
+          )}
+
           {/* Language Selector */}
           <LanguageSelector />
 
@@ -4193,7 +4248,7 @@ const SpeechRecognition =
               )}
 
               {/* Desktop: horizontal tabs */}
-              <div className="hidden md:flex gap-1 p-1 bg-gray-100 rounded-lg overflow-x-auto">
+              <div className="hidden md:flex gap-1 p-1 bg-gray-100 rounded-lg overflow-x-auto scrollbar-hide">
                 {[
                   { key: "tables",        label: t("tabs.manageTables") },
                   { key: "documentation", label: t("tabs.aiDocumentation") },
@@ -4264,7 +4319,7 @@ const SpeechRecognition =
                         { key: "master",        label: t("tabs.masterData") },
                         // { key: "parameter",  label: t("tabs.parameterSettings") },
                         // { key: "timeline",   label: t("tabs.timelineSettings") },
-                        { key: "kpi",           label: t("tabs.kpiUpdates") },
+                        // { key: "kpi",           label: t("tabs.kpiUpdates") },
                         { key: "transactionData", label: "Transaction Data" },
                         { key: "report",        label: t("tabs.reports") },
                       ].filter((tab) => !(hideUsRestrictedTabs && (tab.key === "report" || tab.key === "kpi" || tab.key === "transactionData"))).map((tab) => (
@@ -4298,9 +4353,9 @@ const SpeechRecognition =
         {activeTab === "prompts" && (
           <div className="w-full">
             {/* Header */}
-            <div className="w-full bg-white border-b">
+            <div className="w-full">
               <div className="max-w-[1400px] mx-auto px-3 py-2">
-                <div className="flex flex-row flex-nowrap gap-2 items-center overflow-x-auto">
+                <div className="flex flex-row flex-nowrap gap-2 items-center overflow-x-auto p-1">
 
                   {/* Search */}
                   <div className="relative flex-1 min-w-[120px]">
@@ -4681,7 +4736,7 @@ const SpeechRecognition =
         {activeTab === "repository" && (
           <div className="w-full">
             {/* Search bar */}
-            <div className="w-full bg-white border-b">
+            <div className="w-full">
               <div className="max-w-[1400px] mx-auto px-3 py-2">
                 <div className="relative">
                   <input
@@ -4980,6 +5035,28 @@ const SpeechRecognition =
                           );
                         })}
                       </div>
+
+                      {resultTab === 'table' && runResult?.table && runResult.table.columns?.length > 0 && (
+                        <div className="relative flex-1 min-w-[160px] max-w-md">
+                          <FaSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={12} />
+                          <input
+                            type="text"
+                            value={resultTableSearch}
+                            onChange={(e) => setResultTableSearch(e.target.value)}
+                            placeholder="Search table…"
+                            className="w-full pl-8 pr-8 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
+                          />
+                          {resultTableSearch && (
+                            <button
+                              onClick={() => setResultTableSearch('')}
+                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                            >
+                              <FaTimes size={11} />
+                            </button>
+                          )}
+                        </div>
+                      )}
+
                       <div className="flex gap-2">
                         {resultTab === 'table' && runResult?.table && runResult.table.columns?.length > 0 && (
                           <button
@@ -5094,17 +5171,17 @@ const SpeechRecognition =
                                 </button> */}
                                 {showDownloadModal && (
                                   <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                                    <div className="bg-white p-6 rounded-lg shadow-xl max-w-lg w-full">
-                                      <h3 className="text-xl font-bold text-blue-700 mb-4">Download Report Options</h3>
-                                      <p className="font-bold mb-2">Charts Only:</p>
-                                      <p className="mb-4">Please select the type of report you would like to download:</p>
+                                    <div className="bg-white p-4 rounded-lg shadow-xl max-w-md w-full">
+                                      <h3 className="text-lg font-bold text-blue-700 mb-2">Download Report Options</h3>
+                                      <p className="font-bold text-sm mb-1">Charts Only:</p>
+                                      <p className="text-sm mb-3">Please select the type of report you would like to download:</p>
                                       <div className="grid grid-cols-3 gap-2">
                                         <button
                                           onClick={() => {
                                             setShowDownloadModal(false);
                                             downloadPPT(false, 'limited');
                                           }}
-                                          className="py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 transition-colors text-sm"
+                                          className="py-1.5 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 transition-colors text-sm"
                                         >
                                           Download
                                         </button>
@@ -5119,11 +5196,11 @@ const SpeechRecognition =
                                             }));
                                             setShowEmailModal(true);
                                           }}
-                                          className="py-2 bg-green-600 text-white rounded font-medium hover:bg-green-700 transition-colors text-sm"
+                                          className="py-1.5 bg-green-600 text-white rounded font-medium hover:bg-green-700 transition-colors text-sm"
                                         >
                                           Send via Email
                                         </button>
-                                        <button
+                                        {/* <button
                                           onClick={() => {
                                             const selectedOptionElement = document.querySelector('input[name="tableRows"]:checked');
                                             const selectedOption = selectedOptionElement ? (selectedOptionElement as HTMLInputElement).value : 'limited';
@@ -5134,16 +5211,16 @@ const SpeechRecognition =
                                             }));
                                             setShowWhatsAppModal(true);
                                           }}
-                                          className="py-2 bg-[#25D366] text-white rounded font-medium hover:bg-[#1ebe5d] transition-colors text-sm flex items-center justify-center gap-1"
+                                          className="py-1.5 bg-[#25D366] text-white rounded font-medium hover:bg-[#1ebe5d] transition-colors text-sm flex items-center justify-center gap-1"
                                         >
                                           <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
-                                        </button>
+                                        </button> */}
                                       </div>
 
-                                      <div className="border-t border-gray-200 pt-4 mb-4">
-                                        <p className="font-bold mb-2">Include table data in report:</p>
+                                      <div className="border-t border-gray-200 pt-3 mb-3">
+                                        <p className="font-bold text-sm mb-1">Include table data in report:</p>
 
-                                        <div className="space-y-2 mb-4">
+                                        <div className="space-y-1 mb-3">
                                           <div className="flex items-center">
                                             <input
                                               type="radio"
@@ -5175,7 +5252,7 @@ const SpeechRecognition =
                                               setShowDownloadModal(false);
                                               downloadPPT(true, selectedOption);
                                             }}
-                                            className="py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 transition-colors text-sm"
+                                            className="py-1.5 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 transition-colors text-sm"
                                           >
                                             Download
                                           </button>
@@ -5190,11 +5267,11 @@ const SpeechRecognition =
                                               }));
                                               setShowEmailModal(true);
                                             }}
-                                            className="py-2 bg-green-600 text-white rounded font-medium hover:bg-green-700 transition-colors text-sm"
+                                            className="py-1.5 bg-green-600 text-white rounded font-medium hover:bg-green-700 transition-colors text-sm"
                                           >
                                             Send via Email
                                           </button>
-                                          <button
+                                          {/* <button
                                             onClick={() => {
                                               const selectedOptionElement = document.querySelector('input[name="tableRows"]:checked');
                                               const selectedOption = selectedOptionElement ? (selectedOptionElement as HTMLInputElement).value : 'limited';
@@ -5205,16 +5282,16 @@ const SpeechRecognition =
                                               }));
                                               setShowWhatsAppModal(true);
                                             }}
-                                            className="py-2 bg-[#25D366] text-white rounded font-medium hover:bg-[#1ebe5d] transition-colors text-sm flex items-center justify-center gap-1"
+                                            className="py-1.5 bg-[#25D366] text-white rounded font-medium hover:bg-[#1ebe5d] transition-colors text-sm flex items-center justify-center gap-1"
                                           >
                                             <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
-                                          </button>
+                                          </button> */}
                                         </div>
                                       </div>
 
                                       <button
                                         onClick={() => setShowDownloadModal(false)}
-                                        className="w-full py-2 bg-gray-200 text-gray-800 rounded border border-gray-300"
+                                        className="w-full py-1.5 text-sm bg-gray-200 text-gray-800 rounded border border-gray-300"
                                       >
                                         Cancel
                                       </button>
@@ -5228,11 +5305,11 @@ const SpeechRecognition =
                                     className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center"
                                     style={{ zIndex: 9999 }}
                                   >
-                                    <div className="bg-white p-6 rounded-lg shadow-xl max-w-lg w-full mx-4">
-                                      <h3 className="text-xl font-bold text-green-700 mb-4">Send Report via Email</h3>
+                                    <div className="bg-white p-3 rounded-lg shadow-xl max-w-sm w-full mx-4">
+                                      <h3 className="text-base font-bold text-green-700 mb-1.5">Send Report via Email</h3>
 
-                                      <div className="mb-4 p-3 bg-blue-50 border-l-4 border-blue-400 rounded">
-                                        <p className="text-sm text-blue-800">
+                                      <div className="mb-2 p-1.5 bg-blue-50 border-l-4 border-blue-400 rounded">
+                                        <p className="text-xs text-blue-800">
                                           <strong>Report Type:</strong> {emailData.reportType === 'charts-only' ? 'Charts Only' : 'Complete Report'}
                                           {emailData.reportType === 'complete' && (
                                             <><br /><strong>Table Data:</strong> {emailData.tableOption === 'all' ? 'All rows' : 'First 20 rows only'}</>
@@ -5240,9 +5317,9 @@ const SpeechRecognition =
                                         </p>
                                       </div>
 
-                                      <form className="space-y-4">
+                                      <form className="space-y-2">
                                         <div>
-                                          <label htmlFor="recipientEmail" className="block text-sm font-medium text-gray-700 mb-1">
+                                          <label htmlFor="recipientEmail" className="block text-xs font-medium text-gray-700 mb-0.5">
                                             Recipient Email Address *
                                           </label>
                                           <input
@@ -5250,14 +5327,14 @@ const SpeechRecognition =
                                             id="recipientEmail"
                                             value={emailData.email}
                                             onChange={(e) => setEmailData(prev => ({ ...prev, email: e.target.value }))}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                                             placeholder="recipient@example.com"
                                             required
                                           />
                                         </div>
 
                                         <div>
-                                          <label htmlFor="emailSubject" className="block text-sm font-medium text-gray-700 mb-1">
+                                          <label htmlFor="emailSubject" className="block text-xs font-medium text-gray-700 mb-0.5">
                                             Subject
                                           </label>
                                           <input
@@ -5265,43 +5342,44 @@ const SpeechRecognition =
                                             id="emailSubject"
                                             value={emailData.subject}
                                             onChange={(e) => setEmailData(prev => ({ ...prev, subject: e.target.value }))}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                                             placeholder="Data Analysis Report"
                                           />
                                         </div>
 
                                         <div>
-                                          <label htmlFor="emailMessage" className="block text-sm font-medium text-gray-700 mb-1">
+                                          <label htmlFor="emailMessage" className="block text-xs font-medium text-gray-700 mb-0.5">
                                             Additional Message (Optional)
                                           </label>
                                           <textarea
                                             id="emailMessage"
                                             value={emailData.message}
                                             onChange={(e) => setEmailData(prev => ({ ...prev, message: e.target.value }))}
-                                            rows={4}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                            rows={1}
+                                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none"
                                             placeholder="Enter any additional message..."
                                           />
                                         </div>
 
-                                        <div className="bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded">
+                                        <div className="bg-yellow-50 border-l-4 border-yellow-400 p-1.5 rounded">
                                           <div className="flex">
                                             <div className="flex-shrink-0">
-                                              <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                                              <svg className="h-3.5 w-3.5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
                                                 <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                                               </svg>
                                             </div>
-                                            <div className="ml-3">
-                                              <p className="text-sm text-yellow-700">
+                                            <div className="ml-1.5">
+                                              <p className="text-[11px] leading-tight text-yellow-700">
                                                 This will open your default email client. The report file will need to be manually attached.
                                               </p>
                                             </div>
                                           </div>
                                         </div>
 
-                                        <div className="flex gap-3 pt-2">
+                                        <div className="flex gap-2 pt-0.5">
                                           <button
                                             type="button"
+                                            disabled={isSendingEmail}
                                             onClick={() => {
                                               if (!emailData.email) {
                                                 toast.error('Please enter a recipient email address');
@@ -5311,17 +5389,24 @@ const SpeechRecognition =
                                               const tableOption = emailData.tableOption || 'limited';
                                               sendViaEmail(includeTable, tableOption);
                                             }}
-                                            className="flex-1 py-2 bg-green-600 text-white rounded font-medium hover:bg-green-700 transition-colors"
+                                            className="flex-1 py-1.5 text-sm bg-green-600 text-white rounded font-medium hover:bg-green-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                                           >
-                                            Send Email
+                                            {isSendingEmail && (
+                                              <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24" fill="none">
+                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                              </svg>
+                                            )}
+                                            {isSendingEmail ? 'Sending...' : 'Send Email'}
                                           </button>
                                           <button
                                             type="button"
+                                            disabled={isSendingEmail}
                                             onClick={() => {
                                               setShowEmailModal(false);
                                               setEmailData({ email: '', subject: '', message: '', tableOption: 'limited', reportType: '' });
                                             }}
-                                            className="flex-1 py-2 bg-gray-200 text-gray-800 rounded border border-gray-300 hover:bg-gray-300 transition-colors"
+                                            className="flex-1 py-1.5 text-sm bg-gray-200 text-gray-800 rounded border border-gray-300 hover:bg-gray-300 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                                           >
                                             Cancel
                                           </button>
@@ -5558,7 +5643,7 @@ const SpeechRecognition =
         {isLoading && <Spinner />}
 
         {activeTab === "tables" && (
-          <div className="p-2 sm:p-4">
+          <div className="max-w-[1400px] mx-auto px-3 py-2 sm:py-4">
             {/* Header */}
             <div className="flex flex-col gap-2 mb-3 sm:flex-row sm:justify-between sm:items-center sm:mb-4">
               {/* Title + slot indicators */}
@@ -5630,8 +5715,8 @@ const SpeechRecognition =
                         <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase w-10">Slot</th>
                         <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase">Name</th>
                         <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase hidden sm:table-cell">Description</th>
-                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase w-16">Type</th>
-                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase w-16">Status</th>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase whitespace-nowrap">Type</th>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase w-20">Status</th>
                         <th className="px-2 py-2 text-center text-xs font-medium text-gray-600 uppercase">Actions</th>
                       </tr>
                     </thead>
@@ -5658,16 +5743,16 @@ const SpeechRecognition =
                               <td className="px-2 py-2 text-xs text-gray-600 max-w-[120px] truncate hidden sm:table-cell" title={source.description}>
                                 {source.description || "—"}
                               </td>
-                              <td className="px-2 py-2">
-                                <span className={`px-1.5 py-0.5 text-xs font-semibold rounded-full ${source.source_type === "table_data"
+                              <td className="px-2 py-2 whitespace-nowrap">
+                                <span className={`px-1.5 py-0.5 text-xs font-semibold rounded-full whitespace-nowrap ${source.source_type === "table_data"
                                   ? "bg-purple-100 text-purple-700"
                                   : "bg-green-100 text-green-700"
                                   }`}>
                                   {source.source_type_display}
                                 </span>
                               </td>
-                              <td className="px-2 py-2">
-                                <span className="px-1.5 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-700">
+                              <td className="px-2 py-2 whitespace-nowrap">
+                                <span className="px-1.5 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-700 whitespace-nowrap">
                                   Active
                                 </span>
                               </td>
@@ -5777,13 +5862,13 @@ const SpeechRecognition =
                                 <td className="px-2 py-2 text-xs text-gray-600 max-w-[120px] truncate hidden sm:table-cell" title={row.table_description}>
                                   {row.table_description}
                                 </td>
-                                <td className="px-2 py-2">
-                                  <span className="px-1.5 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-700">
+                                <td className="px-2 py-2 whitespace-nowrap">
+                                  <span className="px-1.5 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-700 whitespace-nowrap">
                                     CSV
                                   </span>
                                 </td>
-                                <td className="px-2 py-2">
-                                  <span className="px-1.5 py-0.5 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-700">
+                                <td className="px-2 py-2 whitespace-nowrap">
+                                  <span className="px-1.5 py-0.5 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-700 whitespace-nowrap">
                                     Pending
                                   </span>
                                 </td>
@@ -6874,6 +6959,28 @@ const SpeechRecognition =
                         </button>
                       );
                     })}
+
+                    {resultTab === 'table' && runResult?.table && runResult.table.columns?.length > 0 && (
+                      <div className="relative flex-1 min-w-[140px] max-w-sm">
+                        <FaSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={11} />
+                        <input
+                          type="text"
+                          value={resultTableSearch}
+                          onChange={(e) => setResultTableSearch(e.target.value)}
+                          placeholder="Search table…"
+                          className="w-full pl-8 pr-7 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        />
+                        {resultTableSearch && (
+                          <button
+                            onClick={() => setResultTableSearch('')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                          >
+                            <FaTimes size={10} />
+                          </button>
+                        )}
+                      </div>
+                    )}
+
                     <div className="ml-auto flex gap-2">
                       {resultTab === 'table' && runResult?.table && runResult.table.columns?.length > 0 && (
                         <button
@@ -6985,17 +7092,17 @@ const SpeechRecognition =
                               <div>
                                 {showDownloadModal && (
                                   <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                                    <div className="bg-white p-6 rounded-lg shadow-xl max-w-lg w-full">
-                                      <h3 className="text-xl font-bold text-blue-700 mb-4">Download Report Options</h3>
-                                      <p className="font-bold mb-2">Charts Only:</p>
-                                      <p className="mb-4">Please select the type of report you would like to download:</p>
+                                    <div className="bg-white p-4 rounded-lg shadow-xl max-w-md w-full">
+                                      <h3 className="text-lg font-bold text-blue-700 mb-2">Download Report Options</h3>
+                                      <p className="font-bold text-sm mb-1">Charts Only:</p>
+                                      <p className="text-sm mb-3">Please select the type of report you would like to download:</p>
                                       <div className="grid grid-cols-3 gap-2">
                                         <button
                                           onClick={() => {
                                             setShowDownloadModal(false);
                                             downloadPPT(false, 'limited');
                                           }}
-                                          className="py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 transition-colors text-sm"
+                                          className="py-1.5 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 transition-colors text-sm"
                                         >
                                           Download
                                         </button>
@@ -7010,7 +7117,7 @@ const SpeechRecognition =
                                             }));
                                             setShowEmailModal(true);
                                           }}
-                                          className="py-2 bg-green-600 text-white rounded font-medium hover:bg-green-700 transition-colors text-sm"
+                                          className="py-1.5 bg-green-600 text-white rounded font-medium hover:bg-green-700 transition-colors text-sm"
                                         >
                                           Send via Email
                                         </button>
@@ -7025,16 +7132,16 @@ const SpeechRecognition =
                                             }));
                                             setShowWhatsAppModal(true);
                                           }}
-                                          className="py-2 bg-[#25D366] text-white rounded font-medium hover:bg-[#1ebe5d] transition-colors text-sm flex items-center justify-center gap-1"
+                                          className="py-1.5 bg-[#25D366] text-white rounded font-medium hover:bg-[#1ebe5d] transition-colors text-sm flex items-center justify-center gap-1"
                                         >
                                           <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
                                         </button>
                                       </div>
 
-                                      <div className="border-t border-gray-200 pt-4 mb-4">
-                                        <p className="font-bold mb-2">Include table data in report:</p>
+                                      <div className="border-t border-gray-200 pt-3 mb-3">
+                                        <p className="font-bold text-sm mb-1">Include table data in report:</p>
 
-                                        <div className="space-y-2 mb-4">
+                                        <div className="space-y-1 mb-3">
                                           <div className="flex items-center">
                                             <input
                                               type="radio"
@@ -7066,7 +7173,7 @@ const SpeechRecognition =
                                               setShowDownloadModal(false);
                                               downloadPPT(true, selectedOption);
                                             }}
-                                            className="py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 transition-colors text-sm"
+                                            className="py-1.5 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 transition-colors text-sm"
                                           >
                                             Download
                                           </button>
@@ -7081,7 +7188,7 @@ const SpeechRecognition =
                                               }));
                                               setShowEmailModal(true);
                                             }}
-                                            className="py-2 bg-green-600 text-white rounded font-medium hover:bg-green-700 transition-colors text-sm"
+                                            className="py-1.5 bg-green-600 text-white rounded font-medium hover:bg-green-700 transition-colors text-sm"
                                           >
                                             Send via Email
                                           </button>
@@ -7096,7 +7203,7 @@ const SpeechRecognition =
                                               }));
                                               setShowWhatsAppModal(true);
                                             }}
-                                            className="py-2 bg-[#25D366] text-white rounded font-medium hover:bg-[#1ebe5d] transition-colors text-sm flex items-center justify-center gap-1"
+                                            className="py-1.5 bg-[#25D366] text-white rounded font-medium hover:bg-[#1ebe5d] transition-colors text-sm flex items-center justify-center gap-1"
                                           >
                                             <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
                                           </button>
@@ -7105,7 +7212,7 @@ const SpeechRecognition =
 
                                       <button
                                         onClick={() => setShowDownloadModal(false)}
-                                        className="w-full py-2 bg-gray-200 text-gray-800 rounded border border-gray-300"
+                                        className="w-full py-1.5 text-sm bg-gray-200 text-gray-800 rounded border border-gray-300"
                                       >
                                         Cancel
                                       </button>
@@ -7119,11 +7226,11 @@ const SpeechRecognition =
                                     className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center"
                                     style={{ zIndex: 9999 }}
                                   >
-                                    <div className="bg-white p-6 rounded-lg shadow-xl max-w-lg w-full mx-4">
-                                      <h3 className="text-xl font-bold text-green-700 mb-4">Send Report via Email</h3>
+                                    <div className="bg-white p-3 rounded-lg shadow-xl max-w-sm w-full mx-4">
+                                      <h3 className="text-base font-bold text-green-700 mb-1.5">Send Report via Email</h3>
 
-                                      <div className="mb-4 p-3 bg-blue-50 border-l-4 border-blue-400 rounded">
-                                        <p className="text-sm text-blue-800">
+                                      <div className="mb-2 p-1.5 bg-blue-50 border-l-4 border-blue-400 rounded">
+                                        <p className="text-xs text-blue-800">
                                           <strong>Report Type:</strong> {emailData.reportType === 'charts-only' ? 'Charts Only' : 'Complete Report'}
                                           {emailData.reportType === 'complete' && (
                                             <><br /><strong>Table Data:</strong> {emailData.tableOption === 'all' ? 'All rows' : 'First 20 rows only'}</>
@@ -7131,9 +7238,9 @@ const SpeechRecognition =
                                         </p>
                                       </div>
 
-                                      <form className="space-y-4">
+                                      <form className="space-y-2">
                                         <div>
-                                          <label htmlFor="recipientEmail" className="block text-sm font-medium text-gray-700 mb-1">
+                                          <label htmlFor="recipientEmail" className="block text-xs font-medium text-gray-700 mb-0.5">
                                             Recipient Email Address *
                                           </label>
                                           <input
@@ -7141,14 +7248,14 @@ const SpeechRecognition =
                                             id="recipientEmail"
                                             value={emailData.email}
                                             onChange={(e) => setEmailData(prev => ({ ...prev, email: e.target.value }))}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                                             placeholder="recipient@example.com"
                                             required
                                           />
                                         </div>
 
                                         <div>
-                                          <label htmlFor="emailSubject" className="block text-sm font-medium text-gray-700 mb-1">
+                                          <label htmlFor="emailSubject" className="block text-xs font-medium text-gray-700 mb-0.5">
                                             Subject
                                           </label>
                                           <input
@@ -7156,43 +7263,44 @@ const SpeechRecognition =
                                             id="emailSubject"
                                             value={emailData.subject}
                                             onChange={(e) => setEmailData(prev => ({ ...prev, subject: e.target.value }))}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                                             placeholder="Data Analysis Report"
                                           />
                                         </div>
 
                                         <div>
-                                          <label htmlFor="emailMessage" className="block text-sm font-medium text-gray-700 mb-1">
+                                          <label htmlFor="emailMessage" className="block text-xs font-medium text-gray-700 mb-0.5">
                                             Additional Message (Optional)
                                           </label>
                                           <textarea
                                             id="emailMessage"
                                             value={emailData.message}
                                             onChange={(e) => setEmailData(prev => ({ ...prev, message: e.target.value }))}
-                                            rows={4}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                            rows={1}
+                                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none"
                                             placeholder="Enter any additional message..."
                                           />
                                         </div>
 
-                                        <div className="bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded">
+                                        <div className="bg-yellow-50 border-l-4 border-yellow-400 p-1.5 rounded">
                                           <div className="flex">
                                             <div className="flex-shrink-0">
-                                              <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                                              <svg className="h-3.5 w-3.5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
                                                 <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                                               </svg>
                                             </div>
-                                            <div className="ml-3">
-                                              <p className="text-sm text-yellow-700">
+                                            <div className="ml-1.5">
+                                              <p className="text-[11px] leading-tight text-yellow-700">
                                                 This will open your default email client. The report file will need to be manually attached.
                                               </p>
                                             </div>
                                           </div>
                                         </div>
 
-                                        <div className="flex gap-3 pt-2">
+                                        <div className="flex gap-2 pt-0.5">
                                           <button
                                             type="button"
+                                            disabled={isSendingEmail}
                                             onClick={() => {
                                               if (!emailData.email) {
                                                 toast.error('Please enter a recipient email address');
@@ -7202,17 +7310,24 @@ const SpeechRecognition =
                                               const tableOption = emailData.tableOption || 'limited';
                                               sendViaEmail(includeTable, tableOption);
                                             }}
-                                            className="flex-1 py-2 bg-green-600 text-white rounded font-medium hover:bg-green-700 transition-colors"
+                                            className="flex-1 py-1.5 text-sm bg-green-600 text-white rounded font-medium hover:bg-green-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                                           >
-                                            Send Email
+                                            {isSendingEmail && (
+                                              <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24" fill="none">
+                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                              </svg>
+                                            )}
+                                            {isSendingEmail ? 'Sending...' : 'Send Email'}
                                           </button>
                                           <button
                                             type="button"
+                                            disabled={isSendingEmail}
                                             onClick={() => {
                                               setShowEmailModal(false);
                                               setEmailData({ email: '', subject: '', message: '', tableOption: 'limited', reportType: '' });
                                             }}
-                                            className="flex-1 py-2 bg-gray-200 text-gray-800 rounded border border-gray-300 hover:bg-gray-300 transition-colors"
+                                            className="flex-1 py-1.5 text-sm bg-gray-200 text-gray-800 rounded border border-gray-300 hover:bg-gray-300 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                                           >
                                             Cancel
                                           </button>

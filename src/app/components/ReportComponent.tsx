@@ -9,8 +9,8 @@ import {
 } from 'react-icons/fa';
 import { MdArrowDropDown } from 'react-icons/md';
 
-const API_BASE = 'https://filter-data-isc-35486280762.us-central1.run.app';
-const API_HEADERS = { 'x-api-key': 'ytsyxvtywfqvg@1209567TEAHBjhbwxuywbPo()*&%$Rssx' };
+const API_BASE = process.env.NEXT_PUBLIC_REPORT_API_BASE_URL || '';
+const API_HEADERS = { 'x-api-key': process.env.NEXT_PUBLIC_REPORT_API_KEY || '' };
 const PER_PAGE = 20;
 
 // ── Types ─────────────────────────────────────────────────────
@@ -1516,35 +1516,41 @@ export default function ReportComponent() {
 
       {/* ── Page Header ─────────────────────────────────────── */}
       <div className="w-full bg-white border-b border-gray-200">
-        <div className="max-w-[1400px] mx-auto px-4 py-1.5 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <FaFileAlt className="text-indigo-600" size={13} />
-            <span className="text-xs font-bold text-gray-800">Reports</span>
-            <span className="text-xs text-gray-400">
-              {tablesLoading ? 'Loading…' : tables.length > 0 ? `${tables.length} tables · click any to load its data` : 'No tables available'}
-            </span>
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center flex-shrink-0">
+              <FaFileAlt className="text-indigo-600" size={16} />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-gray-800">Reports</h2>
+              <p className="text-xs text-gray-500">
+                {tablesLoading ? 'Loading tables…' : tables.length > 0 ? `${tables.length} tables available · click any to load its data` : 'No tables available'}
+              </p>
+            </div>
           </div>
           <button
             onClick={fetchTables}
             disabled={tablesLoading}
-            className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-60"
+            className="flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg shadow-sm hover:bg-gray-50 hover:text-gray-800 transition-colors disabled:opacity-60 flex-shrink-0"
           >
-            <FaSync size={9} className={tablesLoading ? 'animate-spin' : ''} />
+            <FaSync size={11} className={tablesLoading ? 'animate-spin' : ''} />
             Refresh
           </button>
         </div>
       </div>
 
-      <div className="max-w-[1400px] mx-auto px-4 py-2 space-y-2">
+      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4 space-y-3">
 
         {/* ── Table Selector — compact single row ─────────── */}
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm px-3 py-2 flex items-center gap-3 flex-wrap">
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3 flex items-center gap-3 flex-wrap">
           {/* Label */}
-          <div className="flex items-center gap-1.5 flex-shrink-0">
-            <FaTable className="text-indigo-600" size={12} />
-            <span className="text-xs font-semibold text-gray-700">Available Tables</span>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="w-7 h-7 rounded-lg bg-indigo-50 flex items-center justify-center">
+              <FaTable className="text-indigo-600" size={12} />
+            </div>
+            <span className="text-sm font-semibold text-gray-700">Available Tables</span>
             {!tablesLoading && tables.length > 0 && (
-              <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 text-[10px] rounded-full font-medium">
+              <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-[11px] rounded-full font-semibold">
                 {tables.length}
               </span>
             )}
@@ -1594,7 +1600,7 @@ export default function ReportComponent() {
         {selectedTable && showFilters && (
           <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
             {/* Header */}
-            <div className="px-3 py-2 bg-gradient-to-r from-violet-600 to-purple-500 flex items-center justify-between">
+            <div className="px-3 py-2 bg-gradient-to-r from-blue-600 to-blue-500 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <FaSearch className="text-white/80" size={11} />
                 <span className="text-xs font-semibold text-white">Filters</span>
@@ -1782,11 +1788,24 @@ export default function ReportComponent() {
               <button
                 onClick={handleApplyFilters}
                 disabled={tableLoading}
-                className="flex items-center gap-1.5 px-6 py-1.5 text-xs font-semibold text-white bg-violet-600 hover:bg-violet-700 rounded-lg transition-colors disabled:opacity-60 shadow-sm"
+                className="flex items-center gap-1.5 px-6 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-60 shadow-sm"
               >
                 <FaPlay size={9} /> Apply
               </button>
             </div>
+          </div>
+        )}
+
+        {/* ── Empty state — nothing selected yet ──────────────── */}
+        {!selectedTable && !tablesLoading && (
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm py-16 flex flex-col items-center justify-center text-center">
+            <div className="w-14 h-14 rounded-2xl bg-indigo-50 flex items-center justify-center mb-4">
+              <FaTable className="text-indigo-400" size={22} />
+            </div>
+            <h3 className="text-sm font-semibold text-gray-700 mb-1">No table selected</h3>
+            <p className="text-xs text-gray-400 max-w-xs">
+              Choose a table from the dropdown above to load its data and start exploring.
+            </p>
           </div>
         )}
 

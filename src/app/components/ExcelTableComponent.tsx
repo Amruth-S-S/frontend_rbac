@@ -12,6 +12,7 @@ import {
   Upload,
   Edit2,
   RefreshCw,
+  Database,
 } from "lucide-react";
 
 interface FieldData {
@@ -1011,68 +1012,91 @@ const ExcelTableComponent = ({ boardId }: ExcelTableComponentProps) => {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="p-3 bg-gray-50 min-h-full">
-      <div className="max-w-full mx-auto space-y-3">
+    <div className="p-4 sm:p-6">
+      <div className="max-w-full mx-auto space-y-5">
+
         {/* ── Organization list (read-only) ── */}
         {orgLoading ? (
           <div className="flex justify-center items-center py-3">
             <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
           </div>
         ) : org ? (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
-            <table className="min-w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  {["Org Code", "Name", "Industry", "Country", "Subscription", "Status"].map((col) => (
-                    <th
-                      key={col}
-                      className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase"
-                    >
-                      {col}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                <tr className="hover:bg-gray-50 transition-colors">
-                  <td className="px-3 py-2 text-xs font-semibold text-gray-800">{org.org_code}</td>
-                  <td className="px-3 py-2 text-xs font-semibold text-gray-800">{org.name}</td>
-                  <td className="px-3 py-2 text-xs text-gray-600">{org.industry_type}</td>
-                  <td className="px-3 py-2 text-xs text-gray-600">{org.registered_country}</td>
-                  <td className="px-3 py-2 text-xs text-gray-600">{org.subscription}</td>
-                  <td className="px-3 py-2">
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${
-                        org.is_active ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
-                      }`}
-                    >
-                      {org.is_active ? "Active" : "Inactive"}
-                    </span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+          <div>
+            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-0.5">Organization</h3>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
+              <table className="min-w-full table-fixed">
+                <colgroup>
+                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "20%" }} />
+                  <col style={{ width: "16%" }} />
+                  <col style={{ width: "16%" }} />
+                  <col style={{ width: "16%" }} />
+                  <col style={{ width: "18%" }} />
+                </colgroup>
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    {["Org Code", "Name", "Industry", "Country", "Subscription", "Status"].map((col) => (
+                      <th
+                        key={col}
+                        className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase truncate"
+                      >
+                        {col}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  <tr className="hover:bg-gray-50 transition-colors">
+                    <td className="px-3 py-2 text-xs font-semibold text-gray-800 truncate">{org.org_code}</td>
+                    <td className="px-3 py-2 text-xs font-semibold text-gray-800 truncate">{org.name}</td>
+                    <td className="px-3 py-2 text-xs text-gray-600 truncate">{org.industry_type}</td>
+                    <td className="px-3 py-2 text-xs text-gray-600 truncate">{org.registered_country}</td>
+                    <td className="px-3 py-2 text-xs text-gray-600 truncate">{org.subscription}</td>
+                    <td className="px-3 py-2">
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                          org.is_active ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                        }`}
+                      >
+                        {org.is_active ? "Active" : "Inactive"}
+                      </span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         ) : null}
 
-        {/* ── Top bar ── */}
-        <div className="flex justify-end items-center my-2">
+        {/* ── Header ── */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
+              <Database className="w-5 h-5 text-blue-600" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-gray-800">Master Data</h2>
+              <p className="text-xs text-gray-500">Custom master data tables for this board</p>
+            </div>
+          </div>
           <button
             onClick={() => !isViewer && openCreateModal()}
             disabled={isViewer || !boardId || !loggedInUserId || tables.length > 0}
-            className={`px-4 py-2 rounded text-xs font-medium transition-colors shadow-sm ${
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors flex-shrink-0 ${
               isViewer || !boardId || !loggedInUserId || tables.length > 0
-                ? "bg-gray-300 text-gray-500 cursor-not-allowed opacity-40"
+                ? "bg-gray-200 text-gray-400 cursor-not-allowed"
                 : "bg-blue-600 text-white hover:bg-blue-700"
             }`}
             title={isViewer ? "View only" : tables.length > 0 ? "Delete the existing table to create a new one" : undefined}
           >
-            {!boardId ? "Select Board First" : "+ Create Master Data"}
+            <Plus className="w-4 h-4" />
+            {!boardId ? "Select Board First" : "Create Master Data"}
           </button>
         </div>
 
         {/* ── Tables list ── */}
-        {tablesLoading ? (
+        <div>
+          {tablesLoading ? (
           <div className="flex justify-center items-center py-4">
             <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
           </div>
@@ -1774,6 +1798,7 @@ const ExcelTableComponent = ({ boardId }: ExcelTableComponentProps) => {
             </table>
           </div>
         )}
+        </div>
       </div>
 
       {/* ── Create Modal ── */}

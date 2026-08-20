@@ -125,8 +125,8 @@ export default function Page() {
 
                 {/* Center: Nav links */}
                 <nav className="consultant-nav-links">
-                    <a href="/Container" className="consultant-nav-link">Consultant</a>
-                    <a href="/CXO" className="consultant-nav-link">CXO</a>
+                    <a href="/Container" className="consultant-nav-link">Consultant Panel</a>
+                    <a href="/CXO" className="consultant-nav-link">CXO Panel</a>
                 </nav>
 
                 {/* Right: User info + Settings */}
@@ -171,8 +171,8 @@ export default function Page() {
                         <p><strong>Email:</strong> {userData.email || "N/A"}</p>
                     </div>
                     <div className="mobile-nav-links">
-                        <a href="/Container" className="mobile-nav-link">Consultant</a>
-                        <a href="/CXO" className="mobile-nav-link">CXO</a>
+                        <a href="/Container" className="mobile-nav-link">Consultant Panel</a>
+                        <a href="/CXO" className="mobile-nav-link">CXO Panel</a>
                     </div>
                     <button onClick={handleLogout} className="mobile-logout-button">Logout</button>
                 </div>
@@ -189,7 +189,7 @@ export default function Page() {
                 <div className="consultant-cards-container">
                     {/* Consultant Card */}
                     <div className="consultant-card" onClick={goToConsultantScreen}>
-                        <h2 className="consultant-card-title">Consultant</h2>
+                        <h2 className="consultant-card-title">Consultant Panel</h2>
                         <div className="consultant-card-icon">
                             <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" width="90" height="90">
                                 <rect x="10" y="10" width="80" height="80" rx="12" fill="#dbeafe" />
@@ -205,7 +205,7 @@ export default function Page() {
 
                     {/* CXO Card */}
                     <div className="consultant-card" onClick={goToCXOScreen}>
-                        <h2 className="consultant-card-title">CXO</h2>
+                        <h2 className="consultant-card-title">CXO Panel</h2>
                         <div className="consultant-card-icon">
                             <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" width="90" height="90">
                                 <rect x="10" y="10" width="80" height="80" rx="12" fill="#d1fae5" />
