@@ -20,7 +20,7 @@ import React from "react";
 import { saveAs } from 'file-saver';
 import * as XLSX from 'xlsx';
 // import { useDropzone } from "react-dropzone";
-import { PencilIcon, TrashIcon, PlusIcon, CheckIcon, ChevronUpIcon, ChevronDownIcon, Edit, Sparkles, LayoutGrid, MousePointerClick, MessageCircle, Users } from 'lucide-react';
+import { PencilIcon, TrashIcon, PlusIcon, CheckIcon, ChevronUpIcon, ChevronDownIcon, Edit, Sparkles, LayoutGrid, MousePointerClick, MessageCircle, Users, AlertTriangle, Loader2 } from 'lucide-react';
 import { Pie, Bar, Line } from "react-chartjs-2";
 import { MdArrowDropDown, MdArrowDropUp } from 'react-icons/md';
 import {
@@ -308,6 +308,8 @@ function GroupContainerPage() {
     tableDescription: "",
   });
   const [editPromptId, setEditPromptId] = useState<string | null>(null);
+  const [deletePromptId, setDeletePromptId] = useState<string | null>(null);
+  const [isDeletingPrompt, setIsDeletingPrompt] = useState(false);
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -3809,61 +3811,14 @@ const SpeechRecognition =
   };
 
 
-  const handleDeletePrompt = async (promptId: string) => {
-    // Show confirmation toast with custom buttons
-    const confirmToast = toast(
-      ({ closeToast }) => (
-        <div>
-          <p style={{ marginBottom: '15px', color: '#333' }}>
-            Are you sure you want to delete this prompt? This action cannot be undone.
-          </p>
-          <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-            <button
-              onClick={() => {
-                closeToast();
-                performDelete(promptId);
-              }}
-              style={{
-                backgroundColor: '#dc3545',
-                color: 'white',
-                border: 'none',
-                padding: '8px 16px',
-                borderRadius: '4px',
-                cursor: 'pointer'
-              }}
-            >
-              Delete
-            </button>
-            <button
-              onClick={closeToast}
-              style={{
-                backgroundColor: '#6c757d',
-                color: 'white',
-                border: 'none',
-                padding: '8px 16px',
-                borderRadius: '4px',
-                cursor: 'pointer'
-              }}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      ),
-      {
-        position: "top-center",
-        autoClose: false,
-        hideProgressBar: true,
-        closeOnClick: false,
-        pauseOnHover: true,
-        draggable: false,
-        closeButton: false,
-      }
-    );
+  // Opens the compact confirm-delete modal (see the "Delete Prompt Modal" render
+  // block) instead of the old oversized toast-as-a-dialog.
+  const handleDeletePrompt = (promptId: string) => {
+    setDeletePromptId(promptId);
   };
 
   const performDelete = async (promptId: string) => {
-
+    setIsDeletingPrompt(true);
     try {
       const response = await fetch(
         `${API_BASE_URL}/main-boards/boards/prompts/${promptId}`,
@@ -3879,33 +3834,16 @@ const SpeechRecognition =
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      // Show success toast message
-      toast.success("Prompt deleted successfully!", {
-        position: "bottom-center",
-        autoClose: 3000, // Close after 3 seconds
-        hideProgressBar: false,
-        closeOnClick: true,
-        pauseOnHover: true,
-        draggable: true,
-        progress: undefined,
-        theme: "colored",
-      });
+      toast.success("Prompt deleted successfully!");
 
       // Update the prompts list
       setPrompts(prompts.filter((prompt) => prompt.id !== promptId));
+      setDeletePromptId(null);
     } catch (error) {
       console.error("Failed to delete prompt:", error);
-      // Show error toast message
-      toast.error("Failed to delete prompt. Please try again.", {
-        position: "bottom-center",
-        autoClose: 3000, // Close after 3 seconds
-        hideProgressBar: false,
-        closeOnClick: true,
-        pauseOnHover: true,
-        draggable: true,
-        progress: undefined,
-        theme: "colored",
-      });
+      toast.error("Failed to delete prompt. Please try again.");
+    } finally {
+      setIsDeletingPrompt(false);
     }
   };
 
@@ -4967,6 +4905,31 @@ const SpeechRecognition =
                     )}
                   </div>
                 ) : null}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Delete Prompt Modal ── */}
+        {deletePromptId && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full">
+              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900">Confirm Delete</h3>
+                <button onClick={() => setDeletePromptId(null)} className="text-gray-400 hover:text-gray-600"><FaTimes size={16} /></button>
+              </div>
+              <div className="px-6 py-4 flex items-center gap-3">
+                <AlertTriangle className="h-8 w-8 text-red-500 flex-shrink-0" />
+                <div>
+                  <p className="text-gray-700">Are you sure you want to delete this prompt?</p>
+                  <p className="text-sm text-gray-500 mt-1">This action cannot be undone.</p>
+                </div>
+              </div>
+              <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+                <button onClick={() => setDeletePromptId(null)} disabled={isDeletingPrompt} className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+                <button onClick={() => performDelete(deletePromptId)} disabled={isDeletingPrompt} className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center gap-2 disabled:opacity-50">
+                  {isDeletingPrompt ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Deleting...</span></> : <><FaTrash size={13} /><span>Delete</span></>}
+                </button>
               </div>
             </div>
           </div>
