@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import LanguageSelector from '../components/LanguageSelector';
+import UserProfileMenu from '../components/UserProfileMenu';
 import { Search, Edit2, Trash2, ChevronUp, ChevronDown, ArrowUpDown, X, Eye, EyeOff } from 'lucide-react';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
@@ -524,6 +525,9 @@ export default function UserList() {
               </div>
             )}
           </div>
+
+          {/* Account menu */}
+          <UserProfileMenu />
         </div>
       </header>
 

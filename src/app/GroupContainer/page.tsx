@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next";
 import PptxGenJS from "pptxgenjs";
 import { useSearchParams } from "next/navigation";
 import LanguageSelector from "../components/LanguageSelector";
+import UserProfileMenu from "../components/UserProfileMenu";
 import { useLanguage } from "../context/LanguageContext";
 import { translateBatch, translateText, formatNumber } from "../utils/translateService";
 // import { MdManageSearch } from "react-icons/md";
@@ -486,9 +487,10 @@ function GroupContainerPage() {
   const [showAddDataSourceModal, setShowAddDataSourceModal] = useState(false);
   const [showTopBtn, setShowTopBtn] = useState(false);
   const [showMainTopBtn, setShowMainTopBtn] = useState(false);
-  // The outer content wrapper below is `min-h-screen` (grows with content rather
-  // than capping at the viewport), so the browser window scrolls, not the div —
-  // track window scroll instead of relying on the div's own onScroll.
+  // The outer content wrapper below is `min-h-full` (grows with content rather
+  // than forcing an extra viewport height on top of the layout's own scroll area),
+  // so the browser window scrolls, not the div — track window scroll instead of
+  // relying on the div's own onScroll.
   useEffect(() => {
     const handleWindowScroll = () => setShowMainTopBtn(window.scrollY > 200);
     window.addEventListener('scroll', handleWindowScroll);
@@ -4155,7 +4157,7 @@ const SpeechRecognition =
 
   if (!boardId) {
     return (
-      <div className="flex-1 overflow-y-auto bg-gray-200 rounded-2xl shadow-lg border border-gray-200 min-h-screen flex items-center justify-center p-6">
+      <div className="flex-1 overflow-y-auto bg-gray-200 rounded-2xl shadow-lg border border-gray-200 min-h-full flex items-center justify-center p-6">
         <div className="max-w-md w-full bg-white rounded-2xl shadow-md border border-gray-100 p-8 text-center">
           <div className="w-16 h-16 rounded-2xl bg-blue-50 flex items-center justify-center mx-auto mb-5">
             <Sparkles className="w-8 h-8 text-blue-500" />
@@ -4196,7 +4198,7 @@ const SpeechRecognition =
 
     <div
       id="group-container-main-scroll"
-      className="flex-1 overflow-y-auto bg-gray-200 rounded-2xl shadow-lg border border-gray-200 min-h-screen"
+      className="flex-1 overflow-y-auto bg-gray-200 rounded-2xl shadow-lg border border-gray-200 min-h-full"
     >
       <header className="bg-white p-3 shadow-sm">
         <div className="flex justify-end items-center gap-2 max-w-screen-xl mx-auto">
@@ -4261,6 +4263,9 @@ const SpeechRecognition =
               </div>
             )}
           </div>
+
+          {/* Account menu */}
+          <UserProfileMenu />
         </div>
       </header>
 

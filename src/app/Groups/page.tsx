@@ -8,6 +8,7 @@ import "react-toastify/dist/ReactToastify.css";
 import { Search, Edit2, Trash2, ChevronUp, ChevronDown, ArrowUpDown, Users, X, RefreshCw, UserPlus, Lock, Share2, Database, Plus } from "lucide-react";
 import Spinner from "../components/Spinner";
 import LanguageSelector from "../components/LanguageSelector";
+import UserProfileMenu from "../components/UserProfileMenu";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
@@ -2647,6 +2648,9 @@ export default function GroupsPage() {
               </div>
             )}
           </div>
+
+          {/* Account menu */}
+          <UserProfileMenu />
         </div>
       </header>
 

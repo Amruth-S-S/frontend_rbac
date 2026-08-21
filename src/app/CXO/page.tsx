@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import axios from 'axios';
 import LanguageSelector from '../components/LanguageSelector';
+import UserProfileMenu from '../components/UserProfileMenu';
 import { useLanguage } from '../context/LanguageContext';
 import { translateBatch, formatNumber } from '../utils/translateService';
 import {
@@ -20,7 +21,7 @@ import {
 import { Bar, Line, Pie } from 'react-chartjs-2';
 import Spinner from '../components/Spinner';
 import { useRouter } from 'next/navigation';
-import { Menu, X, Settings, BarChart2, FileText, PieChart, TrendingUp, Database, Users, LayoutDashboard, BookOpen, Play, ChevronRight } from 'lucide-react';
+import { Menu, X, BarChart2, FileText, PieChart, TrendingUp, Database, Users, LayoutDashboard, BookOpen, Play, ChevronRight } from 'lucide-react';
 import KPIDashboard from '../Dashboard/page';
 import dynamic from 'next/dynamic';
 
@@ -109,9 +110,6 @@ export default function CXO() {
   const [, setShowCharts] = useState(false);
   const [isRunClicked, setIsRunClicked] = useState(false);
   const router = useRouter();
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [showBoardDropdown, setShowBoardDropdown] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [orgLogoUrl, setOrgLogoUrl] = useState<string | null>(null);
   const [orgId, setOrgId] = useState<number | null>(null);
@@ -320,15 +318,6 @@ export default function CXO() {
     };
     fetchNavItems();
   }, [isMounted, userData.userId]);
-
-  useEffect(() => {
-    if (!isMounted) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) setShowDropdown(false);
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isMounted]);
 
   // Resolve org_id from session (logo is organization-scoped — shared across every
   // member of the org — see /api/org-logo/*, which replaces the old per-user /api/logo/*).
@@ -586,7 +575,6 @@ export default function CXO() {
     setShowBoardModal(false); setSelectedBoardId(null); setActiveTab("prompts");
     setSelectedPrompt(null); setNewPromptName(''); setNewPromptTitle(''); setIsRunClicked(false); setRunResult(null);
     setIsDemoBoard(false); setSelectedDemoBoardId(null); setDemoBoardName('');
-    setShowBoardDropdown(false);
   };
   const handleViewPromptsClick = () => {
     setShowPromptsModal(true);
@@ -967,13 +955,13 @@ export default function CXO() {
       {/* Sidebar */}
       <div className={`hidden md:flex flex-col bg-white border-r border-gray-200 flex-shrink-0 transition-all duration-300 overflow-hidden ${isSidebarCollapsed ? 'w-14' : 'w-60'}`}>
         {/* Logo + collapse button row */}
-        <div className="flex items-center justify-between px-3 py-3 border-b border-gray-100 flex-shrink-0">
+        <div className="flex items-center justify-between px-3 py-3.5 border-b border-gray-100 flex-shrink-0">
           {!isSidebarCollapsed && (
             <div className="flex-1 flex items-center justify-start">
               {orgLogoUrl ? (
-                <img src={orgLogoUrl} alt="Logo" className="max-h-9 object-contain" />
+                <img src={orgLogoUrl} alt="Logo" className="max-h-14 max-w-[170px] w-auto object-contain" />
               ) : (
-                <div className="h-9 w-24 bg-gray-200 animate-pulse rounded" />
+                <div className="h-14 w-32 bg-gray-200 animate-pulse rounded" />
               )}
             </div>
           )}
@@ -1179,7 +1167,7 @@ export default function CXO() {
         <div className="p-3">
           <div className="flex justify-between items-center mb-3">
             {orgLogoUrl
-              ? <img src={orgLogoUrl} alt="Logo" className="h-12 object-contain" />
+              ? <img src={orgLogoUrl} alt="Logo" className="max-h-14 max-w-[170px] w-auto object-contain" />
               : <Image src={loginImage} alt="Logo" width={110} height={48} className="rounded-md object-contain" />}
             <button onClick={toggleMobileMenu} className="p-1.5"><X className="w-5 h-5" /></button>
           </div>
@@ -1215,30 +1203,8 @@ export default function CXO() {
             {/* Language Selector */}
             <LanguageSelector />
 
-            <div className="flex items-center gap-3" ref={dropdownRef}>
-              <div className="text-right hidden sm:block">
-                <p className="text-sm font-semibold text-gray-800 leading-tight">{userData.userName || 'User'}</p>
-                <p className="text-xs text-gray-500 leading-tight">{userData.email}</p>
-              </div>
-              <div className="relative">
-                <button
-                  onClick={() => setShowDropdown(v => !v)}
-                  className="w-9 h-9 rounded-full bg-blue-600 hover:bg-blue-700 flex items-center justify-center transition-colors"
-                >
-                  <Settings className="w-4 h-4 text-white" />
-                </button>
-                {showDropdown && (
-                  <div className="absolute right-0 top-full mt-1.5 bg-white shadow-lg rounded-md border border-gray-100 min-w-[120px] z-50">
-                    <button
-                      onClick={handleLogout}
-                      className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 rounded-md"
-                    >
-                      {t('header.logout')}
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
+            {/* Account menu */}
+            <UserProfileMenu />
           </div>
         </header>
 
@@ -1432,21 +1398,8 @@ export default function CXO() {
                 <a href="/CXO" className="text-blue-500 text-sm font-medium hover:text-blue-700">{t('header.cxo')}</a>
               </div>
               <div className="flex items-center gap-3 flex-shrink-0">
-                <div className="text-right hidden sm:block">
-                  <p className="text-sm font-semibold text-gray-800 leading-tight">{userData.userName || 'User'}</p>
-                  <p className="text-xs text-gray-500 leading-tight">{userData.email}</p>
-                </div>
-                <div className="relative">
-                  <button onClick={() => setShowBoardDropdown(v => !v)}
-                    className="w-9 h-9 rounded-full bg-blue-600 hover:bg-blue-700 flex items-center justify-center">
-                    <Settings className="w-4 h-4 text-white" />
-                  </button>
-                  {showBoardDropdown && (
-                    <div className="absolute right-0 top-full mt-1.5 bg-white shadow-lg rounded-md border border-gray-100 min-w-[120px] z-[200]">
-                      <button onClick={handleLogout} className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 rounded-md">Logout</button>
-                    </div>
-                  )}
-                </div>
+                {/* Account menu */}
+                <UserProfileMenu />
               </div>
             </header>
 

@@ -24,7 +24,7 @@ export default function ClientLayout({
   return (
     <I18nextProvider i18n={i18n}>
       <LanguageProvider>
-        <div className="flex h-screen">
+        <div className="flex h-screen overflow-hidden">
           {!isLoginPage && !isConsultantPage && !isCXOPage && (
             <Sidebar clientUserId={''} />
           )}

@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next";
 import PptxGenJS from "pptxgenjs";
 import { useSearchParams } from "next/navigation";
 import LanguageSelector from "../components/LanguageSelector";
+import UserProfileMenu from "../components/UserProfileMenu";
 import { useLanguage } from "../context/LanguageContext";
 import { translateBatch, translateText, formatNumber } from "../utils/translateService";
 // import { MdManageSearch } from "react-icons/md";
@@ -4231,7 +4232,7 @@ const SpeechRecognition =
 
   if (!boardId) {
     return (
-      <div className="flex-1 overflow-y-auto bg-gray-200 rounded-2xl shadow-lg border border-gray-200 min-h-screen">
+      <div className="flex-1 overflow-y-auto bg-gray-200 rounded-2xl shadow-lg border border-gray-200 min-h-full">
         <header className="bg-white p-3 shadow-sm">
           <div className="flex justify-end items-center gap-2 max-w-screen-xl mx-auto">
             {/* Role badge — the group the logged-in user's email belongs to */}
@@ -4289,6 +4290,9 @@ const SpeechRecognition =
                 </div>
               )}
             </div>
+
+            {/* Account menu */}
+            <UserProfileMenu />
           </div>
         </header>
 
@@ -4344,7 +4348,7 @@ const SpeechRecognition =
   return (
 
 
-    <div className="flex-1 overflow-y-auto bg-gray-200 rounded-2xl shadow-lg border border-gray-200 min-h-screen">
+    <div className="flex-1 overflow-y-auto bg-gray-200 rounded-2xl shadow-lg border border-gray-200 min-h-full">
       <header className="bg-white p-3 shadow-sm">
         <div className="flex justify-end items-center gap-2 max-w-screen-xl mx-auto">
           {/* Language Selector */}
@@ -4394,6 +4398,9 @@ const SpeechRecognition =
               </div>
             )}
           </div>
+
+          {/* Account menu */}
+          <UserProfileMenu />
         </div>
       </header>
 
