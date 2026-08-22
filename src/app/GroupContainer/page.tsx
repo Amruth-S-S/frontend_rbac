@@ -1319,10 +1319,13 @@ useEffect(() => {
     }
   }, [prompts, searchTerm, promptHeaderMap]);
 
-  // Filter prompts based on search term
+  // Filter prompts based on search term — also matches the prompt header
+  // (stored via the comments API, see promptHeaderMap) since that's the
+  // bold title shown above the prompt text in the View Prompts list.
   const filteredPrompts = prompts.filter(prompt =>
     prompt.prompt_text.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (prompt.user_name && prompt.user_name.toLowerCase().includes(searchTerm.toLowerCase()))
+    (prompt.user_name && prompt.user_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+    (promptHeaderMap[prompt.id] && promptHeaderMap[prompt.id].toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   // Filter tables based on approval status
@@ -4284,7 +4287,7 @@ const SpeechRecognition =
         <div className="w-full">
           <div className="max-w-[1400px] mx-auto px-3 py-2">
             {/* Tab Navigation */}
-            <div className="bg-white rounded-xl shadow-md px-2 py-1.5 mb-3 border border-gray-200">
+            <div className="w-full md:inline-block md:max-w-full bg-white rounded-xl shadow-md px-2 py-1.5 mb-3 border border-gray-200">
 
               {/* Board breadcrumb */}
               {(mainBoardDisplayName || boardDisplayName) && (

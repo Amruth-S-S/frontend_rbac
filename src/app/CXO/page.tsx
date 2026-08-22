@@ -229,15 +229,16 @@ export default function CXO() {
     } else {
       const query = searchTerm.toLowerCase();
       setFilteredPrompt(prompts.filter(p =>
-        (p.prompt_title && p.prompt_title.toLowerCase().includes(query)) ||
+        (promptHeaderMap[p.id] && promptHeaderMap[p.id].toLowerCase().includes(query)) ||
         (p.prompt_text && p.prompt_text.toLowerCase().includes(query))
       ));
     }
-  }, [prompts, searchTerm]);
+  }, [prompts, searchTerm, promptHeaderMap]);
 
   const filteredPrompts = prompts.filter(p =>
     p.prompt_text.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (p.user_name && p.user_name.toLowerCase().includes(searchTerm.toLowerCase()))
+    (p.user_name && p.user_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+    (promptHeaderMap[p.id] && promptHeaderMap[p.id].toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   useEffect(() => {
@@ -582,6 +583,13 @@ export default function CXO() {
   };
   const handleClosePromptsModal = () => { setShowPromptsModal(false); setCurrentPromptIndex(0); setSearchTerm(''); };
   const HEADER_PREFIX = 'HEADER::';
+
+  // Auto-close the "View Prompts" side panel whenever the user navigates elsewhere
+  // in CXO (picking a board, hitting Back, switching views) — it shouldn't linger
+  // open once the screen it was opened on has been navigated away from.
+  useEffect(() => {
+    setShowPromptsModal(false);
+  }, [selectedMainBoardId, selectedBoardId, activeDemoMainBoard, cxoView]);
 
   const fetchPromptHeader = async (promptId: string): Promise<{ id: number; text: string } | null> => {
     try {
