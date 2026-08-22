@@ -1284,23 +1284,39 @@ useEffect(() => {
   useEffect(() => {
     if (!mainBoardId || !boardId) return;
     let userId = "";
+    let orgId = "";
     const stored = typeof window !== "undefined" ? sessionStorage.getItem("currentUserData") : null;
     if (stored) {
-      try { userId = JSON.parse(stored).userId || ""; } catch { /* */ }
+      try {
+        const parsed = JSON.parse(stored);
+        userId = parsed.userId || "";
+        orgId = parsed.orgId ? String(parsed.orgId) : "";
+      } catch { /* */ }
     }
     if (!userId) return;
-    fetch(`${API_BASE_URL}/main-boards/get_all_info_tree?user_id=${userId}`, {
+    // Same tree the sidebar itself uses (the older /main-boards/get_all_info_tree
+    // this used to call doesn't reflect RBAC-scoped boards and was coming back empty).
+    const url = orgId
+      ? `${API_BASE_URL}/rbac/main-boards/info-tree?user_id=${userId}&org_id=${orgId}`
+      : `${API_BASE_URL}/rbac/main-boards/info-tree?user_id=${userId}`;
+    fetch(url, {
       headers: { Accept: "application/json", "X-API-Key": EXCEL_API_KEY },
     })
       .then(r => r.ok ? r.json() : null)
-      .then((data: Array<{ id?: string | number; main_board_id: string; name: string; boards: Record<string, { name: string; is_active: boolean }> }> | null) => {
-        if (!Array.isArray(data)) return;
-        const mb = data.find(m => String(m.main_board_id) === String(mainBoardId) || String(m.id) === String(mainBoardId));
-        if (mb) {
-          setMainBoardDisplayName(mb.name || "");
-          const board = mb.boards?.[boardId];
-          if (board) setBoardDisplayName(board.name || "");
+      .then((data: any) => {
+        const list: any[] = Array.isArray(data) ? data : (data?.items ?? data?.main_boards ?? data?.boards ?? data?.data ?? []);
+        if (!Array.isArray(list)) return;
+        const mb = list.find(m => String(m.main_board_id ?? m.id) === String(mainBoardId));
+        if (!mb) return;
+        setMainBoardDisplayName(mb.name ?? mb.main_board_name ?? mb.title ?? "");
+        let boards: Record<string, { name?: string }> = {};
+        if (mb.boards && !Array.isArray(mb.boards)) {
+          boards = mb.boards;
+        } else if (Array.isArray(mb.boards)) {
+          mb.boards.forEach((b: any) => { boards[String(b.board_id ?? b.id)] = b; });
         }
+        const board = boards[String(boardId)];
+        if (board) setBoardDisplayName(board.name ?? "");
       })
       .catch(() => { /* silently fail */ });
   }, [mainBoardId, boardId]);
@@ -4287,7 +4303,7 @@ const SpeechRecognition =
         <div className="w-full">
           <div className="max-w-[1400px] mx-auto px-3 py-2">
             {/* Tab Navigation */}
-            <div className="w-full md:inline-block md:max-w-full bg-white rounded-xl shadow-md px-2 py-1.5 mb-3 border border-gray-200">
+            <div className="w-full bg-white rounded-xl shadow-md px-2 py-1.5 mb-3 border border-gray-200">
 
               {/* Board breadcrumb */}
               {(mainBoardDisplayName || boardDisplayName) && (
@@ -4307,7 +4323,7 @@ const SpeechRecognition =
                 >
                   <FaChevronLeft size={10} />
                 </button>
-                <div ref={tabBarRef} className="flex gap-0.5 p-1 bg-gray-100 rounded-lg overflow-x-auto scrollbar-hide">
+                <div ref={tabBarRef} className="flex-1 flex gap-0.5 p-1 bg-gray-100 rounded-lg overflow-x-auto scrollbar-hide">
                 {[
                   { key: "tables",        label: t("tabs.manageTables") },
                   { key: "documentation", label: t("tabs.aiDocumentation") },
