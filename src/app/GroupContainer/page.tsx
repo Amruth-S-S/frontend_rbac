@@ -53,6 +53,7 @@ import TransactionData from "../components/transactionData";
 import dynamic from "next/dynamic";
 const ReportComponent = dynamic(() => import("../components/ReportComponent"), { ssr: false });
 const LiveData = dynamic(() => import("../components/LiveData"), { ssr: false });
+const Forecast = dynamic(() => import("../components/Forecast"), { ssr: false });
 
 ChartJS.register(
   ArcElement,
@@ -4338,6 +4339,7 @@ const SpeechRecognition =
                   // { key: "timeline",   label: t("tabs.timelineSettings") },
                   // { key: "kpi",           label: t("tabs.kpiUpdates") },
                   { key: "transactionData", label: "Transaction Data" },
+                  { key: "forecast",      label: "Forecast" },
                   { key: "report",        label: t("tabs.reports") },
                 ].filter((tab) => !(hideUsRestrictedTabs && (tab.key === "report" || tab.key === "kpi" || tab.key === "transactionData"))).map((tab) => (
                   <button
@@ -4382,6 +4384,7 @@ const SpeechRecognition =
                       // { key: "timeline",   label: t("tabs.timelineSettings") },
                       // { key: "kpi",           label: t("tabs.kpiUpdates") },
                       { key: "transactionData", label: "Transaction Data" },
+                      { key: "forecast",      label: "Forecast" },
                       { key: "report",        label: t("tabs.reports") },
                     ].filter((tab) => !(hideUsRestrictedTabs && (tab.key === "report" || tab.key === "kpi" || tab.key === "transactionData"))).find((tab) => tab.key === activeTab)?.label ?? t("header.selectScreen")}
                   </span>
@@ -4404,6 +4407,7 @@ const SpeechRecognition =
                         // { key: "timeline",   label: t("tabs.timelineSettings") },
                         // { key: "kpi",           label: t("tabs.kpiUpdates") },
                         { key: "transactionData", label: "Transaction Data" },
+                        { key: "forecast",      label: "Forecast" },
                         { key: "report",        label: t("tabs.reports") },
                       ].filter((tab) => !(hideUsRestrictedTabs && (tab.key === "report" || tab.key === "kpi" || tab.key === "transactionData"))).map((tab) => (
                         <button
@@ -8006,6 +8010,10 @@ const SpeechRecognition =
 
         {activeTab === "transactionData" && !hideUsRestrictedTabs && (
           <TransactionData />
+        )}
+
+        {activeTab === "forecast" && (
+          <Forecast />
         )}
 
         {activeTab === "report" && !hideUsRestrictedTabs && (
