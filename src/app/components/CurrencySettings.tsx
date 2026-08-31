@@ -668,24 +668,33 @@ export default function CurrencySettings(props: CurrencySettingsProps = {}) {
                 )}
               </div>
 
-              {/* Setting type */}
+              {/* Setting type — locked once created; changing it after the fact would
+                  silently reinterpret an already-in-use format, so Edit shows it read-only. */}
               <div>
                 <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-1">
                   Setting Type
                   {loadingLookups && <Loader2 className="h-3 w-3 animate-spin text-gray-400" />}
                 </label>
-                <select
-                  value={form.setting_type}
-                  onChange={e => handleTypeChange(e.target.value)}
-                  disabled={loadingLookups}
-                  className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:bg-gray-50"
-                >
-                  {(settingTypes.length > 0 ? settingTypes : [
-                    { value: "CURRENCY", label: "Currency", description: "", uses_symbol: true },
-                    { value: "NUMBER", label: "Plain Number", description: "", uses_symbol: false },
-                    { value: "PERCENTAGE", label: "Percentage", description: "", uses_symbol: true },
-                  ]).map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                </select>
+                {editingSetting ? (
+                  <input
+                    value={selectedTypeInfo?.label || form.setting_type}
+                    disabled
+                    className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-500"
+                  />
+                ) : (
+                  <select
+                    value={form.setting_type}
+                    onChange={e => handleTypeChange(e.target.value)}
+                    disabled={loadingLookups}
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:bg-gray-50"
+                  >
+                    {(settingTypes.length > 0 ? settingTypes : [
+                      { value: "CURRENCY", label: "Currency", description: "", uses_symbol: true },
+                      { value: "NUMBER", label: "Plain Number", description: "", uses_symbol: false },
+                      { value: "PERCENTAGE", label: "Percentage", description: "", uses_symbol: true },
+                    ]).map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
+                )}
                 {selectedTypeInfo?.description && (
                   <p className="mt-0.5 text-[11px] text-gray-500">{selectedTypeInfo.description}</p>
                 )}
