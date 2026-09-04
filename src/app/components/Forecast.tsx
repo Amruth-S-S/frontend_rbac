@@ -29,7 +29,10 @@ interface LoadedData {
   rows: number;
   data: TableRow[];
 }
-interface ForecastPoint { Date: string; Forecast: number; }
+// The API returns one combined array spanning the whole series: historical rows carry
+// an Actual value (Forecast is null), forecast rows carry a Forecast value (Actual is
+// null) — `Type` says which is which.
+interface ForecastPoint { Date: string; Actual: number | null; Forecast: number | null; Type: 'historical' | 'forecast'; }
 interface ForecastResult {
   frequency: Frequency;
   forecast_count: number;
@@ -193,6 +196,53 @@ export default function Forecast() {
   // not just the ones outside GUID/Date/Amount.
   const filterColumnOptions = selectedColumns;
 
+  // "Use date column" — when on, the API builds the series from a chosen date +
+  // target column instead of the fixed GUID/Date/Amount selection, so "Selected
+  // columns" is swapped out for "Date column" / "Target column" pickers below.
+  const [useDateColumn, setUseDateColumn] = useState(false);
+  const [useDateColumnDropdownOpen, setUseDateColumnDropdownOpen] = useState(false);
+  const useDateColumnDropdownRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!useDateColumnDropdownOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (useDateColumnDropdownRef.current && !useDateColumnDropdownRef.current.contains(e.target as Node)) {
+        setUseDateColumnDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [useDateColumnDropdownOpen]);
+
+  // Date column / Target column — single-choice dropdowns, same column list and same
+  // custom-dropdown pattern as Filter column.
+  const [dateColumn, setDateColumn] = useState('');
+  const [dateColumnDropdownOpen, setDateColumnDropdownOpen] = useState(false);
+  const dateColumnDropdownRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!dateColumnDropdownOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (dateColumnDropdownRef.current && !dateColumnDropdownRef.current.contains(e.target as Node)) {
+        setDateColumnDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [dateColumnDropdownOpen]);
+
+  const [targetColumn, setTargetColumn] = useState('');
+  const [targetColumnDropdownOpen, setTargetColumnDropdownOpen] = useState(false);
+  const targetColumnDropdownRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!targetColumnDropdownOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (targetColumnDropdownRef.current && !targetColumnDropdownRef.current.contains(e.target as Node)) {
+        setTargetColumnDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [targetColumnDropdownOpen]);
+
   // "Selected columns" — every column the backend reports for this table is shown as
   // a checkbox, freely toggleable (the API happens to require GUID + Date + Amount to
   // actually build a time series, so that's the default and any other pick surfaces
@@ -228,6 +278,9 @@ export default function Forecast() {
     setSelectedFilterValues([]);
     setFilterValueOptions([]);
     setSelectedColumnsForLoad([]);
+    setUseDateColumn(false);
+    setDateColumn('');
+    setTargetColumn('');
     resetDownstream();
     if (!t) return;
     setColumnsLoading(true);
@@ -243,11 +296,19 @@ export default function Forecast() {
   };
 
   const handleLoadData = async () => {
-    if (!selectedTable || selectedColumnsForLoad.length === 0) return;
+    if (!selectedTable) return;
+    if (useDateColumn ? (!dateColumn || !targetColumn) : selectedColumnsForLoad.length === 0) return;
     setDataLoading(true);
     resetDownstream();
     try {
-      const qs = new URLSearchParams({ selected_columns: selectedColumnsForLoad.join(',') });
+      const qs = new URLSearchParams();
+      if (useDateColumn) {
+        qs.set('use_date_column', 'true');
+        qs.set('date_column', dateColumn);
+        qs.set('target_column', targetColumn);
+      } else {
+        qs.set('selected_columns', selectedColumnsForLoad.join(','));
+      }
       if (filterColumn && selectedFilterValues.length > 0) {
         qs.set('filter_column', filterColumn);
         qs.set('filter_value', selectedFilterValues.join(','));
@@ -334,18 +395,24 @@ export default function Forecast() {
     setSelectedForecastPeriods(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]);
   };
 
+  // The results table (and its period filter) only deal in actual forecast periods —
+  // the historical rows the API includes alongside them are for the chart only.
+  const forecastRows = useMemo(
+    () => forecastResult ? forecastResult.data.filter(d => d.Type === 'forecast') : [],
+    [forecastResult]
+  );
+
   const visibleForecastRows = useMemo(() => {
-    if (!forecastResult) return [];
     const filtered = selectedForecastPeriods.length > 0
-      ? forecastResult.data.filter(d => selectedForecastPeriods.includes(d.Date))
-      : forecastResult.data;
+      ? forecastRows.filter(d => selectedForecastPeriods.includes(d.Date))
+      : forecastRows;
     const sorted = [...filtered].sort((a, b) => {
-      const av = forecastSortCol === 'Date' ? a.Date : a.Forecast;
-      const bv = forecastSortCol === 'Date' ? b.Date : b.Forecast;
+      const av = forecastSortCol === 'Date' ? a.Date : (a.Forecast ?? 0);
+      const bv = forecastSortCol === 'Date' ? b.Date : (b.Forecast ?? 0);
       return av < bv ? -1 : av > bv ? 1 : 0;
     });
     return forecastSortDir === 'asc' ? sorted : sorted.reverse();
-  }, [forecastResult, selectedForecastPeriods, forecastSortCol, forecastSortDir]);
+  }, [forecastRows, selectedForecastPeriods, forecastSortCol, forecastSortDir]);
 
   const handleRunForecast = async () => {
     if (!loadedData) { addToast('error', 'Load a table’s data first.'); return; }
@@ -376,19 +443,40 @@ export default function Forecast() {
 
   const chartData = useMemo(() => {
     if (!forecastResult) return null;
+    const rows = forecastResult.data;
+    // Historical (green) plots Actual; Forecast (red) plots Forecast — each is null on
+    // the other row type, so Chart.js naturally breaks the line there. To avoid a gap
+    // at the hand-off, the last historical point is also seeded as the forecast line's
+    // starting value, so the red line picks up exactly where the green one ends.
+    const lastHistoricalIdx = rows.reduce((acc, d, i) => d.Type === 'historical' ? i : acc, -1);
     return {
-      labels: forecastResult.data.map(d => formatDate(d.Date)),
-      datasets: [{
-        label: 'Forecast',
-        data: forecastResult.data.map(d => d.Forecast),
-        borderColor: '#2563eb',
-        backgroundColor: 'rgba(37, 99, 235, 0.12)',
-        pointBackgroundColor: '#2563eb',
-        pointRadius: 4,
-        pointHoverRadius: 6,
-        tension: 0.3,
-        fill: true,
-      }],
+      labels: rows.map(d => formatDate(d.Date)),
+      datasets: [
+        {
+          label: 'Historical',
+          data: rows.map(d => d.Actual),
+          borderColor: '#16a34a',
+          backgroundColor: 'rgba(22, 163, 74, 0.12)',
+          pointBackgroundColor: '#16a34a',
+          pointRadius: 3,
+          pointHoverRadius: 6,
+          tension: 0.3,
+          fill: true,
+          spanGaps: false,
+        },
+        {
+          label: 'Forecast',
+          data: rows.map((d, i) => i === lastHistoricalIdx ? d.Actual : d.Forecast),
+          borderColor: '#dc2626',
+          backgroundColor: 'rgba(220, 38, 38, 0.12)',
+          pointBackgroundColor: '#dc2626',
+          pointRadius: (ctx: any) => ctx.dataIndex === lastHistoricalIdx ? 0 : 3,
+          pointHoverRadius: 6,
+          tension: 0.3,
+          fill: true,
+          spanGaps: false,
+        },
+      ],
     };
   }, [forecastResult]);
 
@@ -541,62 +629,170 @@ export default function Forecast() {
             </div>
           </div>
 
-          {/* Selected columns — every column the backend returns, freely multi-selectable */}
+          {/* Use date column — toggles whether the row below asks for Selected columns
+              (GUID/Date/Amount style) or a Date column + Target column pair instead. */}
           <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-              Selected columns
-              {selectedColumnsForLoad.length > 0 && (
-                <span className="ml-1.5 font-normal text-gray-400">({selectedColumnsForLoad.length} selected)</span>
-              )}
-            </label>
-            <div className="relative" ref={selectedColumnsDropdownRef}>
+            <label className="block text-xs font-semibold text-gray-700 mb-1.5">Use date column</label>
+            <div className="relative" ref={useDateColumnDropdownRef}>
               <button
                 type="button"
-                onClick={() => selectedTable && !columnsLoading && setSelectedColumnsDropdownOpen(o => !o)}
+                onClick={() => selectedTable && !columnsLoading && setUseDateColumnDropdownOpen(o => !o)}
                 disabled={!selectedTable || columnsLoading}
                 className="w-full flex items-center justify-between px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50 disabled:text-gray-400"
               >
-                <span className={`truncate ${selectedColumnsForLoad.length === 0 ? 'text-gray-400' : 'text-gray-900'}`}>
-                  {columnsLoading
-                    ? 'Loading columns…'
-                    : selectedColumnsForLoad.length === 0
-                      ? 'Select columns…'
-                      : selectedColumnsForLoad.length <= 3
-                        ? selectedColumnsForLoad.join(', ')
-                        : `${selectedColumnsForLoad.length} columns selected`}
-                </span>
-                <ChevronDown className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${selectedColumnsDropdownOpen ? 'rotate-180' : ''}`} />
+                <span className="truncate text-gray-900">{useDateColumn ? 'True' : 'False'}</span>
+                <ChevronDown className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${useDateColumnDropdownOpen ? 'rotate-180' : ''}`} />
               </button>
-              {selectedColumnsDropdownOpen && selectedTable && !columnsLoading && (
-                <div className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto border border-gray-300 rounded-lg bg-white shadow-lg p-2 space-y-0.5">
-                  <div className="flex items-center justify-between px-2 pb-1.5 mb-1 border-b border-gray-100">
-                    <button type="button" onClick={() => setSelectedColumnsForLoad(selectedColumns)} className="text-[11px] text-blue-600 hover:underline">Select all</button>
-                    <button type="button" onClick={() => setSelectedColumnsForLoad(REQUIRED_COLUMNS.filter(c => selectedColumns.includes(c)))} className="text-[11px] text-gray-400 hover:underline">Reset to required</button>
-                  </div>
-                  {selectedColumns.map(c => {
-                    const required = REQUIRED_COLUMNS.includes(c);
-                    return (
-                      <label key={c} className="flex items-center gap-2.5 px-2 py-1.5 hover:bg-gray-50 cursor-pointer rounded">
-                        <input
-                          type="checkbox"
-                          checked={selectedColumnsForLoad.includes(c)}
-                          onChange={() => toggleSelectedColumnForLoad(c)}
-                          className="h-4 w-4 text-blue-600 rounded flex-shrink-0"
-                        />
-                        <span className={`text-sm truncate ${required ? 'text-gray-900 font-medium' : 'text-gray-700'}`}>
-                          {c}{required ? ' (required)' : ''}
-                        </span>
-                      </label>
-                    );
-                  })}
-                  <p className="px-2 pt-1.5 mt-1 border-t border-gray-100 text-[11px] text-gray-400">
-                    This API needs exactly GUID, Date and Amount to build a time series — other combinations will return an error.
-                  </p>
+              {useDateColumnDropdownOpen && selectedTable && !columnsLoading && (
+                <div className="absolute z-20 mt-1 w-full border border-gray-300 rounded-lg bg-white shadow-lg p-1">
+                  {[false, true].map(v => (
+                    <button
+                      type="button"
+                      key={String(v)}
+                      onClick={() => {
+                        setUseDateColumn(v);
+                        setUseDateColumnDropdownOpen(false);
+                        // Switching modes: clear whichever side isn't in use so a stale
+                        // pick can't sneak into the next Load Data call.
+                        if (v) setSelectedColumnsForLoad([]);
+                        else { setDateColumn(''); setTargetColumn(''); }
+                      }}
+                      className={`w-full text-left px-2.5 py-1.5 rounded text-sm hover:bg-gray-50 ${v === useDateColumn ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-900'}`}
+                    >
+                      {v ? 'True' : 'False'}
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
           </div>
         </div>
+
+        {!useDateColumn ? (
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {/* Selected columns — every column the backend returns, freely multi-selectable */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                Selected columns
+                {selectedColumnsForLoad.length > 0 && (
+                  <span className="ml-1.5 font-normal text-gray-400">({selectedColumnsForLoad.length} selected)</span>
+                )}
+              </label>
+              <div className="relative" ref={selectedColumnsDropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => selectedTable && !columnsLoading && setSelectedColumnsDropdownOpen(o => !o)}
+                  disabled={!selectedTable || columnsLoading}
+                  className="w-full flex items-center justify-between px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50 disabled:text-gray-400"
+                >
+                  <span className={`truncate ${selectedColumnsForLoad.length === 0 ? 'text-gray-400' : 'text-gray-900'}`}>
+                    {columnsLoading
+                      ? 'Loading columns…'
+                      : selectedColumnsForLoad.length === 0
+                        ? 'Select columns…'
+                        : selectedColumnsForLoad.length <= 3
+                          ? selectedColumnsForLoad.join(', ')
+                          : `${selectedColumnsForLoad.length} columns selected`}
+                  </span>
+                  <ChevronDown className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${selectedColumnsDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {selectedColumnsDropdownOpen && selectedTable && !columnsLoading && (
+                  <div className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto border border-gray-300 rounded-lg bg-white shadow-lg p-2 space-y-0.5">
+                    <div className="flex items-center justify-between px-2 pb-1.5 mb-1 border-b border-gray-100">
+                      <button type="button" onClick={() => setSelectedColumnsForLoad(selectedColumns)} className="text-[11px] text-blue-600 hover:underline">Select all</button>
+                      <button type="button" onClick={() => setSelectedColumnsForLoad(REQUIRED_COLUMNS.filter(c => selectedColumns.includes(c)))} className="text-[11px] text-gray-400 hover:underline">Reset to required</button>
+                    </div>
+                    {selectedColumns.map(c => {
+                      const required = REQUIRED_COLUMNS.includes(c);
+                      return (
+                        <label key={c} className="flex items-center gap-2.5 px-2 py-1.5 hover:bg-gray-50 cursor-pointer rounded">
+                          <input
+                            type="checkbox"
+                            checked={selectedColumnsForLoad.includes(c)}
+                            onChange={() => toggleSelectedColumnForLoad(c)}
+                            className="h-4 w-4 text-blue-600 rounded flex-shrink-0"
+                          />
+                          <span className={`text-sm truncate ${required ? 'text-gray-900 font-medium' : 'text-gray-700'}`}>
+                            {c}{required ? ' (required)' : ''}
+                          </span>
+                        </label>
+                      );
+                    })}
+                    <p className="px-2 pt-1.5 mt-1 border-t border-gray-100 text-[11px] text-gray-400">
+                      This API needs exactly GUID, Date and Amount to build a time series — other combinations will return an error.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {/* Date column — single choice, same column list + dropdown pattern as Filter column */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1.5">Date column</label>
+              <div className="relative" ref={dateColumnDropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => selectedTable && !columnsLoading && setDateColumnDropdownOpen(o => !o)}
+                  disabled={!selectedTable || columnsLoading}
+                  className="w-full flex items-center justify-between px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50 disabled:text-gray-400"
+                >
+                  <span className={`truncate ${dateColumn ? 'text-gray-900' : 'text-gray-400'}`}>
+                    {columnsLoading ? 'Loading columns…' : dateColumn || 'Select a column'}
+                  </span>
+                  <ChevronDown className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${dateColumnDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {dateColumnDropdownOpen && selectedTable && !columnsLoading && (
+                  <div className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto border border-gray-300 rounded-lg bg-white shadow-lg p-1">
+                    {selectedColumns.map(c => (
+                      <button
+                        type="button"
+                        key={c}
+                        onClick={() => { setDateColumn(c); setDateColumnDropdownOpen(false); }}
+                        className={`w-full text-left px-2.5 py-1.5 rounded text-sm truncate hover:bg-gray-50 ${c === dateColumn ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-900'}`}
+                      >
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Target column — single choice, same pattern */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1.5">Target column</label>
+              <div className="relative" ref={targetColumnDropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => selectedTable && !columnsLoading && setTargetColumnDropdownOpen(o => !o)}
+                  disabled={!selectedTable || columnsLoading}
+                  className="w-full flex items-center justify-between px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50 disabled:text-gray-400"
+                >
+                  <span className={`truncate ${targetColumn ? 'text-gray-900' : 'text-gray-400'}`}>
+                    {columnsLoading ? 'Loading columns…' : targetColumn || 'Select a column'}
+                  </span>
+                  <ChevronDown className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${targetColumnDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {targetColumnDropdownOpen && selectedTable && !columnsLoading && (
+                  <div className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto border border-gray-300 rounded-lg bg-white shadow-lg p-1">
+                    {selectedColumns.map(c => (
+                      <button
+                        type="button"
+                        key={c}
+                        onClick={() => { setTargetColumn(c); setTargetColumnDropdownOpen(false); }}
+                        className={`w-full text-left px-2.5 py-1.5 rounded text-sm truncate hover:bg-gray-50 ${c === targetColumn ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-900'}`}
+                      >
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Filter value — multi-select checkbox dropdown for the one active filter
             column; the API takes a comma-separated filter_value list. */}
@@ -683,7 +879,10 @@ export default function Forecast() {
         <div className="mt-4 flex items-center gap-3">
           <button
             onClick={handleLoadData}
-            disabled={!selectedTable || columnsLoading || selectedColumnsForLoad.length === 0 || dataLoading}
+            disabled={
+              !selectedTable || columnsLoading || dataLoading ||
+              (useDateColumn ? (!dateColumn || !targetColumn) : selectedColumnsForLoad.length === 0)
+            }
             className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg shadow-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {dataLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
@@ -834,7 +1033,14 @@ export default function Forecast() {
                     data={chartData}
                     options={{
                       maintainAspectRatio: false,
-                      plugins: { legend: { display: false } },
+                      plugins: {
+                        legend: { display: true, position: 'top', align: 'end', labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true, font: { size: 11 } } },
+                        tooltip: {
+                          callbacks: {
+                            label: (ctx) => `${ctx.dataset.label}: ₹${formatNumber(Number(ctx.parsed.y))}`,
+                          },
+                        },
+                      },
                       scales: {
                         y: { ticks: { callback: (v) => `₹${formatNumber(Number(v))}` } },
                       },
@@ -863,10 +1069,10 @@ export default function Forecast() {
                     {periodFilterOpen && (
                       <div className="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto border border-gray-300 rounded-lg bg-white shadow-lg p-2 space-y-0.5">
                         <div className="flex items-center justify-between px-2 pb-1.5 mb-1 border-b border-gray-100">
-                          <button type="button" onClick={() => setSelectedForecastPeriods(forecastResult.data.map(d => d.Date))} className="text-[11px] text-blue-600 hover:underline">Select all</button>
+                          <button type="button" onClick={() => setSelectedForecastPeriods(forecastRows.map(d => d.Date))} className="text-[11px] text-blue-600 hover:underline">Select all</button>
                           <button type="button" onClick={() => setSelectedForecastPeriods([])} className="text-[11px] text-gray-400 hover:underline">Clear</button>
                         </div>
-                        {forecastResult.data.map(d => (
+                        {forecastRows.map(d => (
                           <label key={d.Date} className="flex items-center gap-2.5 px-2 py-1.5 hover:bg-gray-50 cursor-pointer rounded">
                             <input
                               type="checkbox"
@@ -880,7 +1086,7 @@ export default function Forecast() {
                       </div>
                     )}
                   </div>
-                  <span className="text-[11px] text-gray-500 flex-shrink-0">{formatNumber(visibleForecastRows.length)} of {formatNumber(forecastResult.data.length)}</span>
+                  <span className="text-[11px] text-gray-500 flex-shrink-0">{formatNumber(visibleForecastRows.length)} of {formatNumber(forecastRows.length)}</span>
                 </div>
                 <div className="border border-gray-100 rounded-lg overflow-hidden max-h-56 overflow-y-auto">
                   <table className="w-full text-xs">
