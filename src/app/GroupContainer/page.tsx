@@ -400,6 +400,7 @@ function GroupContainerPage() {
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [emailData, setEmailData] = useState({ email: '', subject: '', message: '', tableOption: 'limited', reportType: '' });
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
+  const [isSendingWhatsApp, setIsSendingWhatsApp] = useState(false);
   const [whatsappData, setWhatsappData] = useState({ phoneNumber: '', message: '', tableOption: 'limited', reportType: '' });
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -1576,9 +1577,10 @@ useEffect(() => {
 
   const sendViaWhatsApp = async (includeTable: boolean | undefined, tableOption: string | undefined) => {
     if (!whatsappData.phoneNumber) {
-      toast.error('Please enter a recipient WhatsApp number');
+      toast.error('Please enter a recipient WhatsApp number', { position: 'bottom-center' });
       return;
     }
+    setIsSendingWhatsApp(true);
     try {
       // Generate PPT client-side using PptxGenJS (same as download/email, avoids CORS/backend issues)
       const pptBase64 = await downloadPPT(
@@ -1591,15 +1593,12 @@ useEffect(() => {
         throw new Error('Failed to generate PPT — please check that there is chart/table data available.');
       }
 
-      // Send via Next.js API route (calls Twilio's WhatsApp API server-side, no CORS)
-      const response = await fetch('/api/send-report-whatsapp', {
+      // Send via Next.js API route (calls the WhatsApp document API server-side, no CORS)
+      const response = await fetch('/api/send-whatsapp-document', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           phoneNumber: whatsappData.phoneNumber,
-          message: whatsappData.message || '',
-          reportType: includeTable ? 'complete' : 'charts-only',
-          tableOption: tableOption || 'limited',
           pptBase64,
         }),
       });
@@ -1610,12 +1609,13 @@ useEffect(() => {
         throw new Error(result.message || result.error || `HTTP ${response.status}`);
       }
 
-      toast.success('WhatsApp message sent successfully!');
+      toast.success('WhatsApp document sent successfully!', { position: 'bottom-center' });
     } catch (error) {
       console.error('Error sending WhatsApp message:', error);
       const errorMessage = error instanceof Error ? error.message : String(error);
-      toast.error(`Failed to send WhatsApp message: ${errorMessage}`);
+      toast.error(`Failed to send WhatsApp message: ${errorMessage}`, { position: 'bottom-center' });
     } finally {
+      setIsSendingWhatsApp(false);
       setShowWhatsAppModal(false);
       setShowDownloadModal(false);
     }
@@ -5340,7 +5340,7 @@ const SpeechRecognition =
                                         >
                                           Send via Email
                                         </button>
-                                        {/* <button
+                                        <button
                                           onClick={() => {
                                             const selectedOptionElement = document.querySelector('input[name="tableRows"]:checked');
                                             const selectedOption = selectedOptionElement ? (selectedOptionElement as HTMLInputElement).value : 'limited';
@@ -5354,7 +5354,7 @@ const SpeechRecognition =
                                           className="py-1.5 bg-[#25D366] text-white rounded font-medium hover:bg-[#1ebe5d] transition-colors text-sm flex items-center justify-center gap-1"
                                         >
                                           <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
-                                        </button> */}
+                                        </button>
                                       </div>
 
                                       <div className="border-t border-gray-200 pt-3 mb-3">
@@ -5411,7 +5411,7 @@ const SpeechRecognition =
                                           >
                                             Send via Email
                                           </button>
-                                          {/* <button
+                                          <button
                                             onClick={() => {
                                               const selectedOptionElement = document.querySelector('input[name="tableRows"]:checked');
                                               const selectedOption = selectedOptionElement ? (selectedOptionElement as HTMLInputElement).value : 'limited';
@@ -5425,7 +5425,7 @@ const SpeechRecognition =
                                             className="py-1.5 bg-[#25D366] text-white rounded font-medium hover:bg-[#1ebe5d] transition-colors text-sm flex items-center justify-center gap-1"
                                           >
                                             <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
-                                          </button> */}
+                                          </button>
                                         </div>
                                       </div>
 
@@ -5591,20 +5591,6 @@ const SpeechRecognition =
                                           <p className="mt-1 text-xs text-gray-400">Include the country code, e.g. +91 for India.</p>
                                         </div>
 
-                                        <div>
-                                          <label htmlFor="whatsappMessage" className="block text-sm font-medium text-gray-700 mb-1">
-                                            Additional Message (Optional)
-                                          </label>
-                                          <textarea
-                                            id="whatsappMessage"
-                                            value={whatsappData.message}
-                                            onChange={(e) => setWhatsappData(prev => ({ ...prev, message: e.target.value }))}
-                                            rows={4}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#25D366] focus:border-transparent"
-                                            placeholder="Enter any additional message..."
-                                          />
-                                        </div>
-
                                         <div className="bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded">
                                           <div className="flex">
                                             <div className="flex-shrink-0">
@@ -5614,7 +5600,7 @@ const SpeechRecognition =
                                             </div>
                                             <div className="ml-3">
                                               <p className="text-sm text-yellow-700">
-                                                The report will be sent as a WhatsApp document attachment to this number via our WhatsApp Business integration.
+                                                The PPT is generated automatically and sent as a WhatsApp document to this number the moment you click Send — no need to attach anything yourself.
                                               </p>
                                             </div>
                                           </div>
@@ -5625,16 +5611,23 @@ const SpeechRecognition =
                                             type="button"
                                             onClick={() => {
                                               if (!whatsappData.phoneNumber) {
-                                                toast.error('Please enter a recipient WhatsApp number');
+                                                toast.error('Please enter a recipient WhatsApp number', { position: 'bottom-center' });
                                                 return;
                                               }
                                               const includeTable = whatsappData.reportType === 'complete';
                                               const tableOption = whatsappData.tableOption || 'limited';
                                               sendViaWhatsApp(includeTable, tableOption);
                                             }}
-                                            className="flex-1 py-2 bg-[#25D366] text-white rounded font-medium hover:bg-[#1ebe5d] transition-colors"
+                                            disabled={isSendingWhatsApp}
+                                            className="flex-1 py-2 bg-[#25D366] text-white rounded font-medium hover:bg-[#1ebe5d] transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                                           >
-                                            Send WhatsApp
+                                            {isSendingWhatsApp ? (
+                                              <>
+                                                <Loader2 className="w-4 h-4 animate-spin" /> Sending…
+                                              </>
+                                            ) : (
+                                              'Send WhatsApp'
+                                            )}
                                           </button>
                                           <button
                                             type="button"
@@ -5642,7 +5635,8 @@ const SpeechRecognition =
                                               setShowWhatsAppModal(false);
                                               setWhatsappData({ phoneNumber: '', message: '', tableOption: 'limited', reportType: '' });
                                             }}
-                                            className="flex-1 py-2 bg-gray-200 text-gray-800 rounded border border-gray-300 hover:bg-gray-300 transition-colors"
+                                            disabled={isSendingWhatsApp}
+                                            className="flex-1 py-2 bg-gray-200 text-gray-800 rounded border border-gray-300 hover:bg-gray-300 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                                           >
                                             Cancel
                                           </button>
@@ -7543,20 +7537,6 @@ const SpeechRecognition =
                                           <p className="mt-1 text-xs text-gray-400">Include the country code, e.g. +91 for India.</p>
                                         </div>
 
-                                        <div>
-                                          <label htmlFor="whatsappMessage" className="block text-sm font-medium text-gray-700 mb-1">
-                                            Additional Message (Optional)
-                                          </label>
-                                          <textarea
-                                            id="whatsappMessage"
-                                            value={whatsappData.message}
-                                            onChange={(e) => setWhatsappData(prev => ({ ...prev, message: e.target.value }))}
-                                            rows={4}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#25D366] focus:border-transparent"
-                                            placeholder="Enter any additional message..."
-                                          />
-                                        </div>
-
                                         <div className="bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded">
                                           <div className="flex">
                                             <div className="flex-shrink-0">
@@ -7566,7 +7546,7 @@ const SpeechRecognition =
                                             </div>
                                             <div className="ml-3">
                                               <p className="text-sm text-yellow-700">
-                                                The report will be sent as a WhatsApp document attachment to this number via our WhatsApp Business integration.
+                                                The PPT is generated automatically and sent as a WhatsApp document to this number the moment you click Send — no need to attach anything yourself.
                                               </p>
                                             </div>
                                           </div>
@@ -7577,16 +7557,23 @@ const SpeechRecognition =
                                             type="button"
                                             onClick={() => {
                                               if (!whatsappData.phoneNumber) {
-                                                toast.error('Please enter a recipient WhatsApp number');
+                                                toast.error('Please enter a recipient WhatsApp number', { position: 'bottom-center' });
                                                 return;
                                               }
                                               const includeTable = whatsappData.reportType === 'complete';
                                               const tableOption = whatsappData.tableOption || 'limited';
                                               sendViaWhatsApp(includeTable, tableOption);
                                             }}
-                                            className="flex-1 py-2 bg-[#25D366] text-white rounded font-medium hover:bg-[#1ebe5d] transition-colors"
+                                            disabled={isSendingWhatsApp}
+                                            className="flex-1 py-2 bg-[#25D366] text-white rounded font-medium hover:bg-[#1ebe5d] transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                                           >
-                                            Send WhatsApp
+                                            {isSendingWhatsApp ? (
+                                              <>
+                                                <Loader2 className="w-4 h-4 animate-spin" /> Sending…
+                                              </>
+                                            ) : (
+                                              'Send WhatsApp'
+                                            )}
                                           </button>
                                           <button
                                             type="button"
@@ -7594,7 +7581,8 @@ const SpeechRecognition =
                                               setShowWhatsAppModal(false);
                                               setWhatsappData({ phoneNumber: '', message: '', tableOption: 'limited', reportType: '' });
                                             }}
-                                            className="flex-1 py-2 bg-gray-200 text-gray-800 rounded border border-gray-300 hover:bg-gray-300 transition-colors"
+                                            disabled={isSendingWhatsApp}
+                                            className="flex-1 py-2 bg-gray-200 text-gray-800 rounded border border-gray-300 hover:bg-gray-300 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                                           >
                                             Cancel
                                           </button>
