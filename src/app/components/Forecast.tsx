@@ -4,16 +4,22 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   TrendingUp, Database, RefreshCw, ChevronDown, Play, X, Download,
   CheckCircle2, AlertCircle, AlertTriangle, Loader2, Search as SearchIcon, ArrowUpDown,
+  Maximize2, ArrowLeft,
 } from 'lucide-react';
-import { Line } from 'react-chartjs-2';
+import { Line, Bar } from 'react-chartjs-2';
 import {
-  Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement,
+  Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement,
   Tooltip, Legend, Filler,
 } from 'chart.js';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend, Filler);
+
+// Data-viz palette (see the dataviz skill's reference palette) — sequential blue for
+// single-hue magnitude, and the blue<->red diverging pair for the growth chart's sign.
+const VIZ_BLUE = '#2a78d6';
+const VIZ_RED = '#e34948';
 
 // The forecasting API only knows how to build a time series out of a table that has
 // exactly these three columns (case-sensitive) — a row id, a date, and an amount.
@@ -370,6 +376,21 @@ export default function Forecast() {
   const [forecastResult, setForecastResult] = useState<ForecastResult | null>(null);
   const [forecastLoading, setForecastLoading] = useState(false);
 
+  // Chart date range filter — the API's Date values are plain "YYYY-MM-DD" strings,
+  // same format <input type="date"> uses, so they compare/filter lexicographically
+  // with no parsing needed. Empty string on either end means "no bound".
+  const [chartDateFrom, setChartDateFrom] = useState('');
+  const [chartDateTo, setChartDateTo] = useState('');
+  const chartDateBounds = useMemo(() => {
+    if (!forecastResult || forecastResult.data.length === 0) return null;
+    let min = forecastResult.data[0].Date, max = forecastResult.data[0].Date;
+    for (const d of forecastResult.data) {
+      if (d.Date < min) min = d.Date;
+      if (d.Date > max) max = d.Date;
+    }
+    return { min, max };
+  }, [forecastResult]);
+
   // Results table — sortable columns + a period filter (multi-select on the actual
   // forecasted periods; e.g. with Monthly frequency, pick just the month(s) you want).
   const [forecastSortCol, setForecastSortCol] = useState<'Date' | 'Forecast'>('Date');
@@ -418,6 +439,8 @@ export default function Forecast() {
     if (!loadedData) { addToast('error', 'Load a table’s data first.'); return; }
     setForecastLoading(true);
     setSelectedForecastPeriods([]);
+    setChartDateFrom('');
+    setChartDateTo('');
     try {
       const qs = new URLSearchParams({ frequency, count: String(periods) });
       const res = await fetch(`/api/forecasting/forecast?${qs.toString()}`);
@@ -441,9 +464,18 @@ export default function Forecast() {
     saveAs(new Blob([buf], { type: 'application/octet-stream' }), `forecast_${selectedTable}_${frequency}.xlsx`);
   };
 
+  // Shared by all three charts below, so the date-range filter scopes them together.
+  const filteredRows = useMemo(() => {
+    if (!forecastResult) return [];
+    return forecastResult.data.filter(d =>
+      (!chartDateFrom || d.Date >= chartDateFrom) && (!chartDateTo || d.Date <= chartDateTo)
+    );
+  }, [forecastResult, chartDateFrom, chartDateTo]);
+
   const chartData = useMemo(() => {
     if (!forecastResult) return null;
-    const rows = forecastResult.data;
+    const rows = filteredRows;
+    if (rows.length === 0) return null;
     // Historical (green) plots Actual; Forecast (red) plots Forecast — each is null on
     // the other row type, so Chart.js naturally breaks the line there. To avoid a gap
     // at the hand-off, the last historical point is also seeded as the forecast line's
@@ -478,7 +510,151 @@ export default function Forecast() {
         },
       ],
     };
-  }, [forecastResult]);
+  }, [forecastResult, filteredRows]);
+
+  // Chart 2 — "Forecast by period": a plain magnitude comparison across just the
+  // forecast periods in view. One series -> sequential blue, per the dataviz palette
+  // (bar/column is the default form for "compare magnitude").
+  const barChartData = useMemo(() => {
+    const rows = filteredRows.filter(d => d.Type === 'forecast');
+    if (rows.length === 0) return null;
+    return {
+      labels: rows.map(d => formatDate(d.Date)),
+      datasets: [{
+        label: 'Forecast',
+        data: rows.map(d => d.Forecast),
+        backgroundColor: VIZ_BLUE,
+        borderRadius: 4,
+        maxBarThickness: 48,
+      }],
+    };
+  }, [filteredRows]);
+
+  // Chart 3 — "Period-over-period change": the resolved value (Actual for historical
+  // rows, Forecast for forecast rows) compared to the previous point in view, as a
+  // % change. This is a diverging measure (growth vs decline against a 0% baseline),
+  // so it gets the diverging blue<->red pair rather than a second sequential hue.
+  const changeChartData = useMemo(() => {
+    const rows = filteredRows;
+    if (rows.length < 2) return null;
+    const resolve = (d: ForecastPoint) => d.Type === 'historical' ? d.Actual : d.Forecast;
+    // Skip index 0 — it has no previous point to compare against.
+    const entries = rows.slice(1).map((d, i) => {
+      const prev = resolve(rows[i]); // rows[i] is the point before rows.slice(1)[i]
+      const cur = resolve(d);
+      const change = (prev === null || cur === null || prev === 0) ? null : ((cur - prev) / Math.abs(prev)) * 100;
+      return { label: formatDate(d.Date), change };
+    }).filter(e => e.change !== null);
+    if (entries.length === 0) return null;
+    return {
+      labels: entries.map(e => e.label),
+      datasets: [{
+        label: 'Change vs previous period',
+        data: entries.map(e => e.change),
+        backgroundColor: entries.map(e => (e.change as number) < 0 ? VIZ_RED : VIZ_BLUE),
+        borderRadius: 4,
+        maxBarThickness: 32,
+      }],
+    };
+  }, [filteredRows]);
+
+  // Shared between the inline chart and its expanded modal view, so tooltip/legend
+  // behavior stays identical in both places.
+  const chartOptions = useMemo(() => ({
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: true, position: 'top' as const, align: 'end' as const, labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true, font: { size: 11 } } },
+      tooltip: {
+        callbacks: {
+          label: (ctx: any) => `${ctx.dataset.label}: ₹${formatNumber(Number(ctx.parsed.y))}`,
+        },
+      },
+    },
+    scales: {
+      y: { ticks: { callback: (v: any) => `₹${formatNumber(Number(v))}` } },
+    },
+  }), []);
+
+  // Single-series bar — no legend box needed (the card title already names it).
+  const barChartOptions = useMemo(() => ({
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: (ctx: any) => `₹${formatNumber(Number(ctx.parsed.y))}` } },
+    },
+    scales: {
+      y: { ticks: { callback: (v: any) => `₹${formatNumber(Number(v))}` } },
+    },
+  }), []);
+
+  const changeChartOptions = useMemo(() => ({
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: (ctx: any) => `${Number(ctx.parsed.y) >= 0 ? '+' : ''}${Number(ctx.parsed.y).toFixed(1)}%` } },
+    },
+    scales: {
+      y: {
+        ticks: { callback: (v: any) => `${Number(v) >= 0 ? '+' : ''}${Number(v)}%` },
+        grid: { color: (ctx: any) => ctx.tick.value === 0 ? '#c3c2b7' : '#e1e0d9' },
+      },
+    },
+  }), []);
+
+  const [chartModalOpen, setChartModalOpen] = useState(false);
+  // Escape closes the expanded chart, same as the modal's own Back button.
+  useEffect(() => {
+    if (!chartModalOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setChartModalOpen(false); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [chartModalOpen]);
+
+  // The date-range filter — shared markup between the inline card and the expanded
+  // modal (only the size classes on the inputs/text differ slightly by `compact`).
+  const renderChartDateFilter = (compact: boolean) => (
+    <div className={compact ? 'mb-3' : 'mb-4'}>
+      <p className="text-[11px] text-gray-500 mb-1.5">
+        Filter the chart to a date range — pick a <b>From</b> and/or <b>To</b> date below.
+      </p>
+      <div className="flex flex-wrap items-end gap-3">
+      <div>
+        <label className="block text-[11px] font-semibold text-gray-500 mb-1">From date</label>
+        <input
+          type="date"
+          value={chartDateFrom}
+          min={chartDateBounds?.min}
+          max={chartDateTo || chartDateBounds?.max}
+          onChange={e => setChartDateFrom(e.target.value)}
+          className={`px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-400 ${compact ? 'text-xs' : 'text-sm'}`}
+        />
+      </div>
+      <div>
+        <label className="block text-[11px] font-semibold text-gray-500 mb-1">To date</label>
+        <input
+          type="date"
+          value={chartDateTo}
+          min={chartDateFrom || chartDateBounds?.min}
+          max={chartDateBounds?.max}
+          onChange={e => setChartDateTo(e.target.value)}
+          className={`px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-400 ${compact ? 'text-xs' : 'text-sm'}`}
+        />
+      </div>
+      {(chartDateFrom || chartDateTo) && (
+        <button
+          type="button"
+          onClick={() => { setChartDateFrom(''); setChartDateTo(''); }}
+          className="text-[11px] text-blue-600 hover:underline pb-1.5"
+        >
+          Reset range
+        </button>
+      )}
+      <span className="text-[11px] text-gray-400 pb-1.5 ml-auto">
+        {chartData ? `Showing ${formatNumber(chartData.labels.length)} of ${formatNumber(forecastResult?.data.length ?? 0)} points` : 'No points in this range'}
+      </span>
+      </div>
+    </div>
+  );
 
   return (
     <div className="w-full max-w-[1400px] mx-auto p-4 sm:p-6">
@@ -1026,26 +1202,27 @@ export default function Forecast() {
             <p className="text-[11px] text-gray-400 mb-3">
               Based on {formatNumber(forecastResult.historical_observations)} historical {forecastResult.frequency} observations · season length {forecastResult.season}
             </p>
+
+            {/* Chart date filter — narrows the chart (and only the chart) to a range;
+                the results table on the right has its own separate period filter. */}
+            {renderChartDateFilter(true)}
+
             <div className="grid grid-cols-1 lg:grid-cols-[1.4fr,1fr] gap-4">
-              <div className="h-64 border border-gray-100 rounded-lg p-3">
-                {chartData && (
-                  <Line
-                    data={chartData}
-                    options={{
-                      maintainAspectRatio: false,
-                      plugins: {
-                        legend: { display: true, position: 'top', align: 'end', labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true, font: { size: 11 } } },
-                        tooltip: {
-                          callbacks: {
-                            label: (ctx) => `${ctx.dataset.label}: ₹${formatNumber(Number(ctx.parsed.y))}`,
-                          },
-                        },
-                      },
-                      scales: {
-                        y: { ticks: { callback: (v) => `₹${formatNumber(Number(v))}` } },
-                      },
-                    }}
-                  />
+              <div className="relative h-64 border border-gray-100 rounded-lg p-3">
+                <button
+                  type="button"
+                  onClick={() => setChartModalOpen(true)}
+                  title="Expand all charts"
+                  className="absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-gray-500 bg-white/90 border border-gray-200 rounded-md shadow-sm hover:text-blue-600 hover:border-blue-300"
+                >
+                  <Maximize2 className="w-3 h-3" /> Expand
+                </button>
+                {chartData ? (
+                  <Line data={chartData} options={chartOptions} />
+                ) : (
+                  <div className="h-full flex items-center justify-center text-xs text-gray-400">
+                    No data in this date range.
+                  </div>
                 )}
               </div>
               <div>
@@ -1120,9 +1297,113 @@ export default function Forecast() {
                 </div>
               </div>
             </div>
+
+            {/* Two supporting charts, scoped by the same date range as the line
+                chart above: a plain magnitude read of the forecast, and a
+                period-over-period growth read across the whole visible series. */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+              <div className="border border-gray-100 rounded-lg p-3">
+                <h4 className="text-xs font-bold text-gray-700 mb-2">Forecast by Period</h4>
+                <div className="h-56">
+                  {barChartData ? (
+                    <Bar data={barChartData} options={barChartOptions} />
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-xs text-gray-400">
+                      No forecast periods in this range.
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="border border-gray-100 rounded-lg p-3">
+                <h4 className="text-xs font-bold text-gray-700 mb-2">Period-over-Period Change</h4>
+                <div className="h-56">
+                  {changeChartData ? (
+                    <Bar data={changeChartData} options={changeChartOptions} />
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-xs text-gray-400">
+                      Not enough points in this range to compare.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>
+
+      {/* Expanded chart modal — bigger canvas + the same date filter, for when the
+          inline 256px-tall chart is too cramped to read with a long series. */}
+      {chartModalOpen && forecastResult && (
+        <div
+          className="fixed inset-0 z-[200] bg-black/60 flex items-center justify-center p-4"
+          onClick={() => setChartModalOpen(false)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl w-full max-w-6xl h-[85vh] flex flex-col overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-gray-100 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => setChartModalOpen(false)}
+                className="flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-gray-900"
+              >
+                <ArrowLeft className="w-4 h-4" /> Back
+              </button>
+              <h3 className="text-sm font-bold text-gray-800">Forecast Charts</h3>
+              <button
+                type="button"
+                onClick={() => setChartModalOpen(false)}
+                className="text-gray-400 hover:text-gray-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
+              {renderChartDateFilter(false)}
+
+              <div className="border border-gray-100 rounded-lg p-3">
+                <h4 className="text-xs font-bold text-gray-700 mb-2">Historical &amp; Forecast Trend</h4>
+                <div className="h-[65vh]">
+                  {chartData ? (
+                    <Line data={chartData} options={chartOptions} />
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-sm text-gray-400">
+                      No data in this date range.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="border border-gray-100 rounded-lg p-3 mt-5">
+                <h4 className="text-xs font-bold text-gray-700 mb-2">Forecast by Period</h4>
+                <div className="h-[65vh]">
+                  {barChartData ? (
+                    <Bar data={barChartData} options={barChartOptions} />
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-xs text-gray-400">
+                      No forecast periods in this range.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="border border-gray-100 rounded-lg p-3 mt-5">
+                <h4 className="text-xs font-bold text-gray-700 mb-2">Period-over-Period Change</h4>
+                <div className="h-[65vh]">
+                  {changeChartData ? (
+                    <Bar data={changeChartData} options={changeChartOptions} />
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-xs text-gray-400">
+                      Not enough points in this range to compare.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
