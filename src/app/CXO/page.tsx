@@ -21,7 +21,7 @@ import {
 import { Bar, Line, Pie } from 'react-chartjs-2';
 import Spinner from '../components/Spinner';
 import { useRouter } from 'next/navigation';
-import { Menu, X, BarChart2, FileText, PieChart, TrendingUp, Database, Users, LayoutDashboard, BookOpen, Play, ChevronRight } from 'lucide-react';
+import { Menu, X, BarChart2, FileText, PieChart, TrendingUp, Database, Users, LayoutDashboard, BookOpen, Play, ChevronRight, ArrowUpDown } from 'lucide-react';
 import KPIDashboard from '../Dashboard/page';
 import dynamic from 'next/dynamic';
 
@@ -104,6 +104,15 @@ export default function CXO() {
   const [newPromptTitle, setNewPromptTitle] = useState('');
   const [promptHeaderMap, setPromptHeaderMap] = useState<Record<string, string>>({});
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Auto-grow the prompt textarea to fit its content (up to the CSS max-height, after
+  // which it scrolls) — runs on every change to newPromptName regardless of source
+  // (typing, Clear, loading a saved prompt, the AI editing it via Re Prompt).
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [newPromptName]);
   const [activeTab, setActiveTab] = useState("prompts");
   const [cxoView, setCxoView] = useState<"home" | "dashboard" | "livedata">("home");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -147,6 +156,27 @@ export default function CXO() {
   const [runResult, setRunResult] = useState<RunResult | null>(null);
   const [translatedCxoResultColumns, setTranslatedCxoResultColumns] = useState<string[]>([]);
   const [translatedCxoResultData, setTranslatedCxoResultData] = useState<string[][]>([]);
+  // Results table sorting — click a column header to sort by it, click again to flip
+  // direction. Resets whenever a new result comes in so a stale sort from a previous
+  // table shape can't silently misapply to different columns.
+  const [tableSortCol, setTableSortCol] = useState<number | null>(null);
+  const [tableSortDir, setTableSortDir] = useState<'asc' | 'desc'>('asc');
+  useEffect(() => { setTableSortCol(null); setTableSortDir('asc'); }, [runResult]);
+  const toggleTableSort = (colIdx: number) => {
+    if (tableSortCol === colIdx) setTableSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setTableSortCol(colIdx); setTableSortDir('asc'); }
+  };
+  // Compares two cell strings smartly: numbers (currency/commas stripped) numerically,
+  // else dates chronologically, else plain text alphabetically.
+  const compareTableCells = (a: string, b: string): number => {
+    const na = parseFloat((a ?? '').replace(/[₹$,\s]/g, ''));
+    const nb = parseFloat((b ?? '').replace(/[₹$,\s]/g, ''));
+    if (!Number.isNaN(na) && !Number.isNaN(nb) && a?.trim() !== '' && b?.trim() !== '') return na - nb;
+    const da = Date.parse(a);
+    const db = Date.parse(b);
+    if (!Number.isNaN(da) && !Number.isNaN(db)) return da - db;
+    return (a ?? '').localeCompare(b ?? '');
+  };
   const [translatedCxoResultMessages, setTranslatedCxoResultMessages] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -1411,6 +1441,11 @@ export default function CXO() {
               </div>
             </header>
 
+            {/* Everything below the top nav header scrolls together as one unit
+                (breadcrumb, Back/Clear, prompt header, prompt toolbar, and the
+                tabs/table/charts area) — only the <header> above stays fixed. */}
+            <div ref={scrollRef} onScroll={handleResultsScroll} className="flex-1 overflow-y-auto">
+
             {/* Breadcrumb */}
             <div className="px-6 py-2.5 flex items-center gap-1 text-xs text-gray-500">
               <span onClick={handleCloseBoardModal} className="text-blue-500 hover:underline cursor-pointer font-medium">CXO</span>
@@ -1471,51 +1506,56 @@ export default function CXO() {
               />
             </div>
 
-            {/* Prompt toolbar */}
-            <div className="mx-5 mb-4 bg-[#1a237e] rounded-xl flex items-center px-3 py-2 gap-3 shadow-lg">
-              <input
-                ref={textareaRef as unknown as React.RefObject<HTMLInputElement>}
-                className="flex-1 bg-white text-gray-800 placeholder-gray-400 text-sm outline-none min-w-0 rounded-lg px-3 py-2 border-0"
+            {/* Prompt toolbar — textarea on its own full-width row so it can grow
+                without squeezing the buttons; buttons sit in their own row underneath,
+                right-aligned, so they stay put regardless of how tall the textarea gets. */}
+            <div className="mx-5 mb-4 bg-[#1a237e] rounded-xl flex flex-col gap-2 px-3 py-2 shadow-lg">
+              <textarea
+                ref={textareaRef}
+                rows={1}
+                // No max-height/internal scroll here — the whole page scrolls now (see the
+                // wrapper above), so the textarea can just keep growing to show the full
+                // prompt instead of clipping it into its own tiny scroll box.
+                className="w-full bg-white text-gray-800 placeholder-gray-400 text-sm outline-none rounded-lg px-3 py-2 border-0 resize-none overflow-hidden leading-normal"
                 placeholder="Dynamic Prompt Entry..."
                 value={newPromptName}
                 onChange={e => setNewPromptName(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleRunPrompt(); } }}
               />
-                  <button
-                onClick={handleVoiceInput}
-                title="Click to speak"
-                className={`px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors ${isListening ? 'bg-green-500 hover:bg-green-600' : 'bg-blue-600 hover:bg-blue-700'} text-white`}
-              >
-                <FiMic className="text-white text-lg" />
-              </button>
-              {/* <button className="text-blue-200 hover:text-white p-1 flex-shrink-0">
-                <Mic className="w-4 h-4" />
-              </button> */}
-              <button
-                onClick={handleRePrompt}
-                disabled={isLoading}
-                className="flex-shrink-0 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold disabled:opacity-50 transition-colors"
-              >
-                Re Prompt
-              </button>
-              <button
-                onClick={handleRunPrompt}
-                disabled={!newPromptName.trim() || isLoading}
-                className="flex-shrink-0 p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 transition-colors"
-              >
-                {isLoading ? <Spinner /> : <Play className="w-4 h-4" />}
-              </button>
-              <button
-                onClick={handleSavePrompt}
-                disabled={!newPromptName.trim() || isLoading}
-                className="flex-shrink-0 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold disabled:opacity-50 transition-colors"
-              >
-                Save
-              </button>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  onClick={handleVoiceInput}
+                  title="Click to speak"
+                  className={`px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors ${isListening ? 'bg-green-500 hover:bg-green-600' : 'bg-blue-600 hover:bg-blue-700'} text-white`}
+                >
+                  <FiMic className="text-white text-lg" />
+                </button>
+                <button
+                  onClick={handleRePrompt}
+                  disabled={isLoading}
+                  className="flex-shrink-0 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold disabled:opacity-50 transition-colors"
+                >
+                  Re Prompt
+                </button>
+                <button
+                  onClick={handleRunPrompt}
+                  disabled={!newPromptName.trim() || isLoading}
+                  className="flex-shrink-0 p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 transition-colors"
+                >
+                  {isLoading ? <Spinner /> : <Play className="w-4 h-4" />}
+                </button>
+                <button
+                  onClick={handleSavePrompt}
+                  disabled={!newPromptName.trim() || isLoading}
+                  className="flex-shrink-0 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold disabled:opacity-50 transition-colors"
+                >
+                  Save
+                </button>
+              </div>
             </div>
 
             {/* Results area */}
-            <div ref={scrollRef} onScroll={handleResultsScroll} className="flex-1 overflow-y-auto px-5 pb-20">
+            <div className="px-5 pb-20">
               {isRunClicked && runResult && (
                 <div>
                   <div className="flex items-center gap-2 mb-3 flex-wrap">
@@ -1558,13 +1598,29 @@ export default function CXO() {
                           <thead style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#f3f4f6' }}>
                             <tr>
                               {runResult.table.columns.map((col, i) => (
-                                <th key={i} className="px-3 py-2 border-b border-gray-200 text-left font-bold text-gray-700 text-xs uppercase tracking-wide">{translatedCxoResultColumns[i] || col}</th>
+                                <th key={i} className="px-3 py-2 border-b border-gray-200 text-left font-bold text-gray-700 text-xs uppercase tracking-wide">
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleTableSort(i)}
+                                    className="flex items-center gap-1 hover:text-blue-600"
+                                    title="Sort by this column"
+                                  >
+                                    {translatedCxoResultColumns[i] || col}
+                                    <ArrowUpDown className={`w-3 h-3 flex-shrink-0 ${tableSortCol === i ? 'text-blue-600' : 'text-gray-300'}`} />
+                                  </button>
+                                </th>
                               ))}
                             </tr>
                           </thead>
                           <tbody>
                             {runResult.table.data.length > 0
-                              ? (translatedCxoResultData.length > 0 ? translatedCxoResultData : runResult.table.data).map((row, ri) => (
+                              ? [...(translatedCxoResultData.length > 0 ? translatedCxoResultData : runResult.table.data)]
+                                  .sort((a, b) => {
+                                    if (tableSortCol === null) return 0;
+                                    const cmp = compareTableCells(a[tableSortCol], b[tableSortCol]);
+                                    return tableSortDir === 'asc' ? cmp : -cmp;
+                                  })
+                                  .map((row, ri) => (
                                   <tr key={ri} className={ri % 2 === 0 ? 'bg-white hover:bg-blue-50' : 'bg-gray-50 hover:bg-blue-50'}>
                                     {row.map((cell, ci) => <td key={ci} className="px-3 py-2 border-b border-gray-100 text-gray-700 text-sm">{cell}</td>)}
                                   </tr>
@@ -1621,6 +1677,7 @@ export default function CXO() {
       ↑ Top
     </button>
   )}
+            </div>
             </div>
           </div>
 
