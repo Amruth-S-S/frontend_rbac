@@ -4218,8 +4218,18 @@ const SpeechRecognition =
 
     <div
       id="group-container-main-scroll"
-      className="flex-1 overflow-y-auto bg-gray-200 rounded-2xl shadow-lg border border-gray-200 min-h-full"
+      // A definite-height flex column, not a sticky/scroll trick: the header below is a
+      // plain flex-shrink-0 sibling that sits OUTSIDE the scrollable area entirely (so it
+      // can never scroll away, full stop), and only the tab-content wrapper further down
+      // (className="flex-1 overflow-y-auto") is actually scrollable. `position: sticky`
+      // kept breaking here because it depends on which ancestor is "really" scrolling —
+      // this sidesteps that question by making the header structurally un-scrollable.
+      className="flex-1 flex flex-col h-full overflow-hidden bg-gray-200 rounded-2xl shadow-lg border border-gray-200"
     >
+      {/* Header — the top bar (board group / language / role / account) and the
+          breadcrumb + tab strip below it. Never scrolls: it's outside the scrollable
+          tab-content area below, not pinned via sticky/fixed positioning. */}
+      <div className="flex-shrink-0">
       <header className="bg-white p-3 shadow-sm">
         <div className="flex justify-end items-center gap-2 max-w-screen-xl mx-auto">
           {/* Role badge — the group the logged-in user's email belongs to */}
@@ -4300,7 +4310,7 @@ const SpeechRecognition =
         </div>
       </header> */}
 
-      <div className="sticky top-0 bg-gray-200 z-10 border-b border-gray-200">
+      <div className="bg-gray-200 border-b border-gray-200">
         <div className="w-full">
           <div className="max-w-[1400px] mx-auto px-3 py-2">
             {/* Tab Navigation */}
@@ -4435,7 +4445,12 @@ const SpeechRecognition =
             </div>
           </div>
         </div>
+      </div>
+      </div>
 
+      {/* The one true scroll container for tab content — bounded by the flex column
+          above, so this is what actually scrolls, not window/body. */}
+      <div className="flex-1 overflow-y-auto">
 
         {activeTab === "prompts" && (
           <div className="w-full">
@@ -8011,6 +8026,8 @@ const SpeechRecognition =
       </div>
 
       {/* Scroll to Top button — only after scrolling 200px down the page */}
+      {/* (sibling of the scrollable content wrapper above, not inside it — it's a
+          fixed-position overlay, not part of the scrolling tab content) */}
       {showMainTopBtn && (
         <button
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
