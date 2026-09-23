@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   TrendingUp, Database, RefreshCw, ChevronDown, Play, X, Download,
   CheckCircle2, AlertCircle, AlertTriangle, Loader2, Search as SearchIcon, ArrowUpDown,
-  Maximize2, ArrowLeft,
+  Maximize2, ArrowLeft, Upload,
 } from 'lucide-react';
 import { Line, Bar } from 'react-chartjs-2';
 import {
@@ -101,6 +101,41 @@ export default function Forecast() {
   }, [addToast]);
 
   useEffect(() => { loadTables(); }, [loadTables]);
+
+  // ── Upload a new table (CSV/Excel) straight into the forecasting API's dataset ──
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [uploadTableName, setUploadTableName] = useState('');
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const closeUploadModal = () => {
+    setUploadModalOpen(false);
+    setUploadTableName('');
+    setUploadFile(null);
+  };
+
+  const handleUploadFile = async () => {
+    if (!uploadTableName.trim() || !uploadFile) return;
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.set('file', uploadFile, uploadFile.name);
+      const qs = new URLSearchParams({ table_name: uploadTableName.trim() });
+      const res = await fetch(`/api/forecasting/upload-file?${qs.toString()}`, {
+        method: 'POST',
+        body: form,
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(extractErrorMessage(json, 'Failed to upload file.'));
+      addToast('success', `Uploaded "${uploadFile.name}" as table "${uploadTableName.trim()}".`);
+      closeUploadModal();
+      loadTables(); // the new table should now show up in the Table dropdown
+    } catch (err: any) {
+      addToast('error', err?.message || 'Failed to upload file.');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const fetchColumnsFor = useCallback(async (t: string): Promise<string[]> => {
     if (columnsByTable[t]) return columnsByTable[t];
@@ -690,14 +725,23 @@ export default function Forecast() {
             <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center flex-shrink-0">1</span>
             <h3 className="text-sm font-bold text-gray-800">Data Source</h3>
           </div>
-          <button
-            onClick={loadTables}
-            disabled={tablesLoading}
-            className="flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-800 disabled:opacity-50"
-          >
-            <RefreshCw className={`w-3 h-3 ${tablesLoading ? 'animate-spin' : ''}`} />
-            Refresh tables
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setUploadModalOpen(true)}
+              className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-blue-600 border border-blue-200 rounded-md hover:bg-blue-50 transition-colors"
+            >
+              <Upload className="w-3 h-3" />
+              Upload Files
+            </button>
+            <button
+              onClick={loadTables}
+              disabled={tablesLoading}
+              className="flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-800 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3 h-3 ${tablesLoading ? 'animate-spin' : ''}`} />
+              Refresh tables
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1400,6 +1444,79 @@ export default function Forecast() {
                   )}
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Upload Files modal — upload a CSV/Excel file into the forecasting API under
+          a new (or existing) table name, so it shows up in the Table dropdown above. */}
+      {uploadModalOpen && (
+        <div
+          className="fixed inset-0 z-[200] bg-black/60 flex items-center justify-center p-4"
+          onClick={() => !uploading && closeUploadModal()}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-gray-100">
+              <h3 className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
+                <Upload className="w-4 h-4 text-blue-600" />
+                Upload File
+              </h3>
+              <button type="button" onClick={() => !uploading && closeUploadModal()} className="text-gray-400 hover:text-gray-700">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="px-5 py-4 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Table name</label>
+                <input
+                  type="text"
+                  value={uploadTableName}
+                  onChange={e => setUploadTableName(e.target.value)}
+                  placeholder="e.g. sales_2025"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">File</label>
+                <input
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  onChange={e => setUploadFile(e.target.files?.[0] ?? null)}
+                  className="w-full text-sm text-gray-700 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                />
+                {uploadFile && (
+                  <p className="mt-1.5 text-xs text-gray-500 flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                    {uploadFile.name}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50">
+              <button
+                type="button"
+                onClick={() => !uploading && closeUploadModal()}
+                disabled={uploading}
+                className="flex-1 py-2 text-sm bg-white text-gray-700 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleUploadFile}
+                disabled={!uploadTableName.trim() || !uploadFile || uploading}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                Save
+              </button>
             </div>
           </div>
         </div>

@@ -21,3 +21,23 @@ export async function forecastingGet(path: string, searchParams?: URLSearchParam
     return NextResponse.json({ detail: 'Failed to reach the forecasting API.' }, { status: 502 });
   }
 }
+
+/**
+ * Proxies a multipart/form-data POST to the Sales Forecasting API (file uploads,
+ * e.g. /upload-file/) — same reasoning as forecastingGet: no CORS support on their
+ * end and the API key can't be exposed to the browser.
+ */
+export async function forecastingPostForm(path: string, form: FormData, searchParams?: URLSearchParams) {
+  try {
+    const qs = searchParams && searchParams.toString() ? `?${searchParams.toString()}` : '';
+    const res = await fetch(`${BASE}${path}${qs}`, {
+      method: 'POST',
+      headers: { 'X-API-Key': API_KEY },
+      body: form,
+    });
+    const data = await res.json().catch(() => ({}));
+    return NextResponse.json(data, { status: res.status });
+  } catch (err) {
+    return NextResponse.json({ detail: 'Failed to reach the forecasting API.' }, { status: 502 });
+  }
+}
