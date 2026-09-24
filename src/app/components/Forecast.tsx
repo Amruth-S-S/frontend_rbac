@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   TrendingUp, Database, RefreshCw, ChevronDown, Play, X, Download,
-  CheckCircle2, AlertCircle, AlertTriangle, Loader2, Search as SearchIcon, ArrowUpDown,
+  CheckCircle2, AlertCircle, Loader2, Search as SearchIcon, ArrowUpDown,
   Maximize2, ArrowLeft, Upload,
 } from 'lucide-react';
 import { Line, Bar } from 'react-chartjs-2';
@@ -357,12 +357,19 @@ export default function Forecast() {
       const res = await fetch(`/api/forecasting/tables/${encodeURIComponent(selectedTable)}?${qs.toString()}`);
       const json = await res.json();
       if (!res.ok) throw new Error(extractErrorMessage(json, 'Failed to load table data.'));
+      // In "use date column" mode the API names the row keys after whichever date/target
+      // columns were picked (e.g. "Month"/"TotalAmount"), not GUID/Date/Amount — the
+      // preview table below always reads GUID/Date/Amount, so remap onto that shape here.
+      const rawRows: any[] = Array.isArray(json.data) ? json.data : [];
+      const rows: TableRow[] = useDateColumn
+        ? rawRows.map(r => ({ GUID: '', Date: r[dateColumn], Amount: Number(r[targetColumn]) }))
+        : rawRows;
       setLoadedData({
         table: selectedTable,
         filter_column: json.filter_column ?? null,
         filter_value: json.filter_value ?? null,
-        rows: json.rows ?? (json.data?.length || 0),
-        data: Array.isArray(json.data) ? json.data : [],
+        rows: json.rows ?? rawRows.length,
+        data: rows,
       });
       addToast('success', `Loaded ${formatNumber(json.rows ?? json.data?.length ?? 0)} rows from ${selectedTable}.`);
     } catch (err: any) {
@@ -1082,17 +1089,6 @@ export default function Forecast() {
                 </div>
               )}
             </div>
-          </div>
-        )}
-
-        {/* Eligibility banner */}
-        {selectedTable && !columnsLoading && !selectedEligible && (
-          <div className="mt-3 flex items-start gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
-            <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-            <span>
-              This table can&apos;t be forecast — it needs <b>GUID</b>, <b>Date</b> and <b>Amount</b> columns.
-              {columnsByTable[selectedTable]?.length ? <> Found: {columnsByTable[selectedTable].join(', ')}.</> : null}
-            </span>
           </div>
         )}
 
