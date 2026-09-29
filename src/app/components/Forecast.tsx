@@ -20,12 +20,20 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarEleme
 // single-hue magnitude, and the blue<->red diverging pair for the growth chart's sign.
 const VIZ_BLUE = '#2a78d6';
 const VIZ_RED = '#e34948';
+// One color per forecasting model, in a fixed order (never cycled/reassigned) — blue
+// and red cover the API's current two models (Holt-Winters, SARIMA); the extra two
+// only come into play if the API ever adds a third/fourth model.
+const MODEL_COLORS = [VIZ_BLUE, VIZ_RED, '#eda100', '#4a3aa7'];
+const hexToRgba = (hex: string, alpha: number) => {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+};
 
 // The forecasting API only knows how to build a time series out of a table that has
 // exactly these three columns (case-sensitive) — a row id, a date, and an amount.
 const REQUIRED_COLUMNS = ['GUID', 'Date', 'Amount'];
 
-type Frequency = 'weekly' | 'monthly';
+type Frequency = 'raw' | 'weekly' | 'monthly';
 
 interface TableRow { GUID: string; Date: string; Amount: number; }
 interface LoadedData {
@@ -35,16 +43,17 @@ interface LoadedData {
   rows: number;
   data: TableRow[];
 }
-// The API returns one combined array spanning the whole series: historical rows carry
-// an Actual value (Forecast is null), forecast rows carry a Forecast value (Actual is
-// null) — `Type` says which is which.
-interface ForecastPoint { Date: string; Actual: number | null; Forecast: number | null; Type: 'historical' | 'forecast'; }
+// The API returns historical actuals and each model's forecast as separate arrays —
+// every model (Holt-Winters, SARIMA, …) gets its own forecast series plus an accuracy/
+// wape score, rather than one flat series with a single "Forecast" column.
+interface HistoricalPoint { Date: string; Actual: number; Type: 'historical'; }
+interface ModelForecastPoint { Date: string; Forecast: number; }
+interface ForecastModel { model: string; accuracy: string; wape: string; forecast: ModelForecastPoint[]; }
 interface ForecastResult {
   frequency: Frequency;
   forecast_count: number;
-  historical_observations: number;
-  season: number;
-  data: ForecastPoint[];
+  historical: HistoricalPoint[];
+  models: ForecastModel[];
 }
 let toastSeq = 0;
 
@@ -424,20 +433,36 @@ export default function Forecast() {
   const [chartDateFrom, setChartDateFrom] = useState('');
   const [chartDateTo, setChartDateTo] = useState('');
   const chartDateBounds = useMemo(() => {
-    if (!forecastResult || forecastResult.data.length === 0) return null;
-    let min = forecastResult.data[0].Date, max = forecastResult.data[0].Date;
-    for (const d of forecastResult.data) {
-      if (d.Date < min) min = d.Date;
-      if (d.Date > max) max = d.Date;
+    if (!forecastResult) return null;
+    const allDates = [
+      ...forecastResult.historical.map(d => d.Date),
+      ...forecastResult.models.flatMap(m => m.forecast.map(d => d.Date)),
+    ];
+    if (allDates.length === 0) return null;
+    let min = allDates[0], max = allDates[0];
+    for (const d of allDates) {
+      if (d < min) min = d;
+      if (d > max) max = d;
     }
     return { min, max };
   }, [forecastResult]);
 
+  // Total distinct dates across historical + every model, unfiltered — the "of Y
+  // points" half of the chart's date-filter counter.
+  const totalChartPoints = useMemo(() => {
+    if (!forecastResult) return 0;
+    const dateSet = new Set<string>();
+    forecastResult.historical.forEach(d => dateSet.add(d.Date));
+    forecastResult.models.forEach(m => m.forecast.forEach(d => dateSet.add(d.Date)));
+    return dateSet.size;
+  }, [forecastResult]);
+
   // Results table — sortable columns + a period filter (multi-select on the actual
   // forecasted periods; e.g. with Monthly frequency, pick just the month(s) you want).
-  const [forecastSortCol, setForecastSortCol] = useState<'Date' | 'Forecast'>('Date');
+  // Sort column is either 'Date' or a model's name (each model gets its own column).
+  const [forecastSortCol, setForecastSortCol] = useState<string>('Date');
   const [forecastSortDir, setForecastSortDir] = useState<'asc' | 'desc'>('asc');
-  const toggleForecastSort = (col: 'Date' | 'Forecast') => {
+  const toggleForecastSort = (col: string) => {
     if (forecastSortCol === col) setForecastSortDir(d => d === 'asc' ? 'desc' : 'asc');
     else { setForecastSortCol(col); setForecastSortDir('asc'); }
   };
@@ -458,24 +483,49 @@ export default function Forecast() {
     setSelectedForecastPeriods(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]);
   };
 
-  // The results table (and its period filter) only deal in actual forecast periods —
-  // the historical rows the API includes alongside them are for the chart only.
-  const forecastRows = useMemo(
-    () => forecastResult ? forecastResult.data.filter(d => d.Type === 'forecast') : [],
+  // The results table (and its period filter) show one row per period — historical
+  // *and* forecast — with a Historical column plus one column per model, mirroring
+  // exactly what the chart above plots. `allPeriods` is every distinct date across
+  // the historical series and all models' forecasts; `historicalMap` and
+  // `modelForecastMaps` give each column a quick Date -> value lookup.
+  const allPeriods = useMemo(() => {
+    if (!forecastResult) return [];
+    const dateSet = new Set<string>();
+    forecastResult.historical.forEach(d => dateSet.add(d.Date));
+    forecastResult.models.forEach(m => m.forecast.forEach(d => dateSet.add(d.Date)));
+    return Array.from(dateSet).sort();
+  }, [forecastResult]);
+
+  const historicalMap = useMemo(
+    () => new Map((forecastResult?.historical ?? []).map(d => [d.Date, d.Actual])),
     [forecastResult]
   );
 
-  const visibleForecastRows = useMemo(() => {
+  const modelForecastMaps = useMemo(() => {
+    if (!forecastResult) return [];
+    return forecastResult.models.map(m => ({
+      model: m.model,
+      accuracy: m.accuracy,
+      wape: m.wape,
+      map: new Map(m.forecast.map(d => [d.Date, d.Forecast])),
+    }));
+  }, [forecastResult]);
+
+  const visiblePeriods = useMemo(() => {
     const filtered = selectedForecastPeriods.length > 0
-      ? forecastRows.filter(d => selectedForecastPeriods.includes(d.Date))
-      : forecastRows;
+      ? allPeriods.filter(p => selectedForecastPeriods.includes(p))
+      : allPeriods;
+    const valueFor = (p: string) => {
+      if (forecastSortCol === 'Date') return p;
+      if (forecastSortCol === 'Historical') return historicalMap.get(p) ?? -Infinity;
+      return modelForecastMaps.find(m => m.model === forecastSortCol)?.map.get(p) ?? -Infinity;
+    };
     const sorted = [...filtered].sort((a, b) => {
-      const av = forecastSortCol === 'Date' ? a.Date : (a.Forecast ?? 0);
-      const bv = forecastSortCol === 'Date' ? b.Date : (b.Forecast ?? 0);
+      const av = valueFor(a), bv = valueFor(b);
       return av < bv ? -1 : av > bv ? 1 : 0;
     });
     return forecastSortDir === 'asc' ? sorted : sorted.reverse();
-  }, [forecastRows, selectedForecastPeriods, forecastSortCol, forecastSortDir]);
+  }, [allPeriods, selectedForecastPeriods, forecastSortCol, forecastSortDir, historicalMap, modelForecastMaps]);
 
   const handleRunForecast = async () => {
     if (!loadedData) { addToast('error', 'Load a table’s data first.'); return; }
@@ -498,8 +548,13 @@ export default function Forecast() {
 
   const downloadForecast = () => {
     if (!forecastResult) return;
-    // Exports whatever the table is currently showing (filtered + sorted), not the raw response.
-    const ws = XLSX.utils.json_to_sheet(visibleForecastRows.map(d => ({ Date: d.Date, Forecast: d.Forecast })));
+    // Exports whatever the table is currently showing (filtered + sorted), not the raw
+    // response — one row per period, a Historical column, and one column per model.
+    const ws = XLSX.utils.json_to_sheet(visiblePeriods.map(p => {
+      const row: Record<string, any> = { Date: p, Historical: historicalMap.get(p) ?? null };
+      modelForecastMaps.forEach(m => { row[m.model] = m.map.get(p) ?? null; });
+      return row;
+    }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Forecast');
     const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
@@ -507,28 +562,52 @@ export default function Forecast() {
   };
 
   // Shared by all three charts below, so the date-range filter scopes them together.
-  const filteredRows = useMemo(() => {
+  const filteredHistorical = useMemo(() => {
     if (!forecastResult) return [];
-    return forecastResult.data.filter(d =>
+    return forecastResult.historical.filter(d =>
       (!chartDateFrom || d.Date >= chartDateFrom) && (!chartDateTo || d.Date <= chartDateTo)
     );
   }, [forecastResult, chartDateFrom, chartDateTo]);
 
+  const filteredModels = useMemo(() => {
+    if (!forecastResult) return [];
+    return forecastResult.models.map(m => ({
+      ...m,
+      forecast: m.forecast.filter(d =>
+        (!chartDateFrom || d.Date >= chartDateFrom) && (!chartDateTo || d.Date <= chartDateTo)
+      ),
+    }));
+  }, [forecastResult, chartDateFrom, chartDateTo]);
+
+  // Chart 1 — "Historical & Forecast Trend": historical (green) plus one line per
+  // model, each its own color from MODEL_COLORS — Holt-Winters and SARIMA today, so
+  // green + blue + red = the "3 different color graph". All series share one date
+  // axis (the union of every date across historical + every model's forecast); a
+  // series is null on dates outside its own range, so Chart.js naturally breaks the
+  // line there. To avoid a gap at the hand-off, the last historical point is also
+  // seeded as each model's starting value, so its line picks up exactly where the
+  // green one ends instead of jumping in from nothing.
   const chartData = useMemo(() => {
     if (!forecastResult) return null;
-    const rows = filteredRows;
-    if (rows.length === 0) return null;
-    // Historical (green) plots Actual; Forecast (red) plots Forecast — each is null on
-    // the other row type, so Chart.js naturally breaks the line there. To avoid a gap
-    // at the hand-off, the last historical point is also seeded as the forecast line's
-    // starting value, so the red line picks up exactly where the green one ends.
-    const lastHistoricalIdx = rows.reduce((acc, d, i) => d.Type === 'historical' ? i : acc, -1);
+    const hist = filteredHistorical;
+    const models = filteredModels;
+    if (hist.length === 0 && models.every(m => m.forecast.length === 0)) return null;
+
+    const dateSet = new Set<string>();
+    hist.forEach(d => dateSet.add(d.Date));
+    models.forEach(m => m.forecast.forEach(d => dateSet.add(d.Date)));
+    const dates = Array.from(dateSet).sort();
+
+    const histMap = new Map(hist.map(d => [d.Date, d.Actual]));
+    const lastHistoricalDate = hist.length ? hist[hist.length - 1].Date : null;
+    const lastHistoricalValue = lastHistoricalDate !== null ? histMap.get(lastHistoricalDate) ?? null : null;
+
     return {
-      labels: rows.map(d => formatDate(d.Date)),
+      labels: dates.map(formatDate),
       datasets: [
         {
           label: 'Historical',
-          data: rows.map(d => d.Actual),
+          data: dates.map(d => histMap.has(d) ? histMap.get(d)! : null),
           borderColor: '#16a34a',
           backgroundColor: 'rgba(22, 163, 74, 0.12)',
           pointBackgroundColor: '#16a34a',
@@ -538,67 +617,87 @@ export default function Forecast() {
           fill: true,
           spanGaps: false,
         },
-        {
-          label: 'Forecast',
-          data: rows.map((d, i) => i === lastHistoricalIdx ? d.Actual : d.Forecast),
-          borderColor: '#dc2626',
-          backgroundColor: 'rgba(220, 38, 38, 0.12)',
-          pointBackgroundColor: '#dc2626',
-          pointRadius: (ctx: any) => ctx.dataIndex === lastHistoricalIdx ? 0 : 3,
-          pointHoverRadius: 6,
-          tension: 0.3,
-          fill: true,
-          spanGaps: false,
-        },
+        ...models.map((m, i) => {
+          const fMap = new Map(m.forecast.map(d => [d.Date, d.Forecast]));
+          const color = MODEL_COLORS[i % MODEL_COLORS.length];
+          return {
+            label: m.model,
+            data: dates.map(d => {
+              if (fMap.has(d)) return fMap.get(d)!;
+              if (d === lastHistoricalDate && lastHistoricalValue !== null) return lastHistoricalValue;
+              return null;
+            }),
+            borderColor: color,
+            backgroundColor: hexToRgba(color, 0.12),
+            pointBackgroundColor: color,
+            pointRadius: (ctx: any) => dates[ctx.dataIndex] === lastHistoricalDate ? 0 : 3,
+            pointHoverRadius: 6,
+            tension: 0.3,
+            fill: true,
+            spanGaps: false,
+          };
+        }),
       ],
     };
-  }, [forecastResult, filteredRows]);
+  }, [forecastResult, filteredHistorical, filteredModels]);
 
-  // Chart 2 — "Forecast by period": a plain magnitude comparison across just the
-  // forecast periods in view. One series -> sequential blue, per the dataviz palette
-  // (bar/column is the default form for "compare magnitude").
+  // Chart 2 — "Forecast by period": a magnitude comparison across periods, grouped
+  // bars — one series per model, same colors as the line chart above so a model reads
+  // as the same color everywhere.
   const barChartData = useMemo(() => {
-    const rows = filteredRows.filter(d => d.Type === 'forecast');
-    if (rows.length === 0) return null;
+    const models = filteredModels;
+    const periodSet = new Set<string>();
+    models.forEach(m => m.forecast.forEach(d => periodSet.add(d.Date)));
+    const periods = Array.from(periodSet).sort();
+    if (periods.length === 0) return null;
     return {
-      labels: rows.map(d => formatDate(d.Date)),
-      datasets: [{
-        label: 'Forecast',
-        data: rows.map(d => d.Forecast),
-        backgroundColor: VIZ_BLUE,
-        borderRadius: 4,
-        maxBarThickness: 48,
-      }],
+      labels: periods.map(formatDate),
+      datasets: models.map((m, i) => {
+        const map = new Map(m.forecast.map(d => [d.Date, d.Forecast]));
+        return {
+          label: m.model,
+          data: periods.map(p => map.has(p) ? map.get(p)! : null),
+          backgroundColor: MODEL_COLORS[i % MODEL_COLORS.length],
+          borderRadius: 4,
+          maxBarThickness: 48,
+        };
+      }),
     };
-  }, [filteredRows]);
+  }, [filteredModels]);
 
-  // Chart 3 — "Period-over-period change": the resolved value (Actual for historical
-  // rows, Forecast for forecast rows) compared to the previous point in view, as a
-  // % change. This is a diverging measure (growth vs decline against a 0% baseline),
-  // so it gets the diverging blue<->red pair rather than a second sequential hue.
+  // Chart 3 — "Period-over-period change": % change vs the previous point, walking
+  // through historical actuals and then — since only one series can plot a sign per
+  // bar — the single most accurate model's forecast for the future leg. Diverging
+  // measure (growth vs decline against a 0% baseline), so it gets the diverging
+  // blue<->red pair rather than a second sequential hue.
   const changeChartData = useMemo(() => {
-    const rows = filteredRows;
-    if (rows.length < 2) return null;
-    const resolve = (d: ForecastPoint) => d.Type === 'historical' ? d.Actual : d.Forecast;
+    if (!forecastResult) return null;
+    const bestModel = [...filteredModels].sort(
+      (a, b) => (parseFloat(b.accuracy) || 0) - (parseFloat(a.accuracy) || 0)
+    )[0];
+    const combined = [
+      ...filteredHistorical.map(d => ({ Date: d.Date, value: d.Actual })),
+      ...(bestModel ? bestModel.forecast.map(d => ({ Date: d.Date, value: d.Forecast })) : []),
+    ].sort((a, b) => a.Date.localeCompare(b.Date));
+    if (combined.length < 2) return null;
     // Skip index 0 — it has no previous point to compare against.
-    const entries = rows.slice(1).map((d, i) => {
-      const prev = resolve(rows[i]); // rows[i] is the point before rows.slice(1)[i]
-      const cur = resolve(d);
-      const change = (prev === null || cur === null || prev === 0) ? null : ((cur - prev) / Math.abs(prev)) * 100;
+    const entries = combined.slice(1).map((d, i) => {
+      const prev = combined[i].value;
+      const change = prev === 0 ? null : ((d.value - prev) / Math.abs(prev)) * 100;
       return { label: formatDate(d.Date), change };
     }).filter(e => e.change !== null);
     if (entries.length === 0) return null;
     return {
       labels: entries.map(e => e.label),
       datasets: [{
-        label: 'Change vs previous period',
+        label: `Change vs previous period${bestModel ? ` (${bestModel.model})` : ''}`,
         data: entries.map(e => e.change),
         backgroundColor: entries.map(e => (e.change as number) < 0 ? VIZ_RED : VIZ_BLUE),
         borderRadius: 4,
         maxBarThickness: 32,
       }],
     };
-  }, [filteredRows]);
+  }, [forecastResult, filteredHistorical, filteredModels]);
 
   // Shared between the inline chart and its expanded modal view, so tooltip/legend
   // behavior stays identical in both places.
@@ -617,12 +716,12 @@ export default function Forecast() {
     },
   }), []);
 
-  // Single-series bar — no legend box needed (the card title already names it).
+  // One bar series per model now, so the legend is what tells them apart.
   const barChartOptions = useMemo(() => ({
     maintainAspectRatio: false,
     plugins: {
-      legend: { display: false },
-      tooltip: { callbacks: { label: (ctx: any) => `₹${formatNumber(Number(ctx.parsed.y))}` } },
+      legend: { display: true, position: 'top' as const, align: 'end' as const, labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true, font: { size: 11 } } },
+      tooltip: { callbacks: { label: (ctx: any) => `${ctx.dataset.label}: ₹${formatNumber(Number(ctx.parsed.y))}` } },
     },
     scales: {
       y: { ticks: { callback: (v: any) => `₹${formatNumber(Number(v))}` } },
@@ -692,7 +791,7 @@ export default function Forecast() {
         </button>
       )}
       <span className="text-[11px] text-gray-400 pb-1.5 ml-auto">
-        {chartData ? `Showing ${formatNumber(chartData.labels.length)} of ${formatNumber(forecastResult?.data.length ?? 0)} points` : 'No points in this range'}
+        {chartData ? `Showing ${formatNumber(chartData.labels.length)} of ${formatNumber(totalChartPoints)} points` : 'No points in this range'}
       </span>
       </div>
     </div>
@@ -1194,7 +1293,7 @@ export default function Forecast() {
           <div>
             <label className="block text-xs font-semibold text-gray-700 mb-1.5">Frequency</label>
             <div className="flex bg-gray-100 rounded-lg p-1">
-              {(['weekly', 'monthly'] as Frequency[]).map(f => (
+              {(['raw', 'weekly', 'monthly'] as Frequency[]).map(f => (
                 <button
                   key={f}
                   onClick={() => setFrequency(f)}
@@ -1240,7 +1339,10 @@ export default function Forecast() {
         {forecastResult && (
           <div className="mt-5">
             <p className="text-[11px] text-gray-400 mb-3">
-              Based on {formatNumber(forecastResult.historical_observations)} historical {forecastResult.frequency} observations · season length {forecastResult.season}
+              Based on {formatNumber(forecastResult.historical.length)} historical {forecastResult.frequency} observations
+              {forecastResult.models.length > 0 && (
+                <> · {forecastResult.models.map(m => `${m.model} ${m.accuracy} acc`).join(' · ')}</>
+              )}
             </p>
 
             {/* Chart date filter — narrows the chart (and only the chart) to a range;
@@ -1286,24 +1388,24 @@ export default function Forecast() {
                     {periodFilterOpen && (
                       <div className="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto border border-gray-300 rounded-lg bg-white shadow-lg p-2 space-y-0.5">
                         <div className="flex items-center justify-between px-2 pb-1.5 mb-1 border-b border-gray-100">
-                          <button type="button" onClick={() => setSelectedForecastPeriods(forecastRows.map(d => d.Date))} className="text-[11px] text-blue-600 hover:underline">Select all</button>
+                          <button type="button" onClick={() => setSelectedForecastPeriods(allPeriods)} className="text-[11px] text-blue-600 hover:underline">Select all</button>
                           <button type="button" onClick={() => setSelectedForecastPeriods([])} className="text-[11px] text-gray-400 hover:underline">Clear</button>
                         </div>
-                        {forecastRows.map(d => (
-                          <label key={d.Date} className="flex items-center gap-2.5 px-2 py-1.5 hover:bg-gray-50 cursor-pointer rounded">
+                        {allPeriods.map(p => (
+                          <label key={p} className="flex items-center gap-2.5 px-2 py-1.5 hover:bg-gray-50 cursor-pointer rounded">
                             <input
                               type="checkbox"
-                              checked={selectedForecastPeriods.includes(d.Date)}
-                              onChange={() => toggleForecastPeriod(d.Date)}
+                              checked={selectedForecastPeriods.includes(p)}
+                              onChange={() => toggleForecastPeriod(p)}
                               className="h-4 w-4 text-blue-600 rounded flex-shrink-0"
                             />
-                            <span className="text-sm text-gray-900 truncate">{formatDate(d.Date)}</span>
+                            <span className="text-sm text-gray-900 truncate">{formatDate(p)}</span>
                           </label>
                         ))}
                       </div>
                     )}
                   </div>
-                  <span className="text-[11px] text-gray-500 flex-shrink-0">{formatNumber(visibleForecastRows.length)} of {formatNumber(forecastRows.length)}</span>
+                  <span className="text-[11px] text-gray-500 flex-shrink-0">{formatNumber(visiblePeriods.length)} of {formatNumber(allPeriods.length)}</span>
                 </div>
                 <div className="border border-gray-100 rounded-lg overflow-hidden max-h-56 overflow-y-auto">
                   <table className="w-full text-xs">
@@ -1315,20 +1417,39 @@ export default function Forecast() {
                           </button>
                         </th>
                         <th className="text-right px-3 py-1.5 font-semibold text-gray-500">
-                          <button type="button" onClick={() => toggleForecastSort('Forecast')} className="flex items-center gap-1 ml-auto hover:text-gray-700">
-                            Forecast <ArrowUpDown className={`w-3 h-3 ${forecastSortCol === 'Forecast' ? 'text-blue-600' : 'text-gray-300'}`} />
+                          <button type="button" onClick={() => toggleForecastSort('Historical')} className="flex items-center gap-1 ml-auto hover:text-gray-700">
+                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: '#16a34a' }} />
+                            Historical <ArrowUpDown className={`w-3 h-3 ${forecastSortCol === 'Historical' ? 'text-blue-600' : 'text-gray-300'}`} />
                           </button>
                         </th>
+                        {modelForecastMaps.map((m, i) => (
+                          <th key={m.model} className="text-right px-3 py-1.5 font-semibold text-gray-500">
+                            <button type="button" onClick={() => toggleForecastSort(m.model)} className="flex flex-col items-end ml-auto hover:text-gray-700">
+                              <span className="flex items-center gap-1">
+                                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: MODEL_COLORS[i % MODEL_COLORS.length] }} />
+                                {m.model} <ArrowUpDown className={`w-3 h-3 ${forecastSortCol === m.model ? 'text-blue-600' : 'text-gray-300'}`} />
+                              </span>
+                              <span className="text-[10px] font-normal text-gray-400 normal-case">{m.accuracy} acc</span>
+                            </button>
+                          </th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {visibleForecastRows.length === 0 ? (
-                        <tr><td colSpan={2} className="px-3 py-3 text-center text-gray-400">No periods selected.</td></tr>
+                      {visiblePeriods.length === 0 ? (
+                        <tr><td colSpan={2 + modelForecastMaps.length} className="px-3 py-3 text-center text-gray-400">No periods selected.</td></tr>
                       ) : (
-                        visibleForecastRows.map((d, i) => (
+                        visiblePeriods.map((p, i) => (
                           <tr key={i} className="border-t border-gray-50">
-                            <td className="px-3 py-1.5 text-gray-600">{formatDate(d.Date)}</td>
-                            <td className="px-3 py-1.5 text-right text-blue-700 font-semibold">₹{formatNumber(d.Forecast, 2)}</td>
+                            <td className="px-3 py-1.5 text-gray-600">{formatDate(p)}</td>
+                            <td className="px-3 py-1.5 text-right text-emerald-700 font-semibold">
+                              ₹{formatNumber(historicalMap.get(p) ?? null, 2)}
+                            </td>
+                            {modelForecastMaps.map(m => (
+                              <td key={m.model} className="px-3 py-1.5 text-right text-blue-700 font-semibold">
+                                ₹{formatNumber(m.map.get(p) ?? null, 2)}
+                              </td>
+                            ))}
                           </tr>
                         ))
                       )}
