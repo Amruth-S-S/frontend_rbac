@@ -483,23 +483,17 @@ export default function Forecast() {
     setSelectedForecastPeriods(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]);
   };
 
-  // The results table (and its period filter) show one row per period — historical
-  // *and* forecast — with a Historical column plus one column per model, mirroring
-  // exactly what the chart above plots. `allPeriods` is every distinct date across
-  // the historical series and all models' forecasts; `historicalMap` and
-  // `modelForecastMaps` give each column a quick Date -> value lookup.
-  const allPeriods = useMemo(() => {
+  // The results table (and its period filter) only deal in actual forecast periods —
+  // the historical points the API includes alongside them are for the chart only.
+  // `forecastPeriods` is every distinct date across all models (usually identical per
+  // model, but built as a union to be safe); `modelForecastMaps` gives each model a
+  // quick Date -> Forecast lookup for rendering table cells.
+  const forecastPeriods = useMemo(() => {
     if (!forecastResult) return [];
     const dateSet = new Set<string>();
-    forecastResult.historical.forEach(d => dateSet.add(d.Date));
     forecastResult.models.forEach(m => m.forecast.forEach(d => dateSet.add(d.Date)));
     return Array.from(dateSet).sort();
   }, [forecastResult]);
-
-  const historicalMap = useMemo(
-    () => new Map((forecastResult?.historical ?? []).map(d => [d.Date, d.Actual])),
-    [forecastResult]
-  );
 
   const modelForecastMaps = useMemo(() => {
     if (!forecastResult) return [];
@@ -513,19 +507,27 @@ export default function Forecast() {
 
   const visiblePeriods = useMemo(() => {
     const filtered = selectedForecastPeriods.length > 0
-      ? allPeriods.filter(p => selectedForecastPeriods.includes(p))
-      : allPeriods;
-    const valueFor = (p: string) => {
-      if (forecastSortCol === 'Date') return p;
-      if (forecastSortCol === 'Historical') return historicalMap.get(p) ?? -Infinity;
-      return modelForecastMaps.find(m => m.model === forecastSortCol)?.map.get(p) ?? -Infinity;
-    };
+      ? forecastPeriods.filter(p => selectedForecastPeriods.includes(p))
+      : forecastPeriods;
+    // A period without a value for the sorted model always sinks to the bottom
+    // regardless of asc/desc, instead of jumping to whichever end -Infinity/Infinity
+    // happens to land on (defends against models covering slightly different dates).
+    const valueFor = (p: string) => forecastSortCol === 'Date'
+      ? p
+      : modelForecastMaps.find(m => m.model === forecastSortCol)?.map.get(p);
     const sorted = [...filtered].sort((a, b) => {
       const av = valueFor(a), bv = valueFor(b);
-      return av < bv ? -1 : av > bv ? 1 : 0;
+      if (forecastSortCol !== 'Date') {
+        const aMissing = av === undefined, bMissing = bv === undefined;
+        if (aMissing && bMissing) return 0;
+        if (aMissing) return 1;
+        if (bMissing) return -1;
+      }
+      const cmp = av! < bv! ? -1 : av! > bv! ? 1 : 0;
+      return forecastSortDir === 'asc' ? cmp : -cmp;
     });
-    return forecastSortDir === 'asc' ? sorted : sorted.reverse();
-  }, [allPeriods, selectedForecastPeriods, forecastSortCol, forecastSortDir, historicalMap, modelForecastMaps]);
+    return sorted;
+  }, [forecastPeriods, selectedForecastPeriods, forecastSortCol, forecastSortDir, modelForecastMaps]);
 
   const handleRunForecast = async () => {
     if (!loadedData) { addToast('error', 'Load a table’s data first.'); return; }
@@ -549,9 +551,9 @@ export default function Forecast() {
   const downloadForecast = () => {
     if (!forecastResult) return;
     // Exports whatever the table is currently showing (filtered + sorted), not the raw
-    // response — one row per period, a Historical column, and one column per model.
+    // response — one row per period, one column per model.
     const ws = XLSX.utils.json_to_sheet(visiblePeriods.map(p => {
-      const row: Record<string, any> = { Date: p, Historical: historicalMap.get(p) ?? null };
+      const row: Record<string, any> = { Date: p };
       modelForecastMaps.forEach(m => { row[m.model] = m.map.get(p) ?? null; });
       return row;
     }));
@@ -1349,113 +1351,105 @@ export default function Forecast() {
                 the results table on the right has its own separate period filter. */}
             {renderChartDateFilter(true)}
 
-            <div className="grid grid-cols-1 lg:grid-cols-[1.4fr,1fr] gap-4">
-              <div className="relative h-64 border border-gray-100 rounded-lg p-3">
-                <button
-                  type="button"
-                  onClick={() => setChartModalOpen(true)}
-                  title="Expand all charts"
-                  className="absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-gray-500 bg-white/90 border border-gray-200 rounded-md shadow-sm hover:text-blue-600 hover:border-blue-300"
-                >
-                  <Maximize2 className="w-3 h-3" /> Expand
-                </button>
-                {chartData ? (
-                  <Line data={chartData} options={chartOptions} />
-                ) : (
-                  <div className="h-full flex items-center justify-center text-xs text-gray-400">
-                    No data in this date range.
-                  </div>
-                )}
-              </div>
-              <div>
-                {/* Period filter — multi-select on the actual forecasted periods */}
-                <div className="flex items-center justify-between gap-2 mb-1.5">
-                  <div className="relative flex-1" ref={periodFilterRef}>
-                    <button
-                      type="button"
-                      onClick={() => setPeriodFilterOpen(o => !o)}
-                      className="w-full flex items-center justify-between px-2.5 py-1 text-xs border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
-                    >
-                      <span className={`truncate ${selectedForecastPeriods.length === 0 ? 'text-gray-400' : 'text-gray-900'}`}>
-                        {selectedForecastPeriods.length === 0
-                          ? 'All periods'
-                          : selectedForecastPeriods.length <= 2
-                            ? selectedForecastPeriods.map(formatDate).join(', ')
-                            : `${selectedForecastPeriods.length} periods selected`}
-                      </span>
-                      <ChevronDown className={`w-3.5 h-3.5 text-gray-400 flex-shrink-0 transition-transform ${periodFilterOpen ? 'rotate-180' : ''}`} />
-                    </button>
-                    {periodFilterOpen && (
-                      <div className="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto border border-gray-300 rounded-lg bg-white shadow-lg p-2 space-y-0.5">
-                        <div className="flex items-center justify-between px-2 pb-1.5 mb-1 border-b border-gray-100">
-                          <button type="button" onClick={() => setSelectedForecastPeriods(allPeriods)} className="text-[11px] text-blue-600 hover:underline">Select all</button>
-                          <button type="button" onClick={() => setSelectedForecastPeriods([])} className="text-[11px] text-gray-400 hover:underline">Clear</button>
-                        </div>
-                        {allPeriods.map(p => (
-                          <label key={p} className="flex items-center gap-2.5 px-2 py-1.5 hover:bg-gray-50 cursor-pointer rounded">
-                            <input
-                              type="checkbox"
-                              checked={selectedForecastPeriods.includes(p)}
-                              onChange={() => toggleForecastPeriod(p)}
-                              className="h-4 w-4 text-blue-600 rounded flex-shrink-0"
-                            />
-                            <span className="text-sm text-gray-900 truncate">{formatDate(p)}</span>
-                          </label>
-                        ))}
+            <div className="relative h-64 border border-gray-100 rounded-lg p-3">
+              <button
+                type="button"
+                onClick={() => setChartModalOpen(true)}
+                title="Expand all charts"
+                className="absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-gray-500 bg-white/90 border border-gray-200 rounded-md shadow-sm hover:text-blue-600 hover:border-blue-300"
+              >
+                <Maximize2 className="w-3 h-3" /> Expand
+              </button>
+              {chartData ? (
+                <Line data={chartData} options={chartOptions} />
+              ) : (
+                <div className="h-full flex items-center justify-center text-xs text-gray-400">
+                  No data in this date range.
+                </div>
+              )}
+            </div>
+
+            {/* Results table — full width of its own, below the chart rather than
+                squeezed into a narrow side column, so Period + Historical + a column
+                per model all have room without wrapping. */}
+            <div className="mt-4">
+              {/* Period filter — multi-select on the actual forecasted periods */}
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <div className="relative w-64" ref={periodFilterRef}>
+                  <button
+                    type="button"
+                    onClick={() => setPeriodFilterOpen(o => !o)}
+                    className="w-full flex items-center justify-between px-2.5 py-1 text-xs border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  >
+                    <span className={`truncate ${selectedForecastPeriods.length === 0 ? 'text-gray-400' : 'text-gray-900'}`}>
+                      {selectedForecastPeriods.length === 0
+                        ? 'All periods'
+                        : selectedForecastPeriods.length <= 2
+                          ? selectedForecastPeriods.map(formatDate).join(', ')
+                          : `${selectedForecastPeriods.length} periods selected`}
+                    </span>
+                    <ChevronDown className={`w-3.5 h-3.5 text-gray-400 flex-shrink-0 transition-transform ${periodFilterOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  {periodFilterOpen && (
+                    <div className="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto border border-gray-300 rounded-lg bg-white shadow-lg p-2 space-y-0.5">
+                      <div className="flex items-center justify-between px-2 pb-1.5 mb-1 border-b border-gray-100">
+                        <button type="button" onClick={() => setSelectedForecastPeriods(forecastPeriods)} className="text-[11px] text-blue-600 hover:underline">Select all</button>
+                        <button type="button" onClick={() => setSelectedForecastPeriods([])} className="text-[11px] text-gray-400 hover:underline">Clear</button>
                       </div>
-                    )}
-                  </div>
-                  <span className="text-[11px] text-gray-500 flex-shrink-0">{formatNumber(visiblePeriods.length)} of {formatNumber(allPeriods.length)}</span>
+                      {forecastPeriods.map(p => (
+                        <label key={p} className="flex items-center gap-2.5 px-2 py-1.5 hover:bg-gray-50 cursor-pointer rounded">
+                          <input
+                            type="checkbox"
+                            checked={selectedForecastPeriods.includes(p)}
+                            onChange={() => toggleForecastPeriod(p)}
+                            className="h-4 w-4 text-blue-600 rounded flex-shrink-0"
+                          />
+                          <span className="text-sm text-gray-900 truncate">{formatDate(p)}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <div className="border border-gray-100 rounded-lg overflow-hidden max-h-56 overflow-y-auto">
-                  <table className="w-full text-xs">
-                    <thead className="bg-gray-50 sticky top-0">
-                      <tr>
-                        <th className="text-left px-3 py-1.5 font-semibold text-gray-500">
-                          <button type="button" onClick={() => toggleForecastSort('Date')} className="flex items-center gap-1 hover:text-gray-700">
-                            Period <ArrowUpDown className={`w-3 h-3 ${forecastSortCol === 'Date' ? 'text-blue-600' : 'text-gray-300'}`} />
+                <span className="text-[11px] text-gray-500 flex-shrink-0">{formatNumber(visiblePeriods.length)} of {formatNumber(forecastPeriods.length)}</span>
+              </div>
+              <div className="border border-gray-100 rounded-lg overflow-hidden max-h-80 overflow-y-auto">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="text-left px-3 py-1.5 font-semibold text-gray-500">
+                        <button type="button" onClick={() => toggleForecastSort('Date')} className="flex items-center gap-1 hover:text-gray-700">
+                          Period <ArrowUpDown className={`w-3 h-3 ${forecastSortCol === 'Date' ? 'text-blue-600' : 'text-gray-300'}`} />
+                        </button>
+                      </th>
+                      {modelForecastMaps.map((m, i) => (
+                        <th key={m.model} className="text-right px-3 py-1.5 font-semibold text-gray-500">
+                          <button type="button" onClick={() => toggleForecastSort(m.model)} className="flex items-center gap-1.5 ml-auto hover:text-gray-700">
+                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: MODEL_COLORS[i % MODEL_COLORS.length] }} />
+                            {m.model}
+                            <span className="text-[10px] font-normal text-gray-400">({m.accuracy} acc)</span>
+                            <ArrowUpDown className={`w-3 h-3 ${forecastSortCol === m.model ? 'text-blue-600' : 'text-gray-300'}`} />
                           </button>
                         </th>
-                        <th className="text-right px-3 py-1.5 font-semibold text-gray-500">
-                          <button type="button" onClick={() => toggleForecastSort('Historical')} className="flex items-center gap-1 ml-auto hover:text-gray-700">
-                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: '#16a34a' }} />
-                            Historical <ArrowUpDown className={`w-3 h-3 ${forecastSortCol === 'Historical' ? 'text-blue-600' : 'text-gray-300'}`} />
-                          </button>
-                        </th>
-                        {modelForecastMaps.map((m, i) => (
-                          <th key={m.model} className="text-right px-3 py-1.5 font-semibold text-gray-500">
-                            <button type="button" onClick={() => toggleForecastSort(m.model)} className="flex flex-col items-end ml-auto hover:text-gray-700">
-                              <span className="flex items-center gap-1">
-                                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: MODEL_COLORS[i % MODEL_COLORS.length] }} />
-                                {m.model} <ArrowUpDown className={`w-3 h-3 ${forecastSortCol === m.model ? 'text-blue-600' : 'text-gray-300'}`} />
-                              </span>
-                              <span className="text-[10px] font-normal text-gray-400 normal-case">{m.accuracy} acc</span>
-                            </button>
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visiblePeriods.length === 0 ? (
-                        <tr><td colSpan={2 + modelForecastMaps.length} className="px-3 py-3 text-center text-gray-400">No periods selected.</td></tr>
-                      ) : (
-                        visiblePeriods.map((p, i) => (
-                          <tr key={i} className="border-t border-gray-50">
-                            <td className="px-3 py-1.5 text-gray-600">{formatDate(p)}</td>
-                            <td className="px-3 py-1.5 text-right text-emerald-700 font-semibold">
-                              ₹{formatNumber(historicalMap.get(p) ?? null, 2)}
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visiblePeriods.length === 0 ? (
+                      <tr><td colSpan={1 + modelForecastMaps.length} className="px-3 py-3 text-center text-gray-400">No periods selected.</td></tr>
+                    ) : (
+                      visiblePeriods.map((p, i) => (
+                        <tr key={i} className="border-t border-gray-50">
+                          <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{formatDate(p)}</td>
+                          {modelForecastMaps.map(m => (
+                            <td key={m.model} className="px-3 py-1.5 text-right text-blue-700 font-semibold whitespace-nowrap">
+                              ₹{formatNumber(m.map.get(p) ?? null, 2)}
                             </td>
-                            {modelForecastMaps.map(m => (
-                              <td key={m.model} className="px-3 py-1.5 text-right text-blue-700 font-semibold">
-                                ₹{formatNumber(m.map.get(p) ?? null, 2)}
-                              </td>
-                            ))}
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                          ))}
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
 
