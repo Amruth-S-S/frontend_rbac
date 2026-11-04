@@ -46,12 +46,15 @@ interface ExcelTableComponentProps {
   // When provided, a "Currency Settings" tab button is shown in the header
   // that switches the panel over to the currency-settings view.
   onSwitchToCurrency?: () => void;
+  // Opt-in only — other callers of this shared component keep the original
+  // gray table headers unless they explicitly pass this.
+  blueHeaders?: boolean;
 }
 
 const FIELD_TYPES = ["char", "list", "number", "date", "boolean"];
 const FIELDS_PER_PAGE = 10;
 
-const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponentProps) => {
+const ExcelTableComponent = ({ boardId, onSwitchToCurrency, blueHeaders = false }: ExcelTableComponentProps) => {
   const loggedInUserId = (() => {
     try {
       const d = sessionStorage.getItem("currentUserData");
@@ -769,7 +772,7 @@ const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponen
             }}
             onBlur={() => handleCellSave(tableId, row.id, field)}
             onKeyDown={(e) => handleCellKeyDown(e, tableId, row.id, field)}
-            className="w-full px-2 py-1 border border-blue-500 rounded text-sm focus:outline-none bg-white"
+            className={blueHeaders ? "w-full px-2 py-1 border-2 border-accent rounded text-sm focus:outline-none bg-white" : "w-full px-2 py-1 border border-blue-500 rounded text-sm focus:outline-none bg-white"}
           >
             {FIELD_TYPES.map((t) => (
               <option key={t} value={t}>
@@ -822,7 +825,7 @@ const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponen
                 maxLength={10}
                 onBlur={() => handleCellSave(tableId, row.id, field)}
                 onKeyDown={(e) => handleCellKeyDown(e, tableId, row.id, field)}
-                className="w-full px-2 py-1 border border-blue-500 rounded text-sm focus:outline-none pr-10 bg-white"
+                className={blueHeaders ? "w-full px-2 py-1 border-2 border-accent rounded text-sm focus:outline-none pr-10 bg-white" : "w-full px-2 py-1 border border-blue-500 rounded text-sm focus:outline-none pr-10 bg-white"}
               />
 
               {/* HIDDEN DATE PICKER */}
@@ -891,7 +894,7 @@ const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponen
                 maxLength={currentLen || undefined}
                 onBlur={() => handleCellSave(tableId, row.id, field)}
                 onKeyDown={(e) => handleCellKeyDown(e, tableId, row.id, field)}
-                className="w-full px-2 py-1 border border-blue-500 rounded text-sm focus:outline-none pr-10 bg-white"
+                className={blueHeaders ? "w-full px-2 py-1 border-2 border-accent rounded text-sm focus:outline-none pr-10 bg-white" : "w-full px-2 py-1 border border-blue-500 rounded text-sm focus:outline-none pr-10 bg-white"}
               />
 
               <div className="absolute right-1 flex gap-0.5">
@@ -935,7 +938,7 @@ const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponen
               maxLength={currentLen || undefined}
               onBlur={() => handleCellSave(tableId, row.id, field)}
               onKeyDown={(e) => handleCellKeyDown(e, tableId, row.id, field)}
-              className="w-full px-2 py-1 border border-blue-500 rounded text-sm focus:outline-none pr-10 bg-white"
+              className={blueHeaders ? "w-full px-2 py-1 border-2 border-accent rounded text-sm focus:outline-none pr-10 bg-white" : "w-full px-2 py-1 border border-blue-500 rounded text-sm focus:outline-none pr-10 bg-white"}
             />
 
             <div className="absolute right-1 flex gap-0.5">
@@ -972,7 +975,7 @@ const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponen
             onChange={(e) => setEditCellValue(e.target.value)}
             onBlur={() => handleCellSave(tableId, row.id, field)}
             onKeyDown={(e) => handleCellKeyDown(e, tableId, row.id, field)}
-            className="w-full px-2 py-1 border border-blue-500 rounded text-sm focus:outline-none pr-10 bg-white"
+            className={blueHeaders ? "w-full px-2 py-1 border-2 border-accent rounded text-sm focus:outline-none pr-10 bg-white" : "w-full px-2 py-1 border border-blue-500 rounded text-sm focus:outline-none pr-10 bg-white"}
           />
 
           <div className="absolute right-1 flex gap-0.5">
@@ -1040,11 +1043,11 @@ const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponen
         {/* ── Header ── */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
-              <Database className="w-5 h-5 text-blue-600" />
+            <div className={blueHeaders ? "w-14 h-14 rounded-2xl bg-tint flex items-center justify-center flex-shrink-0" : "w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0"}>
+              <Database className={blueHeaders ? "w-6 h-6 text-accent" : "w-5 h-5 text-blue-600"} />
             </div>
             <div>
-              <h2 className="text-base font-bold text-gray-800">Master Data</h2>
+              <h2 className={blueHeaders ? "text-lg font-bold text-gray-800 font-heading" : "text-base font-bold text-gray-800"}>Master Data</h2>
               <p className="text-xs text-gray-500">Custom master data tables for this board</p>
             </div>
           </div>
@@ -1052,7 +1055,9 @@ const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponen
             {onSwitchToCurrency && (
               <button
                 onClick={onSwitchToCurrency}
-                className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 text-gray-600 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-all text-sm font-medium"
+                className={blueHeaders
+                  ? "flex items-center gap-1.5 h-11 px-4 bg-white border border-card-border text-gray-700 rounded-full hover:border-accent hover:bg-tint transition-all text-sm font-medium"
+                  : "flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 text-gray-600 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-all text-sm font-medium"}
               >
                 <Coins className="w-4 h-4" />
                 <span>Currency Settings</span>
@@ -1061,7 +1066,9 @@ const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponen
             {canManageOrgLogo && (
               <button
                 onClick={() => setIsLogoModalOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg hover:bg-blue-100 hover:border-blue-300 transition-all text-sm font-medium"
+                className={blueHeaders
+                  ? "flex items-center gap-1.5 h-11 px-4 bg-tint border border-transparent text-accent rounded-full hover:bg-[#DCE8FD] transition-all text-sm font-medium"
+                  : "flex items-center gap-1.5 px-3 py-2 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg hover:bg-blue-100 hover:border-blue-300 transition-all text-sm font-medium"}
               >
                 <Upload className="w-4 h-4" />
                 <span>Upload Logo</span>
@@ -1070,7 +1077,9 @@ const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponen
             <button
               onClick={fetchTables}
               disabled={tablesLoading || !boardId || !loggedInUserId}
-              className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 text-gray-600 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-all disabled:opacity-50 text-sm font-medium"
+              className={blueHeaders
+                ? "flex items-center gap-1.5 h-11 px-4 bg-white border border-card-border text-gray-700 rounded-full hover:border-accent hover:bg-tint transition-all disabled:opacity-50 text-sm font-medium"
+                : "flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 text-gray-600 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-all disabled:opacity-50 text-sm font-medium"}
             >
               <RefreshCw className={`w-4 h-4 ${tablesLoading ? "animate-spin text-blue-600" : ""}`} />
               <span className="hidden sm:inline">Refresh</span>
@@ -1078,11 +1087,17 @@ const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponen
             <button
               onClick={() => !isViewer && openCreateModal()}
               disabled={isViewer || !boardId || !loggedInUserId || tables.length > 0}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors ${
-                isViewer || !boardId || !loggedInUserId || tables.length > 0
-                  ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                  : "bg-blue-600 text-white hover:bg-blue-700"
-              }`}
+              className={blueHeaders
+                ? `flex items-center gap-1.5 h-11 px-4 rounded-full text-sm font-medium shadow-sm transition-colors ${
+                    isViewer || !boardId || !loggedInUserId || tables.length > 0
+                      ? "bg-[#EEF1F7] text-gray-400 cursor-not-allowed"
+                      : "bg-accent text-white hover:bg-accent-hover"
+                  }`
+                : `flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors ${
+                    isViewer || !boardId || !loggedInUserId || tables.length > 0
+                      ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                      : "bg-blue-600 text-white hover:bg-blue-700"
+                  }`}
               title={isViewer ? "View only" : tables.length > 0 ? "Delete the existing table to create a new one" : undefined}
             >
               <Plus className="w-4 h-4" />
@@ -1125,26 +1140,38 @@ const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponen
         {/* ── Tables list ── */}
         <div>
           {tablesLoading ? (
+          blueHeaders ? (
+            <div className="bg-white rounded-2xl border border-card-border overflow-hidden">
+              {[0, 1, 2].map(i => (
+                <div key={i} className="px-3 py-3.5 border-b border-card-border last:border-0 flex items-center gap-4">
+                  <div className="h-3 bg-tint rounded animate-pulse" style={{ width: "28%" }} />
+                  <div className="h-3 bg-tint rounded animate-pulse" style={{ width: "45%" }} />
+                  <div className="h-3 bg-tint rounded animate-pulse ml-auto" style={{ width: "10%" }} />
+                </div>
+              ))}
+            </div>
+          ) : (
           <div className="flex justify-center items-center py-4">
             <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
           </div>
+          )
         ) : (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-visible">
+          <div className={blueHeaders ? "bg-white rounded-2xl shadow-sm border border-card-border overflow-hidden" : "bg-white rounded-xl shadow-sm border border-gray-200 overflow-visible"}>
             <table className="min-w-full table-fixed">
               <colgroup>
                 <col style={{ width: "35%" }} />
                 <col style={{ width: "50%" }} />
                 <col style={{ width: "15%" }} />
               </colgroup>
-              <thead className="bg-gray-50 border-b border-gray-200">
+              <thead className={blueHeaders ? "bg-blue-600" : "bg-gray-50 border-b border-gray-200"}>
                 <tr>
-                  <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">
+                  <th className={`px-3 py-2.5 text-left text-xs uppercase ${blueHeaders ? "font-bold text-white tracking-wide" : "font-semibold text-gray-600"}`}>
                     Table Name
                   </th>
-                  <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">
+                  <th className={`px-3 py-2.5 text-left text-xs uppercase ${blueHeaders ? "font-bold text-white tracking-wide" : "font-semibold text-gray-600"}`}>
                     Table Description
                   </th>
-                  <th className="px-3 py-2.5 text-center text-xs font-semibold text-gray-600 uppercase">
+                  <th className={`px-3 py-2.5 text-center text-xs uppercase ${blueHeaders ? "font-bold text-white tracking-wide" : "font-semibold text-gray-600"}`}>
                     Actions
                   </th>
                 </tr>
@@ -1165,7 +1192,7 @@ const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponen
                   tables.map((table) => (
                     <React.Fragment key={table.id}>
                       {/* ── Table row ── */}
-                      <tr className="hover:bg-gray-50 transition-colors">
+                      <tr className={blueHeaders ? "odd:bg-white even:bg-gray-50 hover:bg-[#F3F7FF] border-b border-card-border transition-colors" : "hover:bg-gray-50 transition-colors"}>
                         <td className="px-3 py-2">
                           {editingTableId === table.id ? (
                             <input
@@ -1241,7 +1268,9 @@ const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponen
                                   className="text-gray-500 hover:text-gray-700 p-1 rounded hover:bg-gray-100"
                                   title="View fields"
                                 >
-                                  {expandedTableId === table.id ? (
+                                  {blueHeaders ? (
+                                    <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expandedTableId === table.id ? "rotate-180" : ""}`} />
+                                  ) : expandedTableId === table.id ? (
                                     <ChevronUp className="h-3.5 w-3.5" />
                                   ) : (
                                     <ChevronDown className="h-3.5 w-3.5" />
@@ -1258,7 +1287,7 @@ const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponen
                         <tr>
                           <td
                             colSpan={3}
-                            className="p-0 bg-gray-50 border-t border-gray-200"
+                            className={blueHeaders ? "p-0 bg-[#F8FAFE] border-t border-card-border" : "p-0 bg-gray-50 border-t border-gray-200"}
                           >
                             <div style={{ width: "100%", overflowX: "auto" }}>
                               <div style={{ minWidth: "600px" }}>
@@ -1405,7 +1434,9 @@ const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponen
                                         setDatasetFile(null);
                                       }}
                                       disabled={isViewer}
-                                      className={`px-4 py-2 rounded-md text-xs font-medium flex items-center gap-1.5 shadow-sm ${isViewer ? 'bg-gray-50 border border-gray-200 text-gray-300 cursor-not-allowed opacity-40' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-300'}`}
+                                      className={blueHeaders
+                                        ? `px-4 py-2 rounded-xl text-xs font-medium flex items-center gap-1.5 shadow-sm border ${isViewer ? 'bg-gray-50 border-gray-200 text-gray-300 cursor-not-allowed opacity-40' : 'bg-white border-card-border text-gray-700 hover:bg-tint hover:border-accent'}`
+                                        : `px-4 py-2 rounded-md text-xs font-medium flex items-center gap-1.5 shadow-sm ${isViewer ? 'bg-gray-50 border border-gray-200 text-gray-300 cursor-not-allowed opacity-40' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-300'}`}
                                     >
                                       <Upload className="h-3.5 w-3.5" />
                                       {table.has_uploaded_file
@@ -1416,7 +1447,7 @@ const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponen
                                 </div>
 
                                 {/* Fields toolbar */}
-                                <div className="px-3 py-2.5 flex flex-wrap items-center justify-between gap-2 border-t border-b border-gray-200 bg-white">
+                                <div className={blueHeaders ? "px-3 py-2.5 flex flex-wrap items-center justify-between gap-2 border-t border-b border-card-border bg-white" : "px-3 py-2.5 flex flex-wrap items-center justify-between gap-2 border-t border-b border-gray-200 bg-white"}>
                                   <span className="text-xs font-semibold text-gray-700">
                                     Manage Fields
                                     {fieldsMap[table.id] && (
@@ -1429,13 +1460,15 @@ const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponen
                                     <button
                                       onClick={() => !isViewer && addFieldRow(table.id)}
                                       disabled={isViewer || savingField}
-                                      className={`px-3 py-1.5 rounded text-xs font-medium flex items-center gap-1 shadow-sm ${isViewer ? 'bg-gray-300 text-gray-400 cursor-not-allowed opacity-40' : 'bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50'}`}
+                                      className={blueHeaders
+                                        ? `px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1 shadow-sm ${isViewer ? 'bg-gray-300 text-gray-400 cursor-not-allowed opacity-40' : 'bg-accent text-white hover:bg-accent-hover disabled:opacity-50'}`
+                                        : `px-3 py-1.5 rounded text-xs font-medium flex items-center gap-1 shadow-sm ${isViewer ? 'bg-gray-300 text-gray-400 cursor-not-allowed opacity-40' : 'bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50'}`}
                                     >
                                       <Plus className="h-3 w-3" /> Add new field
                                     </button>
                                     <button
                                       onClick={() => fetchFields(table.id)}
-                                      className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded text-xs font-medium hover:bg-gray-200 flex items-center gap-1 shadow-sm"
+                                      className={blueHeaders ? "px-3 py-1.5 bg-gray-100 text-gray-600 rounded-xl text-xs font-medium hover:bg-gray-200 flex items-center gap-1 shadow-sm" : "px-3 py-1.5 bg-gray-100 text-gray-600 rounded text-xs font-medium hover:bg-gray-200 flex items-center gap-1 shadow-sm"}
                                     >
                                       <RefreshCw className="h-3 w-3" /> Refresh
                                     </button>
@@ -1462,10 +1495,10 @@ const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponen
                                     );
 
                                     return (
-                                      <div>
-                                        <div className="overflow-x-auto">
+                                      <div className={blueHeaders ? "mx-3 mb-3" : ""}>
+                                        <div className={blueHeaders ? "overflow-x-auto overflow-y-hidden rounded-xl border border-card-border shadow-sm bg-white" : "overflow-x-auto"}>
                                           <table
-                                            className="w-full border border-gray-300"
+                                            className={blueHeaders ? "w-full" : "w-full border border-gray-300"}
                                             style={{
                                               width: "100%",
                                               borderCollapse: "collapse",
@@ -1473,45 +1506,45 @@ const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponen
                                             }}
                                           >
                                             <thead>
-                                              <tr className="bg-gray-100">
+                                              <tr className={blueHeaders ? "bg-blue-600" : "bg-gray-100"}>
                                                 <th
                                                   style={{ width: "20%" }}
-                                                  className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-r border-gray-300 border-b border-gray-300"
+                                                  className={`px-2 py-2 text-left text-xs uppercase ${blueHeaders ? "font-bold text-white tracking-wide border-b border-blue-500" : "font-semibold text-gray-600 border-r border-gray-300 border-b border-gray-300"}`}
                                                 >
                                                   FIELD NAME
                                                 </th>
 
                                                 <th
                                                   style={{ width: "32%" }}
-                                                  className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-r border-gray-300 border-b border-gray-300"
+                                                  className={`px-2 py-2 text-left text-xs uppercase ${blueHeaders ? "font-bold text-white tracking-wide border-b border-blue-500" : "font-semibold text-gray-600 border-r border-gray-300 border-b border-gray-300"}`}
                                                 >
                                                   DESCRIPTION
                                                 </th>
 
                                                 <th
                                                   style={{ width: "10%" }}
-                                                  className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-r border-gray-300 border-b border-gray-300"
+                                                  className={`px-2 py-2 text-left text-xs uppercase ${blueHeaders ? "font-bold text-white tracking-wide border-b border-blue-500" : "font-semibold text-gray-600 border-r border-gray-300 border-b border-gray-300"}`}
                                                 >
                                                   TYPE
                                                 </th>
 
                                                 <th
                                                   style={{ width: "10%" }}
-                                                  className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-r border-gray-300 border-b border-gray-300"
+                                                  className={`px-2 py-2 text-left text-xs uppercase ${blueHeaders ? "font-bold text-white tracking-wide border-b border-blue-500" : "font-semibold text-gray-600 border-r border-gray-300 border-b border-gray-300"}`}
                                                 >
                                                   LEN
                                                 </th>
 
                                                 <th
                                                   style={{ width: "32%" }}
-                                                  className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-r border-gray-300 border-b border-gray-300"
+                                                  className={`px-2 py-2 text-left text-xs uppercase ${blueHeaders ? "font-bold text-white tracking-wide border-b border-blue-500" : "font-semibold text-gray-600 border-r border-gray-300 border-b border-gray-300"}`}
                                                 >
                                                   VALUE
                                                 </th>
 
                                                 <th
                                                   style={{ width: "10%" }}
-                                                  className="px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase border-b border-gray-300"
+                                                  className={`px-2 py-2 text-center text-xs uppercase ${blueHeaders ? "font-bold text-white tracking-wide border-b border-blue-500" : "font-semibold text-gray-600 border-b border-gray-300"}`}
                                                 >
                                                   ACTIONS
                                                 </th>
@@ -1522,7 +1555,11 @@ const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponen
                                               {paginatedFields.map((row) => (
                                                 <tr
                                                   key={row.id}
-                                                  className={`transition-colors hover:bg-gray-50 ${
+                                                  className={`transition-colors ${
+                                                    blueHeaders
+                                                      ? "odd:bg-white even:bg-gray-50 hover:bg-[#F3F7FF]"
+                                                      : "hover:bg-gray-50"
+                                                  } ${
                                                     modifiedRows.has(row.id)
                                                       ? "!bg-orange-50"
                                                       : ""
@@ -1534,7 +1571,7 @@ const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponen
                                                       width: "20%",
                                                       overflow: "hidden",
                                                     }}
-                                                    className="px-1 py-1 border-r border-gray-300 border-b border-gray-200"
+                                                    className={blueHeaders ? "px-1 py-1 border-b border-card-border" : "px-1 py-1 border-r border-gray-300 border-b border-gray-200"}
                                                   >
                                                     {renderCell(
                                                       table.id,
@@ -1549,7 +1586,7 @@ const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponen
                                                       width: "32%",
                                                       overflow: "hidden",
                                                     }}
-                                                    className="px-1 py-1 border-r border-gray-300 border-b border-gray-200"
+                                                    className={blueHeaders ? "px-1 py-1 border-b border-card-border" : "px-1 py-1 border-r border-gray-300 border-b border-gray-200"}
                                                   >
                                                     {renderCell(
                                                       table.id,
@@ -1564,7 +1601,7 @@ const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponen
                                                       width: "12%",
                                                       overflow: "hidden",
                                                     }}
-                                                    className="px-1 py-1 border-r border-gray-300 border-b border-gray-200"
+                                                    className={blueHeaders ? "px-1 py-1 border-b border-card-border" : "px-1 py-1 border-r border-gray-300 border-b border-gray-200"}
                                                   >
                                                     {renderCell(
                                                       table.id,
@@ -1579,7 +1616,7 @@ const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponen
                                                       width: "8%",
                                                       overflow: "hidden",
                                                     }}
-                                                    className="px-1 py-1 border-r border-gray-300 border-b border-gray-200"
+                                                    className={blueHeaders ? "px-1 py-1 border-b border-card-border text-right" : "px-1 py-1 border-r border-gray-300 border-b border-gray-200"}
                                                   >
                                                     {renderCell(
                                                       table.id,
@@ -1594,7 +1631,7 @@ const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponen
                                                       width: "20%",
                                                       overflow: "hidden",
                                                     }}
-                                                    className="px-1 py-1 border-r border-gray-300 border-b border-gray-200"
+                                                    className={blueHeaders ? "px-1 py-1 border-b border-card-border text-right" : "px-1 py-1 border-r border-gray-300 border-b border-gray-200"}
                                                   >
                                                     {renderCell(
                                                       table.id,
@@ -1608,7 +1645,7 @@ const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponen
                                                     style={{
                                                       width: "10%",
                                                     }}
-                                                    className="px-1 py-1 text-center border-b border-gray-200"
+                                                    className={blueHeaders ? "px-1 py-1 text-center border-b border-card-border" : "px-1 py-1 text-center border-b border-gray-200"}
                                                   >
                                                     <div className="flex items-center justify-center gap-1">
                                                       <button
@@ -1669,11 +1706,20 @@ const ExcelTableComponent = ({ boardId, onSwitchToCurrency }: ExcelTableComponen
                                                 <tr>
                                                   <td
                                                     colSpan={6}
-                                                    className="px-2 py-1 text-center border-b border-gray-200"
+                                                    className="px-2 py-3 text-center border-b border-gray-200"
                                                   >
                                                     <p className="text-gray-400 text-xs">
                                                       No fields yet.
                                                     </p>
+                                                    {blueHeaders && (
+                                                      <button
+                                                        onClick={() => !isViewer && addFieldRow(table.id)}
+                                                        disabled={isViewer || savingField}
+                                                        className="mt-1 text-xs font-semibold text-accent hover:text-accent-hover hover:underline disabled:opacity-40"
+                                                      >
+                                                        + Add new field
+                                                      </button>
+                                                    )}
                                                   </td>
                                                 </tr>
                                               )}

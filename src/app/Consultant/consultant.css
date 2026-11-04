@@ -159,15 +159,16 @@
 .consultant-card {
   background: #fff;
   border: 1px solid #e5e7eb;
-  border-radius: 12px;
+  border-radius: 16px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.07);
-  padding: 28px 32px;
+  padding: 36px 40px;
   display: flex;
   flex-direction: column;
   align-items: center;
   cursor: pointer;
   transition: transform 0.25s, box-shadow 0.25s;
-  min-width: 180px;
+  width: 380px;
+  max-width: 100%;
 }
 
 .consultant-card:hover {
@@ -176,10 +177,10 @@
 }
 
 .consultant-card-title {
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 20px;
+  font-weight: 700;
   color: #1d4ed8;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
   text-align: center;
 }
 
@@ -187,6 +188,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  margin-bottom: 20px;
+}
+
+.consultant-card-desc {
+  font-size: 15px;
+  color: #6b7280;
+  text-align: center;
+  line-height: 1.6;
+  margin: 0;
 }
 
 /* ── Mobile menu button ── */
@@ -310,7 +320,7 @@
   .consultant-main { padding: 24px 12px; }
   .consultant-main-logo { width: 200px; }
   .consultant-cards-container { gap: 16px; }
-  .consultant-card { padding: 20px 24px; min-width: 140px; }
+  .consultant-card { padding: 24px 24px; width: 300px; }
 }
 
 @media screen and (max-width: 480px) {

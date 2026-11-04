@@ -201,6 +201,7 @@ export default function Page() {
                                 <rect x="45" y="28" width="10" height="14" rx="2" fill="#93c5fd" />
                             </svg>
                         </div>
+                        <p className="consultant-card-desc">Build boards, manage prompts and tables, and prepare reports for clients.</p>
                     </div>
 
                     {/* CXO Card */}
@@ -216,6 +217,7 @@ export default function Page() {
                                 <path d="M70 28 l3 3 6-6" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
                             </svg>
                         </div>
+                        <p className="consultant-card-desc">Ask questions about your data and see answers as messages, tables and charts.</p>
                     </div>
                 </div>
             </main>

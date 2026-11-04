@@ -21,7 +21,7 @@ import {
 import { Bar, Line, Pie } from 'react-chartjs-2';
 import Spinner from '../components/Spinner';
 import { useRouter } from 'next/navigation';
-import { Menu, X, BarChart2, FileText, PieChart, TrendingUp, Database, Users, LayoutDashboard, BookOpen, Play, ChevronRight, ArrowUpDown } from 'lucide-react';
+import { Menu, X, BarChart2, FileText, PieChart, TrendingUp, Database, Users, LayoutDashboard, BookOpen, Play, ChevronRight, ArrowUpDown, Maximize2, Sparkles, MessageSquare, Filter, ChevronLeft } from 'lucide-react';
 import KPIDashboard from '../Dashboard/page';
 import dynamic from 'next/dynamic';
 
@@ -161,7 +161,12 @@ export default function CXO() {
   // table shape can't silently misapply to different columns.
   const [tableSortCol, setTableSortCol] = useState<number | null>(null);
   const [tableSortDir, setTableSortDir] = useState<'asc' | 'desc'>('asc');
-  useEffect(() => { setTableSortCol(null); setTableSortDir('asc'); }, [runResult]);
+  const [tableFilterText, setTableFilterText] = useState('');
+  const [tableCurrentPage, setTableCurrentPage] = useState(1);
+  const TABLE_PAGE_SIZE = 10;
+  const [expandedChartIndex, setExpandedChartIndex] = useState<number | null>(null);
+  useEffect(() => { setTableSortCol(null); setTableSortDir('asc'); setTableFilterText(''); setTableCurrentPage(1); }, [runResult]);
+  useEffect(() => { setTableCurrentPage(1); }, [tableFilterText]);
   const toggleTableSort = (colIdx: number) => {
     if (tableSortCol === colIdx) setTableSortDir(d => d === 'asc' ? 'desc' : 'asc');
     else { setTableSortCol(colIdx); setTableSortDir('asc'); }
@@ -177,6 +182,17 @@ export default function CXO() {
     if (!Number.isNaN(da) && !Number.isNaN(db)) return da - db;
     return (a ?? '').localeCompare(b ?? '');
   };
+  // A column is treated as numeric (right-aligned) when every non-empty cell in it
+  // parses as a number once currency symbols/commas are stripped.
+  const isNumericColumn = (rows: string[][], colIdx: number): boolean => {
+    const cells = rows.map(r => r[colIdx]).filter(c => (c ?? '').trim() !== '');
+    if (cells.length === 0) return false;
+    return cells.every(c => !Number.isNaN(parseFloat((c ?? '').replace(/[₹$,\s]/g, ''))));
+  };
+  // Status-like cell values ("Under", "On Deck", etc.) render as a small pill instead
+  // of plain text.
+  const STATUS_PILL_VALUES = ['under', 'on deck', 'on-deck', 'ondeck'];
+  const isStatusPillValue = (cell: string): boolean => STATUS_PILL_VALUES.includes((cell ?? '').trim().toLowerCase());
   const [translatedCxoResultMessages, setTranslatedCxoResultMessages] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -680,6 +696,19 @@ export default function CXO() {
   const selectedMainBoard = navItems.find(i => i.main_board_id === selectedMainBoardId)
     ?? navItems.find(i => selectedBoardId != null && selectedBoardId in i.boards);
 
+  // Name shown in the empty-state heading ("Ask a question about <file name>").
+  const currentBoardName = isDemoBoard
+    ? demoBoardName
+    : (selectedBoardId && selectedMainBoard?.boards[selectedBoardId]?.name) || '';
+
+  // Up to 3 saved prompts shown as suggestion chips on the empty-state card.
+  const suggestionChips = prompts.slice(0, 3);
+  const handleChipClick = (prompt: Prompt) => {
+    setNewPromptName(prompt.prompt_text);
+    setNewPromptTitle(promptHeaderMap[prompt.id] || '');
+    fetchPromptHeader(prompt.id).then(h => setNewPromptTitle(h?.text || ''));
+  };
+
   const handleLogout = () => {
     if (typeof window !== 'undefined') {
       sessionStorage.removeItem('currentUserData');
@@ -921,9 +950,9 @@ export default function CXO() {
   );
 
   const CHART_COLORS = [
-    'rgba(54, 162, 235, 0.8)',
-    'rgba(255, 99, 132, 0.8)',
-    'rgba(75, 192, 192, 0.8)',
+    '#2563EB',
+    '#E8527C',
+    '#14A59B',
     'rgba(255, 206, 86, 0.8)',
     'rgba(153, 102, 255, 0.8)',
     'rgba(255, 159, 64, 0.8)',
@@ -947,6 +976,17 @@ export default function CXO() {
     };
   };
 
+  // Scriptable gradient fill for the Line chart's primary series — soft blue area
+  // under the line, per spec: rgba(37,99,235,0.32) -> rgba(37,99,235,0.04).
+  const lineAreaGradient = (context: any) => {
+    const { ctx, chartArea } = context.chart;
+    if (!chartArea) return 'rgba(37,99,235,0.04)';
+    const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+    gradient.addColorStop(0, 'rgba(37,99,235,0.32)');
+    gradient.addColorStop(1, 'rgba(37,99,235,0.04)');
+    return gradient;
+  };
+
   const getChartData = (chartData: ChartData, type: "bar" | "line") => {
     if (!chartData?.data_format) return { labels: [], datasets: [] };
     const { labels = [], categories, values = [] } = chartData.data_format;
@@ -960,11 +1000,11 @@ export default function CXO() {
         data: isNested ? ((values as number[][])[i] ?? []) : (values as number[]),
         backgroundColor: type === 'bar'
           ? labels.map((_, idx) => CHART_COLORS[idx % CHART_COLORS.length])
-          : CHART_COLORS[i % CHART_COLORS.length],
-        borderColor: CHART_COLORS[i % CHART_COLORS.length],
+          : (i === 0 ? lineAreaGradient : CHART_COLORS[i % CHART_COLORS.length]),
+        borderColor: type === 'line' && i === 0 ? '#2563EB' : CHART_COLORS[i % CHART_COLORS.length],
         borderWidth: 2,
-        fill: false,
-        tension: 0.3,
+        fill: type === 'line' ? i === 0 : false,
+        tension: type === 'line' ? 0.35 : 0.3,
       })),
     };
   };
@@ -1429,14 +1469,14 @@ export default function CXO() {
           {/* Main panel */}
           <div className="flex-1 flex flex-col bg-gray-100 overflow-hidden">
 
-            {/* Replicate header */}
-            <header className="bg-white shadow-md px-5 py-2.5 flex items-center gap-4 w-full z-30 flex-shrink-0">
+            {/* Sticky top header — Consultant Panel / CXO Panel tabs, underline on active */}
+            <header className="bg-panel-bg shadow-sm px-5 py-2.5 flex items-center gap-4 w-full z-30 flex-shrink-0 sticky top-0 font-body">
               <div className="flex-1 flex justify-center gap-8">
-                <a href="/Container" className="text-blue-500 text-sm font-medium hover:text-blue-700">{t('header.consultant')}</a>
-                <a href="/CXO" className="text-blue-500 text-sm font-medium hover:text-blue-700">{t('header.cxo')}</a>
+                <a href="/Container" className="text-sm font-medium pb-1.5 border-b-2 border-transparent text-gray-500 hover:text-accent transition-colors">{t('header.consultant')}</a>
+                <a href="/CXO" className="text-sm font-medium pb-1.5 border-b-2 border-accent text-accent">{t('header.cxo')}</a>
               </div>
               <div className="flex items-center gap-3 flex-shrink-0">
-                {/* Account menu */}
+                {/* Account menu — shows user name, email, and the settings button */}
                 <UserProfileMenu />
               </div>
             </header>
@@ -1444,79 +1484,82 @@ export default function CXO() {
             {/* Everything below the top nav header scrolls together as one unit
                 (breadcrumb, Back/Clear, prompt header, prompt toolbar, and the
                 tabs/table/charts area) — only the <header> above stays fixed. */}
-            <div ref={scrollRef} onScroll={handleResultsScroll} className="flex-1 overflow-y-auto">
+            <div ref={scrollRef} onScroll={handleResultsScroll} className="flex-1 overflow-y-auto bg-page-bg font-body">
 
-            {/* Breadcrumb */}
-            <div className="px-6 py-2.5 flex items-center gap-1 text-xs text-gray-500">
-              <span onClick={handleCloseBoardModal} className="text-blue-500 hover:underline cursor-pointer font-medium">CXO</span>
-              {isDemoBoard ? (
-                <>
-                  <ChevronRight className="w-3 h-3" />
-                  <span className="text-gray-600 font-medium">Demo Reference</span>
-                  <ChevronRight className="w-3 h-3" />
-                  <span className="text-gray-700 font-semibold">{demoBoardName}</span>
-                </>
-              ) : (
-                <>
-                  {selectedMainBoard && (
-                    <>
-                      <ChevronRight className="w-3 h-3" />
-                      <span
-                        onClick={handleCloseBoardModal}
-                        className="text-blue-500 hover:underline cursor-pointer font-medium"
-                      >
-                        {selectedMainBoard.name}
-                      </span>
-                    </>
-                  )}
-                  {selectedBoardId && selectedMainBoard?.boards[selectedBoardId] && (
-                    <>
-                      <ChevronRight className="w-3 h-3" />
-                      <span className="text-gray-700 font-semibold">{selectedMainBoard.boards[selectedBoardId].name}</span>
-                    </>
-                  )}
-                </>
-              )}
-            </div>
-
-            {/* Back + Clear action bar */}
-            <div className="mx-5 mb-2 flex items-center justify-end gap-2">
-              <button
-                onClick={handleCloseBoardModal}
-                className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-300 rounded-md hover:bg-gray-100 transition-colors bg-white"
-              >
-                ← Back
-              </button>
-              <button
-                onClick={() => { setNewPromptName(""); setNewPromptTitle(""); setRunResult(null); setIsRunClicked(false); }}
-                className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-md transition-colors border border-red-200"
-              >
-                Clear
-              </button>
+            {/* Breadcrumb, with Back + Clear on the right */}
+            <div className="px-6 py-3 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1 text-xs text-gray-500 flex-wrap">
+                <span onClick={handleCloseBoardModal} className="text-accent hover:underline cursor-pointer font-medium">CXO Panel</span>
+                {isDemoBoard ? (
+                  <>
+                    <ChevronRight className="w-3 h-3" />
+                    <span className="text-gray-600 font-medium">Demo Reference</span>
+                    <ChevronRight className="w-3 h-3" />
+                    <span className="text-gray-700 font-semibold">{demoBoardName}</span>
+                  </>
+                ) : (
+                  <>
+                    {selectedMainBoard && (
+                      <>
+                        <ChevronRight className="w-3 h-3" />
+                        <span
+                          onClick={handleCloseBoardModal}
+                          className="text-accent hover:underline cursor-pointer font-medium"
+                        >
+                          {selectedMainBoard.name}
+                        </span>
+                      </>
+                    )}
+                    {selectedBoardId && selectedMainBoard?.boards[selectedBoardId] && (
+                      <>
+                        <ChevronRight className="w-3 h-3" />
+                        <span className="text-gray-700 font-semibold">{selectedMainBoard.boards[selectedBoardId].name}</span>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={handleCloseBoardModal}
+                  className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-600 border border-card-border rounded-md hover:bg-gray-50 transition-colors bg-white"
+                >
+                  ← Back
+                </button>
+                <button
+                  onClick={() => { setNewPromptName(""); setNewPromptTitle(""); setRunResult(null); setIsRunClicked(false); }}
+                  className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-md transition-colors border border-red-200"
+                >
+                  Clear
+                </button>
+              </div>
             </div>
 
             {/* Prompt header — saved/loaded alongside the prompt text, shown above it wherever the prompt is shown */}
             <div className="mx-5 mb-2">
-              <input
-                type="text"
-                value={newPromptTitle}
-                onChange={e => setNewPromptTitle(e.target.value)}
-                placeholder="Prompt header (optional)"
-                className="w-full p-2 border-2 border-blue-400 rounded text-xs font-semibold bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+              <div className="relative">
+                <input
+                  type="text"
+                  value={newPromptTitle}
+                  onChange={e => setNewPromptTitle(e.target.value.slice(0, 100))}
+                  maxLength={100}
+                  placeholder="Prompt header (optional)"
+                  className="w-full p-2 pr-14 border-2 border-accent rounded text-xs font-semibold bg-tint focus:outline-none focus:ring-2 focus:ring-accent font-heading"
+                />
+                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-400 font-body">{100 - newPromptTitle.length}</span>
+              </div>
             </div>
 
-            {/* Prompt toolbar — textarea on its own full-width row so it can grow
+            {/* Prompt composer — textarea on its own full-width row so it can grow
                 without squeezing the buttons; buttons sit in their own row underneath,
                 right-aligned, so they stay put regardless of how tall the textarea gets. */}
-            <div className="mx-5 mb-4 bg-[#1a237e] rounded-xl flex flex-col gap-2 px-3 py-2 shadow-lg">
+            <div className="mx-5 mb-4 bg-navy rounded-xl flex flex-col gap-2 px-3 py-2 shadow-lg">
               <textarea
                 ref={textareaRef}
                 rows={1}
-                // No max-height/internal scroll here — the whole page scrolls now (see the
-                // wrapper above), so the textarea can just keep growing to show the full
-                // prompt instead of clipping it into its own tiny scroll box.
-                className="w-full bg-white text-gray-800 placeholder-gray-400 text-sm outline-none rounded-lg px-3 py-2 border-0 resize-none overflow-hidden leading-normal"
+                // Grows with content up to ~240px (see the auto-grow effect on
+                // newPromptName), then scrolls internally past that.
+                className="w-full bg-white text-gray-800 placeholder-gray-400 text-sm outline-none rounded-lg px-3 py-2 border-0 resize-none overflow-y-auto leading-normal max-h-[240px]"
                 placeholder="Dynamic Prompt Entry..."
                 value={newPromptName}
                 onChange={e => setNewPromptName(e.target.value)}
@@ -1526,28 +1569,29 @@ export default function CXO() {
                 <button
                   onClick={handleVoiceInput}
                   title="Click to speak"
-                  className={`px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors ${isListening ? 'bg-green-500 hover:bg-green-600' : 'bg-blue-600 hover:bg-blue-700'} text-white`}
+                  className={`px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors ${isListening ? 'bg-green-500 hover:bg-green-600' : 'bg-accent hover:bg-accent-hover'} text-white`}
                 >
                   <FiMic className="text-white text-lg" />
                 </button>
                 <button
                   onClick={handleRePrompt}
                   disabled={isLoading}
-                  className="flex-shrink-0 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold disabled:opacity-50 transition-colors"
+                  className="flex-shrink-0 px-3 py-1.5 bg-accent hover:bg-accent-hover text-white rounded-lg text-xs font-semibold disabled:opacity-50 transition-colors"
                 >
                   Re Prompt
                 </button>
                 <button
                   onClick={handleRunPrompt}
                   disabled={!newPromptName.trim() || isLoading}
-                  className="flex-shrink-0 p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 transition-colors"
+                  title="Run"
+                  className="flex-shrink-0 p-2 border-2 border-white text-white rounded-lg hover:bg-white/10 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                 >
                   {isLoading ? <Spinner /> : <Play className="w-4 h-4" />}
                 </button>
                 <button
                   onClick={handleSavePrompt}
                   disabled={!newPromptName.trim() || isLoading}
-                  className="flex-shrink-0 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold disabled:opacity-50 transition-colors"
+                  className="flex-shrink-0 px-3 py-1.5 bg-accent hover:bg-accent-hover text-white rounded-lg text-xs font-semibold disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                 >
                   Save
                 </button>
@@ -1556,7 +1600,7 @@ export default function CXO() {
 
             {/* Results area */}
             <div className="px-5 pb-20">
-              {isRunClicked && runResult && (
+              {isRunClicked && runResult ? (
                 <div>
                   <div className="flex items-center gap-2 mb-3 flex-wrap">
                     {['message', 'table', 'charts'].map(tab => {
@@ -1569,96 +1613,157 @@ export default function CXO() {
                         <button key={tab}
                           disabled={!hasData}
                           onClick={() => hasData && setActiveTab(tab)}
-                          className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${!hasData ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50' : activeTab === tab ? 'bg-blue-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'}`}>
+                          className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${!hasData ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50' : activeTab === tab ? 'bg-accent text-white' : 'bg-white text-gray-600 hover:bg-gray-100 border border-card-border'}`}>
                           {tab.charAt(0).toUpperCase() + tab.slice(1)}
                         </button>
                       );
                     })}
-                    {activeTab !== 'message' && (
-                      <div className="ml-auto flex gap-2">
-                        {activeTab === 'table' && runResult?.table?.columns?.length > 0 && (
-                          <button onClick={downloadExcel} className="px-3 py-1.5 text-xs font-medium bg-green-600 hover:bg-green-700 text-white rounded transition-colors">Download Excel</button>
-                        )}
-                        <button onClick={() => setShowDownloadModal(true)} className="px-3 py-1.5 text-xs font-medium bg-blue-700 hover:bg-blue-800 text-white rounded transition-colors">Download PPT</button>
-                      </div>
-                    )}
+                    <div className="ml-auto flex gap-2">
+                      {activeTab === 'table' && runResult?.table?.columns?.length > 0 && (
+                        <button onClick={downloadExcel} className="px-3 py-1.5 text-xs font-medium bg-green-600 hover:bg-green-700 text-white rounded transition-colors">Download Excel</button>
+                      )}
+                      {activeTab !== 'message' && (
+                        <button onClick={() => setShowDownloadModal(true)} className="px-3 py-1.5 text-xs font-medium bg-accent hover:bg-accent-hover text-white rounded transition-colors">Download PPT</button>
+                      )}
+                      <button
+                        onClick={handleViewPromptsClick}
+                        className="px-3 py-1.5 text-xs font-medium text-accent border border-accent rounded hover:bg-tint transition-colors"
+                      >
+                        View Prompts
+                      </button>
+                    </div>
                   </div>
                   <div>
                     {activeTab === 'message' && (
-                      <div className="text-sm text-gray-700 p-4 bg-white rounded-xl shadow-sm">
+                      <div className="text-sm text-gray-700 p-4 bg-white rounded-2xl border border-card-border shadow-sm">
                         {runResult?.message?.length > 0
                           ? <p>{translatedCxoResultMessages.length > 0 ? translatedCxoResultMessages[0] : runResult.message[0]}</p>
                           : <p className="text-gray-400">No message found.</p>}
                       </div>
                     )}
                     {activeTab === 'table' && (
-                      runResult.table?.columns?.length > 0 ? (
-                      <div className="border border-gray-200 rounded-xl bg-white shadow-sm overflow-auto" style={{ maxHeight: 'calc(100vh - 260px)', scrollbarWidth: 'auto', scrollbarColor: '#93c5fd #f1f1f1' }}>
-                        <table className="min-w-full table-auto text-sm whitespace-nowrap border-collapse">
-                          <thead style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#f3f4f6' }}>
-                            <tr>
-                              {runResult.table.columns.map((col, i) => (
-                                <th key={i} className="px-3 py-2 border-b border-gray-200 text-left font-bold text-gray-700 text-xs uppercase tracking-wide">
-                                  <button
-                                    type="button"
-                                    onClick={() => toggleTableSort(i)}
-                                    className="flex items-center gap-1 hover:text-blue-600"
-                                    title="Sort by this column"
-                                  >
-                                    {translatedCxoResultColumns[i] || col}
-                                    <ArrowUpDown className={`w-3 h-3 flex-shrink-0 ${tableSortCol === i ? 'text-blue-600' : 'text-gray-300'}`} />
-                                  </button>
-                                </th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {runResult.table.data.length > 0
-                              ? [...(translatedCxoResultData.length > 0 ? translatedCxoResultData : runResult.table.data)]
-                                  .sort((a, b) => {
-                                    if (tableSortCol === null) return 0;
-                                    const cmp = compareTableCells(a[tableSortCol], b[tableSortCol]);
-                                    return tableSortDir === 'asc' ? cmp : -cmp;
-                                  })
-                                  .map((row, ri) => (
-                                  <tr key={ri} className={ri % 2 === 0 ? 'bg-white hover:bg-blue-50' : 'bg-gray-50 hover:bg-blue-50'}>
-                                    {row.map((cell, ci) => <td key={ci} className="px-3 py-2 border-b border-gray-100 text-gray-700 text-sm">{cell}</td>)}
+                      runResult.table?.columns?.length > 0 ? (() => {
+                        const sourceRows = translatedCxoResultData.length > 0 ? translatedCxoResultData : runResult.table.data;
+                        const filteredRows = tableFilterText.trim()
+                          ? sourceRows.filter(row => row.some(cell => (cell ?? '').toLowerCase().includes(tableFilterText.trim().toLowerCase())))
+                          : sourceRows;
+                        const sortedRows = tableSortCol === null ? filteredRows : [...filteredRows].sort((a, b) => {
+                          const cmp = compareTableCells(a[tableSortCol], b[tableSortCol]);
+                          return tableSortDir === 'asc' ? cmp : -cmp;
+                        });
+                        const totalPages = Math.max(1, Math.ceil(sortedRows.length / TABLE_PAGE_SIZE));
+                        const page = Math.min(tableCurrentPage, totalPages);
+                        const pageRows = sortedRows.slice((page - 1) * TABLE_PAGE_SIZE, page * TABLE_PAGE_SIZE);
+                        const numericCols = runResult.table.columns.map((_, i) => isNumericColumn(sourceRows, i));
+                        return (
+                          <div className="border border-card-border rounded-2xl bg-white shadow-sm overflow-hidden">
+                            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-card-border flex-wrap">
+                              <div className="flex items-center gap-2">
+                                <h4 className="text-sm font-semibold text-gray-800 font-heading">Results</h4>
+                                <span className="px-2 py-0.5 rounded-full bg-tint text-accent text-[11px] font-medium">{sortedRows.length} records</span>
+                              </div>
+                              <div className="relative">
+                                <Filter className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                <input
+                                  type="text"
+                                  value={tableFilterText}
+                                  onChange={e => setTableFilterText(e.target.value)}
+                                  placeholder="Filter rows..."
+                                  className="pl-8 pr-3 py-1.5 border border-card-border rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-accent w-48"
+                                />
+                              </div>
+                            </div>
+                            <div className="overflow-auto" style={{ maxHeight: 'calc(100vh - 340px)', scrollbarWidth: 'auto', scrollbarColor: '#93c5fd #f1f1f1' }}>
+                              <table className="min-w-full table-auto text-sm whitespace-nowrap border-collapse">
+                                <thead style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#2563EB' }}>
+                                  <tr>
+                                    {runResult.table.columns.map((col, i) => (
+                                      <th key={i} className={`px-3 py-2.5 font-bold text-white text-xs uppercase tracking-wide ${numericCols[i] ? 'text-right' : 'text-left'}`}>
+                                        <button
+                                          type="button"
+                                          onClick={() => toggleTableSort(i)}
+                                          className={`flex items-center gap-1 hover:text-blue-100 ${numericCols[i] ? 'ml-auto' : ''}`}
+                                          title="Sort by this column"
+                                        >
+                                          {translatedCxoResultColumns[i] || col}
+                                          <ArrowUpDown className={`w-3 h-3 flex-shrink-0 ${tableSortCol === i ? 'text-white' : 'text-blue-200'}`} />
+                                        </button>
+                                      </th>
+                                    ))}
                                   </tr>
-                                ))
-                              : <tr><td colSpan={runResult.table.columns.length} className="text-center p-3 text-gray-400">No data available.</td></tr>}
-                          </tbody>
-                        </table>
-                      </div>
-                      ) : (
+                                </thead>
+                                <tbody>
+                                  {pageRows.length > 0
+                                    ? pageRows.map((row, ri) => (
+                                      <tr key={ri} className={ri % 2 === 0 ? 'bg-white hover:bg-tint' : 'bg-gray-50 hover:bg-tint'}>
+                                        {row.map((cell, ci) => (
+                                          <td key={ci} className={`px-3 py-2 border-b border-gray-100 text-gray-700 text-sm ${numericCols[ci] ? 'text-right tabular-nums' : 'text-left'}`}>
+                                            {isStatusPillValue(cell)
+                                              ? <span className="px-2 py-0.5 rounded-full bg-tint text-accent text-[11px] font-medium">{cell}</span>
+                                              : cell}
+                                          </td>
+                                        ))}
+                                      </tr>
+                                    ))
+                                    : <tr><td colSpan={runResult.table.columns.length} className="text-center p-3 text-gray-400">No data available.</td></tr>}
+                                </tbody>
+                              </table>
+                            </div>
+                            <div className="flex items-center justify-between px-4 py-2.5 border-t border-card-border text-xs text-gray-500">
+                              <span>Page {page} of {totalPages}</span>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => setTableCurrentPage(p => Math.max(1, p - 1))}
+                                  disabled={page <= 1}
+                                  className="p-1.5 rounded border border-card-border disabled:opacity-40 disabled:cursor-not-allowed hover:bg-tint transition-colors"
+                                >
+                                  <ChevronLeft className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => setTableCurrentPage(p => Math.min(totalPages, p + 1))}
+                                  disabled={page >= totalPages}
+                                  className="p-1.5 rounded border border-card-border disabled:opacity-40 disabled:cursor-not-allowed hover:bg-tint transition-colors"
+                                >
+                                  <ChevronRight className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })() : (
                         <div className="text-sm text-gray-400 p-4 bg-white rounded-xl shadow-sm">No table data found.</div>
                       )
                     )}
                     {activeTab === 'charts' && (
                       runResult.charts && runResult.charts.length > 0 ? (
-                        <div id="cxo-charts-grid" className="flex flex-wrap justify-center gap-6">
+                        <div id="cxo-charts-grid" className="grid grid-cols-1 md:grid-cols-3 gap-6">
                           {runResult.charts.map((chart: ChartData, i: number) => {
-                            if (chart.chart_type === 'pie') return (
-                              <div key={i} className="w-full max-w-[400px] flex-1 bg-white rounded-xl shadow-sm p-4">
-                                <h5 className="text-sm font-semibold text-center mb-2">Pie Chart</h5>
-                                <div style={{ height: '350px' }}><Pie data={getPieData(chart)} options={{ maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top' } } }} /></div>
-                                {chart.insight && chart.insight.length > 0 && <div className="mt-2 p-3 bg-gray-50 rounded text-xs"><ul className="list-disc list-inside">{chart.insight.map((ins, j) => <li key={j}>{ins}</li>)}</ul></div>}
+                            const title = chart.chart_type === 'pie' ? 'Pie Chart' : chart.chart_type === 'bar' ? 'Bar Chart' : chart.chart_type === 'line' ? 'Line Chart' : null;
+                            if (!title) return null;
+                            const chartEl = chart.chart_type === 'pie'
+                              ? <Pie data={getPieData(chart)} options={{ maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top' } } }} />
+                              : chart.chart_type === 'bar'
+                                ? <Bar data={getChartData(chart, 'bar')} options={{ maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top' } }, scales: { y: { beginAtZero: true } } }} />
+                                : <Line data={getChartData(chart, 'line')} options={{ maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top' } }, scales: { y: { beginAtZero: true } } }} />;
+                            return (
+                              <div key={i} className="bg-white rounded-2xl border border-card-border shadow-sm p-4 relative">
+                                <h5 className="text-sm font-semibold text-center mb-2 font-heading">{title}</h5>
+                                <button
+                                  onClick={() => setExpandedChartIndex(i)}
+                                  className="absolute top-3 right-3 p-1 rounded hover:bg-tint text-gray-400 hover:text-accent transition-colors"
+                                  title="Expand"
+                                >
+                                  <Maximize2 className="w-3.5 h-3.5" />
+                                </button>
+                                <div style={{ height: '280px' }}>{chartEl}</div>
+                                {chart.insight && chart.insight.length > 0 && (
+                                  <div className="mt-2 p-3 bg-tint rounded-lg text-xs">
+                                    <p className="font-semibold text-gray-700 mb-1">Insights</p>
+                                    <ul className="list-disc list-inside text-gray-600">{chart.insight.map((ins, j) => <li key={j}>{ins}</li>)}</ul>
+                                  </div>
+                                )}
                               </div>
                             );
-                            if (chart.chart_type === 'bar') return (
-                              <div key={i} className="w-full max-w-[500px] flex-1 bg-white rounded-xl shadow-sm p-4">
-                                <h5 className="text-sm font-semibold text-center mb-2">Bar Chart</h5>
-                                <div style={{ height: '350px' }}><Bar data={getChartData(chart, 'bar')} options={{ maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top' } }, scales: { y: { beginAtZero: true } } }} /></div>
-                                {chart.insight && chart.insight.length > 0 && <div className="mt-2 p-3 bg-gray-50 rounded text-xs"><ul className="list-disc list-inside">{chart.insight.map((ins, j) => <li key={j}>{ins}</li>)}</ul></div>}
-                              </div>
-                            );
-                            if (chart.chart_type === 'line') return (
-                              <div key={i} className="w-full max-w-[500px] flex-1 bg-white rounded-xl shadow-sm p-4">
-                                <h5 className="text-sm font-semibold text-center mb-2">Line Chart</h5>
-                                <div style={{ height: '350px' }}><Line data={getChartData(chart, 'line')} options={{ maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top' } }, scales: { y: { beginAtZero: true } } }} /></div>
-                                {chart.insight && chart.insight.length > 0 && <div className="mt-2 p-3 bg-gray-50 rounded text-xs"><ul className="list-disc list-inside">{chart.insight.map((ins, j) => <li key={j}>{ins}</li>)}</ul></div>}
-                              </div>
-                            );
-                            return null;
                           })}
                         </div>
                       ) : (
@@ -1667,12 +1772,49 @@ export default function CXO() {
                     )}
                   </div>
                 </div>
+              ) : (
+                <div>
+                  <div className="flex justify-end mb-3">
+                    <button
+                      onClick={handleViewPromptsClick}
+                      className="px-3 py-1.5 text-xs font-medium text-accent border border-accent rounded hover:bg-tint transition-colors"
+                    >
+                      View Prompts
+                    </button>
+                  </div>
+                  <div className="border-2 border-dashed rounded-2xl bg-white flex flex-col items-center justify-center text-center py-16 px-6" style={{ borderColor: '#B7CBF5' }}>
+                    <div className="w-[92px] h-[92px] rounded-3xl bg-tint flex items-center justify-center mb-5 relative">
+                      <MessageSquare className="w-10 h-10 text-accent" />
+                      <Sparkles className="w-4 h-4 text-accent absolute top-2.5 right-2.5" />
+                    </div>
+                    <h3 className="text-lg font-semibold text-gray-800 font-heading mb-1.5">
+                      Ask a question about {currentBoardName || 'this file'}
+                    </h3>
+                    <p className="text-xs text-gray-500 mb-6 max-w-sm">
+                      Type a prompt above and press Run, or use View Prompts to pick a saved one.
+                    </p>
+                    {suggestionChips.length > 0 && (
+                      <div className="flex flex-wrap items-center justify-center gap-2">
+                        {suggestionChips.map((p, i) => (
+                          <button
+                            key={p.id || i}
+                            onClick={() => handleChipClick(p)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 border border-card-border rounded-full text-xs text-gray-700 bg-white hover:border-accent hover:text-accent transition-colors"
+                          >
+                            <Sparkles className="w-3 h-3 text-accent" />
+                            {(promptHeaderMap[p.id] || p.prompt_text || '').slice(0, 40)}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
 
               {showScrollTop && (
     <button
       onClick={handleScrollTop}
-      className="absolute bottom-6 right-6 bg-blue-600 hover:bg-blue-700 text-white text-xs px-4 py-2 rounded-full shadow-lg transition-all z-50"
+      className="absolute bottom-6 right-6 bg-accent hover:bg-accent-hover text-white text-xs px-4 py-2 rounded-full shadow-lg transition-all z-50"
     >
       ↑ Top
     </button>
@@ -1680,14 +1822,6 @@ export default function CXO() {
             </div>
             </div>
           </div>
-
-          {/* View Prompts — fixed to right edge, always horizontal */}
-          <button
-            onClick={handleViewPromptsClick}
-            className="fixed right-0 top-1/2 -translate-y-1/2 z-[60] bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-2xl transition-all px-4 py-2.5 rounded-l-lg whitespace-nowrap"
-          >
-            View Prompts
-          </button>
         </div>
       )}
        {/* {showScrollTop && (
@@ -1699,64 +1833,103 @@ export default function CXO() {
   </button>
 )} */}
 
-      {/* Prompts panel — fixed right overlay */}
+      {/* View Prompts — right-side drawer with a dark overlay */}
       {showPromptsModal && (
-        <div className="fixed top-0 right-0 h-full w-80 bg-white shadow-2xl border-l border-gray-200 flex flex-col z-[60] transition-transform duration-300">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50 flex-shrink-0">
-            <h4 className="text-sm font-semibold text-gray-800">Prompts</h4>
-            <button onClick={handleClosePromptsModal} className="text-gray-400 hover:text-gray-700 text-xl leading-none">×</button>
-          </div>
-          <div className="px-3 py-2 border-b border-gray-100 flex-shrink-0">
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="Search prompts..."
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-                autoFocus
-                className="w-full py-1.5 px-3 pr-7 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
-              />
-              {searchTerm && (
-                <button onClick={() => setSearchTerm('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs">×</button>
+        <div className="fixed inset-0 z-[60] flex justify-end">
+          <div className="absolute inset-0 bg-black/50" onClick={handleClosePromptsModal} />
+          <div className="relative h-full bg-white shadow-2xl flex flex-col transition-transform duration-300" style={{ width: '460px', maxWidth: '100%' }}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-card-border bg-panel-bg flex-shrink-0">
+              <h4 className="text-sm font-semibold text-gray-800 font-heading">Prompts</h4>
+              <button onClick={handleClosePromptsModal} className="text-gray-400 hover:text-gray-700 text-xl leading-none">×</button>
+            </div>
+            <div className="px-3 py-2 border-b border-card-border flex-shrink-0">
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Search prompts..."
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
+                  autoFocus
+                  className="w-full py-1.5 px-3 pr-7 border border-card-border rounded text-xs focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+                {searchTerm && (
+                  <button onClick={() => setSearchTerm('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs">×</button>
+                )}
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto px-3 py-3">
+              {promptsLoading ? (
+                <div className="flex justify-center items-center h-16">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-accent" />
+                </div>
+              ) : error ? (
+                <p className="text-red-500 text-xs p-2">{error}</p>
+              ) : filteredPrompt.length === 0 ? (
+                <div className="text-center text-gray-400 text-xs p-3">
+                  {searchTerm ? `No prompts found for "${searchTerm}"` : 'No prompts found for this board.'}
+                  {searchTerm && <button onClick={() => setSearchTerm('')} className="block mx-auto mt-1 text-accent hover:underline">Clear</button>}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {filteredPrompt.map((prompt: Prompt, index: number) => {
+                    const isGenerated = cxoGeneratedPromptIds.has(String(prompt.id));
+                    const gCount = filteredPrompt.slice(0, index).filter(p => cxoGeneratedPromptIds.has(String(p.id))).length + 1;
+                    const nCount = filteredPrompt.slice(0, index).filter(p => !cxoGeneratedPromptIds.has(String(p.id))).length + 1;
+                    const label = isGenerated ? `G${gCount}` : `${nCount}`;
+                    const isSelected = selectedPrompt?.id === prompt.id;
+                    const title = translatedCxoTitles[prompt.id] || promptHeaderMap[prompt.id];
+                    return (
+                      <div key={prompt.id || index} className="flex items-start gap-2">
+                        <span className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold ${isSelected ? 'bg-accent text-white' : 'bg-tint text-accent'}`}>
+                          {label}
+                        </span>
+                        <div
+                          onClick={() => { setSelectedPrompt(prompt); handlePromptClick(prompt); }}
+                          className={`flex-1 rounded-2xl rounded-bl-sm px-3 py-2.5 cursor-pointer transition-colors ${isSelected ? 'bg-accent text-white' : 'bg-tint hover:bg-[#DCE8FD] text-gray-800'}`}
+                        >
+                          {title && (
+                            <h4 className={`text-xs font-semibold leading-snug font-heading ${isSelected ? 'text-white' : 'text-accent'}`}>{title}</h4>
+                          )}
+                          <p className={`text-[11px] mt-0.5 line-clamp-3 leading-relaxed ${isSelected ? 'text-blue-50' : 'text-gray-500'}`}>
+                            {translatedCxoTexts[prompt.id] || prompt.prompt_text}
+                          </p>
+                          <div className={`flex items-center justify-between mt-1.5 text-[10px] ${isSelected ? 'text-blue-100' : 'text-gray-400'}`}>
+                            <span>Created by {prompt.user_name || 'Unknown'}</span>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setSelectedPrompt(prompt); handlePromptClick(prompt); }}
+                              className={`font-medium hover:underline ${isSelected ? 'text-white' : 'text-accent'}`}
+                            >
+                              Use prompt
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto px-3 py-2">
-            {promptsLoading ? (
-              <div className="flex justify-center items-center h-16">
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600" />
-              </div>
-            ) : error ? (
-              <p className="text-red-500 text-xs p-2">{error}</p>
-            ) : filteredPrompt.length === 0 ? (
-              <div className="text-center text-gray-400 text-xs p-3">
-                {searchTerm ? `No prompts found for "${searchTerm}"` : 'No prompts found for this board.'}
-                {searchTerm && <button onClick={() => setSearchTerm('')} className="block mx-auto mt-1 text-blue-600 hover:underline">Clear</button>}
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {filteredPrompt.map((prompt: Prompt, index: number) => {
-                  const isGenerated = cxoGeneratedPromptIds.has(String(prompt.id));
-                  const gCount = filteredPrompt.slice(0, index).filter(p => cxoGeneratedPromptIds.has(String(p.id))).length + 1;
-                  const nCount = filteredPrompt.slice(0, index).filter(p => !cxoGeneratedPromptIds.has(String(p.id))).length + 1;
-                  const label = isGenerated ? `G${gCount}` : `${nCount}`;
-                  return (
-                    <div key={prompt.id || index} onClick={() => handlePromptClick(prompt)}
-                      className={`border rounded-lg p-3 cursor-pointer hover:bg-blue-50 transition-colors ${isGenerated ? 'border-blue-300 hover:border-blue-500' : 'border-gray-100 hover:border-blue-200'}`}>
-                      <div className="flex items-start gap-2">
-                        <span className={`text-xs font-bold flex-shrink-0 ${isGenerated ? 'text-blue-600' : 'text-blue-500'}`}>{label}.</span>
-                        <div>
-                          {(translatedCxoTitles[prompt.id] || promptHeaderMap[prompt.id]) && (
-                            <h4 className="text-xs font-semibold text-gray-800 leading-snug">{translatedCxoTitles[prompt.id] || promptHeaderMap[prompt.id]}</h4>
-                          )}
-                          <p className="text-[10px] text-gray-500 mt-0.5 line-clamp-3 leading-relaxed">{translatedCxoTexts[prompt.id] || prompt.prompt_text}</p>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+        </div>
+      )}
+
+      {/* Expanded chart modal — opened from the Maximize2 icon on a chart card */}
+      {expandedChartIndex !== null && runResult?.charts?.[expandedChartIndex] && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[200] px-4" onClick={() => setExpandedChartIndex(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-semibold text-gray-800 font-heading">
+                {runResult.charts[expandedChartIndex].chart_type === 'pie' ? 'Pie Chart' : runResult.charts[expandedChartIndex].chart_type === 'bar' ? 'Bar Chart' : 'Line Chart'}
+              </h4>
+              <button onClick={() => setExpandedChartIndex(null)} className="text-gray-400 hover:text-gray-700 text-xl leading-none">×</button>
+            </div>
+            <div style={{ height: '480px' }}>
+              {runResult.charts[expandedChartIndex].chart_type === 'pie'
+                ? <Pie data={getPieData(runResult.charts[expandedChartIndex])} options={{ maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top' } } }} />
+                : runResult.charts[expandedChartIndex].chart_type === 'bar'
+                  ? <Bar data={getChartData(runResult.charts[expandedChartIndex], 'bar')} options={{ maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top' } }, scales: { y: { beginAtZero: true } } }} />
+                  : <Line data={getChartData(runResult.charts[expandedChartIndex], 'line')} options={{ maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top' } }, scales: { y: { beginAtZero: true } } }} />}
+            </div>
           </div>
         </div>
       )}

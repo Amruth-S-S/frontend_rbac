@@ -15,13 +15,13 @@ import { useLanguage } from "../context/LanguageContext";
 import { translateBatch, translateText, formatNumber } from "../utils/translateService";
 // import { MdManageSearch } from "react-icons/md";
 import { FaPlay, FaPen, FaTrash, FaEdit, FaCheck, FaBan } from "react-icons/fa";
-import { FaFileUpload, FaCaretUp, FaCaretDown, FaUpload, FaTimes, FaComment, FaBars } from 'react-icons/fa';
+import { FaFileUpload, FaCaretUp, FaCaretDown, FaUpload, FaTimes, FaComment, FaBars, FaChevronLeft, FaChevronRight } from 'react-icons/fa';
 import axios from "axios";
 import React from "react";
 import { saveAs } from 'file-saver';
 import * as XLSX from 'xlsx';
 // import { useDropzone } from "react-dropzone";
-import { PencilIcon, TrashIcon, PlusIcon, CheckIcon, ChevronUpIcon, ChevronDownIcon, Edit, Sparkles, LayoutGrid, MousePointerClick, Users, ArrowRight } from 'lucide-react';
+import { PencilIcon, TrashIcon, PlusIcon, CheckIcon, ChevronUpIcon, ChevronDownIcon, Edit, Sparkles, LayoutGrid, MousePointerClick, Users, ArrowRight, Table2, FileText, MessageSquare, BookOpen, Database, Filter, TrendingUp, FileBarChart } from 'lucide-react';
 import { Pie, Bar, Line } from "react-chartjs-2";
 import { MdArrowDropDown, MdArrowDropUp } from 'react-icons/md';
 import {
@@ -105,6 +105,11 @@ interface Item {
   name?: string;
   configuration_details: Record<string, string>;
 }
+
+// A file that has finished step 2 (landed in GCS) but not yet step 3 (confirm-upload)
+// — tracked per table so the Approve action can live on the table/list page instead
+// of inside the Upload Files modal.
+interface PendingUpload { tableId: string; filename: string; gcsPath: string; monthYear: string; }
 
 
 
@@ -280,8 +285,30 @@ export default function Page() {
   });
   const [editPromptId, setEditPromptId] = useState<string | null>(null);
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  // Upload Files modal — the modal itself only runs steps 1+2 (get a GCS session URL,
+  // PUT the file straight to it) and closes the moment that succeeds; it never shows
+  // an Approve button. Step 3 (confirm-upload) happens from the table/list page
+  // instead, via the Approve button next to whichever row has a pending upload.
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
+  const [approvingTableId, setApprovingTableId] = useState<string | null>(null);
+  // "+ Info-Object" is now a two-step flow against the board-scoped CSV endpoints:
+  // 1) Upload CSV modal — just a file picker; on Upload it runs upload-csv-url (step 1)
+  //    + a direct PUT to GCS (step 2), board_id/user_id/org_id/filename all automatic.
+  // 2) Approve CSV modal — opens right after, with gcs_path/filename carried over
+  //    automatically; the user fills in Source Name / Table Name / Month-Year /
+  //    descriptions and Save runs confirm-csv-upload (step 3).
+  const [isCsvUploadModalOpen, setIsCsvUploadModalOpen] = useState(false);
+  const [csvUploadFile, setCsvUploadFile] = useState<File | null>(null);
+  const [isUploadingCsv, setIsUploadingCsv] = useState(false);
+  const [stagedCsvUpload, setStagedCsvUpload] = useState<{ filename: string; gcsPath: string } | null>(null);
+  const [isCsvApproveModalOpen, setIsCsvApproveModalOpen] = useState(false);
+  const [approveSourceName, setApproveSourceName] = useState('');
+  const [approveTableName, setApproveTableName] = useState('');
+  const [approveTableDescription, setApproveTableDescription] = useState('');
+  const [approveMonthYear, setApproveMonthYear] = useState('');
+  const [isApprovingCsv, setIsApprovingCsv] = useState(false);
   // const [selectedMonth, setSelectedMonth] = useState('');
   const [selectedPrompt, setSelectedPrompt] = useState("");
   const [isResultModalOpen, setIsResultModalOpen] = useState(false);
@@ -298,7 +325,6 @@ export default function Page() {
 
   const [isOpen, setIsOpen] = useState(false);
 
-  const [isUploading, setIsUploading] = useState(false);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   // const [comments, setComments] = useState<Comment[]>([]);
 
@@ -840,71 +866,105 @@ useEffect(() => {
   };
 
 
-  const handleSubmitMultipleFiles = async (e: { preventDefault: () => void; }) => {
-    e.preventDefault();
+  // The upload API wants "MMYYYY" (e.g. "012024" for Jan 2024), not the ISO
+  // "YYYY-MM-DD" the <input type="date"> gives us.
+  const toMonthYear = (isoDate: string) => {
+    const [year, month] = isoDate.split('-');
+    return `${month}${year}`;
+  };
 
-    if (!selectedDate || selectedFiles.length === 0) {
-      toast.error('Please select both date and files');
-      return;
-    }
+  // Just captures the picked file's name (fills the Filename field) — the file's
+  // contents are never read or sent; only its name is used.
+  const handleSelectFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    e.target.value = ''; // so re-selecting the same filename after a failure still fires onChange
+    if (!file) return;
+    setSelectedFile(file);
+  };
 
-    setIsUploading(true);
+  // Step 1 only (get a GCS resumable upload session URL / gcs_path for this
+  // filename + month/year) — triggered by the Upload button. The file's bytes are
+  // never PUT to that URL; this just reserves the gcs_path. On success the modal
+  // closes and the gcs_path is staged in `pendingUploads` for the Approve button
+  // on the table/list page (not this modal) to confirm via handleApproveUpload
+  // (step 3, confirm-upload).
+  const handleUploadFile = async () => {
+    const file = selectedFile;
+    if (!file) { toast.error('Please choose a file first.'); return; }
+    if (!selectedTableId) { toast.error('No table selected.'); return; }
+    if (!selectedDate) { toast.error('Please select a month/year first.'); return; }
+
+    setIsUploadingFile(true);
 
     try {
-      // Create FormData object
-      const formData = new FormData();
+      const monthYear = toMonthYear(selectedDate);
+      const qs = new URLSearchParams({ filename: file.name, month_year: monthYear });
+      const urlRes = await fetch(
+        `${API_BASE_URL}/main-boards/boards/data-management-table/status/upload-url/${selectedTableId}?${qs.toString()}`,
+        { headers: { 'Accept': 'application/json', 'X-API-Key': EXCEL_API_KEY } }
+      );
+      if (!urlRes.ok) {
+        const errText = await urlRes.text();
+        throw new Error(errText || `Failed to start upload (${urlRes.status})`);
+      }
+      const { gcs_path } = await urlRes.json();
 
-      // IMPORTANT: API expects 'month_year' not 'date'
-      formData.append('month_year', selectedDate);
+      const tableId = selectedTableId;
+      setPendingUploads(prev => [
+        ...prev.filter(p => p.tableId !== tableId), // a fresh upload replaces any earlier unapproved one for this table
+        { tableId, filename: file.name, gcsPath: gcs_path, monthYear },
+      ]);
+      toast.success(`"${file.name}" uploaded — click Approve on the table below to finish.`);
+      handleCloseUploadModal();
+    } catch (error: any) {
+      console.error('Resumable upload error:', error);
+      toast.error(error?.message || 'Failed to upload file.');
+    } finally {
+      setIsUploadingFile(false);
+    }
+  };
 
-      // IMPORTANT: API expects 'file' (singular) not 'files' (plural)
-      // Note: The API documentation shows it accepts a single file, not multiple
-      // If you need to support multiple files, you might need to make multiple API calls
-      selectedFiles.forEach((file) => {
-        formData.append('file', file); // Changed from 'files' to 'file'
+  // Step 3 — confirm-upload, triggered from the Approve button on a table row (not
+  // the modal). Looks up that table's staged upload and passes back the exact
+  // gcs_path step 1 returned.
+  const handleApproveUpload = async (tableId: string) => {
+    const pending = pendingUploads.find(p => p.tableId === tableId);
+    if (!pending) return;
+    setApprovingTableId(tableId);
+
+    try {
+      const body = new URLSearchParams({
+        month_year: pending.monthYear,
+        filename: pending.filename,
+        gcs_path: pending.gcsPath,
       });
-
-      // Make API call
-      const response = await fetch(
-        `${API_BASE_URL}/main-boards/boards/data-management-table/status/upload/${selectedTableId}`,
+      const res = await fetch(
+        `${API_BASE_URL}/main-boards/boards/data-management-table/status/confirm-upload/${tableId}`,
         {
           method: 'POST',
           headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
             'Accept': 'application/json',
             'X-API-Key': EXCEL_API_KEY,
-            // Don't set Content-Type header - let browser set it with boundary
           },
-          body: formData, // YOU WERE MISSING THIS!
+          body: body.toString(),
         }
       );
-
-      if (!response.ok) {
-        // Try to get error details
-        const errorText = await response.text();
-        console.error('Error response:', errorText);
-        throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || `Approve failed (${res.status})`);
       }
 
-      const result = await response.json();
-      // console.log('Upload success:', result);
-
-      // Handle success
-      toast.success("Files uploaded successfully!");
-      handleCloseUploadModal();
-
-      // Optionally refresh your data table
-      // fetchTableData();
-
-    } catch (error) {
-      console.error('Upload error:', error);
-      toast.error('An unknown error occurred. Please try again later.');
+      toast.success('File approved and added!');
+      setPendingUploads(prev => prev.filter(p => p.tableId !== tableId));
+      await fetchDataSources(); // refresh approved sources
+      await fetchRows();        // refresh info-objects list
+    } catch (error: any) {
+      console.error('Confirm upload error:', error);
+      toast.error(error?.message || 'Failed to approve upload.');
     } finally {
-      setIsUploading(false);
+      setApprovingTableId(null);
     }
-
-    // After successful upload
-    await fetchDataSources(); // refresh approved sources
-    await fetchRows();        // refresh info-objects list (whatever your rows fetch fn is)
   };
 
   const handleViewTables = async () => {
@@ -1422,11 +1482,6 @@ useEffect(() => {
       toast.error("An error occurred while approving");
     }
     // ❌ removed: await fetchDataSources() — was causing outer catch to fire
-  };
-  // Multiple file upload handler
-  const handleMultipleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []) as File[];
-    setSelectedFiles(files);
   };
 
 
@@ -2101,17 +2156,156 @@ useEffect(() => {
 
   const handleeOpenModal = () => {
     setIsModallOpen(true);
-    setEditRow(null); // Reset editRow when opening modal for new entry
-    setFormData({ tableName: "", tableDescription: "" }); // Reset form data
+    setEditRow(null);
+    setFormData({ tableName: "", tableDescription: "" });
   };
 
 
   const handleeCloseModal = () => {
     setIsModallOpen(false);
-    setEditRow(null); // Reset editRow
-    setFormData({ tableName: "", tableDescription: "" }); // Reset the form
+    setEditRow(null);
+    setFormData({ tableName: "", tableDescription: "" });
   };
 
+  const getUserOrgIds = (): { userId: string | null; orgId: string | null } => {
+    let userId: string | null = null;
+    let orgId: string | null = null;
+    const currentUserData = sessionStorage.getItem("currentUserData");
+    if (currentUserData) {
+      try {
+        const parsed = JSON.parse(currentUserData);
+        userId = String(parsed.userId);
+        orgId = parsed.orgId ? String(parsed.orgId) : null;
+      } catch { }
+    }
+    return { userId, orgId };
+  };
+
+  // Step 1 of the "+ Info-Object" flow: Upload CSV modal.
+  const handleOpenCsvUploadModal = () => {
+    setCsvUploadFile(null);
+    setIsCsvUploadModalOpen(true);
+  };
+
+  const handleCloseCsvUploadModal = () => {
+    setIsCsvUploadModalOpen(false);
+    setCsvUploadFile(null);
+  };
+
+  // Just captures the picked file name; the file is read and uploaded only when
+  // handleUploadCsv runs (on Upload click).
+  const handleSelectCsvUploadFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    e.target.value = "";
+    if (!file) return;
+    setCsvUploadFile(file);
+  };
+
+  // Step 1 (get a GCS resumable upload session URL) + Step 2 (PUT the file straight to
+  // GCS) for the board-scoped CSV flow -- board_id/user_id/org_id/filename are all
+  // automatic. On success, stages { filename, gcsPath } and opens the Approve CSV
+  // modal, where the user fills in the rest and step 3 (confirm-csv-upload) runs.
+  const handleUploadCsv = async () => {
+    if (!csvUploadFile) { toast.error("Please choose a CSV file."); return; }
+    const { userId, orgId } = getUserOrgIds();
+    if (!userId || !orgId || !boardId) { toast.error("Missing user/org/board context."); return; }
+
+    setIsUploadingCsv(true);
+    try {
+      const urlQs = new URLSearchParams({ filename: csvUploadFile.name, user_id: userId, org_id: orgId });
+      const urlRes = await fetch(
+        `${API_BASE_URL}/rbac/data-sources/board/${boardId}/upload-csv-url?${urlQs.toString()}`,
+        { headers: { "Accept": "application/json", "X-API-Key": EXCEL_API_KEY } }
+      );
+      if (!urlRes.ok) {
+        const errText = await urlRes.text();
+        throw new Error(errText || `Failed to start upload (${urlRes.status})`);
+      }
+      const { gcs_path } = await urlRes.json();
+
+      toast.success(`"${csvUploadFile.name}" uploaded -- fill in the details to finish.`);
+      setStagedCsvUpload({ filename: csvUploadFile.name, gcsPath: gcs_path });
+      handleCloseCsvUploadModal();
+      setApproveSourceName("");
+      setApproveTableName("");
+      setApproveTableDescription("");
+      setApproveMonthYear("");
+      setIsCsvApproveModalOpen(true);
+    } catch (error: any) {
+      console.error("CSV upload error:", error);
+      toast.error(error?.message || "Failed to upload file.");
+    } finally {
+      setIsUploadingCsv(false);
+    }
+  };
+
+  const handleCloseCsvApproveModal = () => {
+    setIsCsvApproveModalOpen(false);
+    setStagedCsvUpload(null);
+    setApproveSourceName("");
+    setApproveTableName("");
+    setApproveTableDescription("");
+    setApproveMonthYear("");
+  };
+
+  // Step 3 of the "+ Info-Object" flow -- confirm-csv-upload, using the gcs_path/filename
+  // staged by step 2 above plus the fields the user fills in here. Creates the
+  // DataManagementTable, TableStatus, and BoardDataSource records together, so the new
+  // source is Active immediately.
+  const handleConfirmCsvUpload = async (e: { preventDefault: () => void }) => {
+    e.preventDefault();
+    if (!stagedCsvUpload) return;
+    if (!approveSourceName.trim()) { toast.error("Source Name is required."); return; }
+    if (!approveTableName.trim()) { toast.error("Table Name is required."); return; }
+    if (!approveMonthYear) { toast.error("Please select a month/year."); return; }
+
+    const { userId, orgId } = getUserOrgIds();
+    if (!userId || !orgId || !boardId) { toast.error("Missing user/org/board context."); return; }
+
+    setIsApprovingCsv(true);
+    const loadingToast = toast.loading("Creating Info-Object...");
+
+    try {
+      const monthYear = toMonthYear(approveMonthYear);
+      const confirmQs = new URLSearchParams({ user_id: userId, org_id: orgId });
+      const body = new URLSearchParams({
+        source_name: approveSourceName,
+        month_year: monthYear,
+        table_name: approveTableName,
+        filename: stagedCsvUpload.filename,
+        gcs_path: stagedCsvUpload.gcsPath,
+      });
+      if (approveTableDescription) body.set("table_description", approveTableDescription);
+
+      const confirmRes = await fetch(
+        `${API_BASE_URL}/rbac/data-sources/board/${boardId}/confirm-csv-upload?${confirmQs.toString()}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+            "X-API-Key": EXCEL_API_KEY,
+          },
+          body: body.toString(),
+        }
+      );
+      if (!confirmRes.ok) {
+        const errText = await confirmRes.text();
+        throw new Error(errText || `Failed to confirm upload (${confirmRes.status})`);
+      }
+
+      toast.dismiss(loadingToast);
+      toast.success("Info-Object created!");
+      handleCloseCsvApproveModal();
+      await fetchDataSources();
+    } catch (error: any) {
+      console.error("Confirm CSV upload error:", error);
+      toast.dismiss(loadingToast);
+      toast.error(error?.message || "Failed to create Info-Object.");
+    } finally {
+      setIsApprovingCsv(false);
+    }
+  };
 
   const downloadExcel = () => {
     if (!runResult?.table || runResult.table.data.length === 0) {
@@ -4077,7 +4271,7 @@ const SpeechRecognition =
   // Handle modal close
   const handleCloseUploadModal = () => {
     setIsUploadModalOpen(false);
-    setSelectedFiles([]);
+    setSelectedFile(null);
     setSelectedDate('');
     setSelectedTableId(null);
   };
@@ -4229,6 +4423,11 @@ const SpeechRecognition =
 
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  const tabBarRef = useRef<HTMLDivElement>(null);
+  const scrollTabBar = (dir: 'left' | 'right') => {
+    tabBarRef.current?.scrollBy({ left: dir === 'left' ? -160 : 160, behavior: 'smooth' });
+  };
 
   if (!boardId) {
     return (
@@ -4430,35 +4629,48 @@ const SpeechRecognition =
                 </div>
               )}
 
-              {/* Desktop: horizontal tabs */}
-              <div className="hidden md:flex gap-1 p-1 bg-gray-100 rounded-lg overflow-x-auto scrollbar-hide">
-                {[
-                  { key: "tables",        label: t("tabs.manageTables") },
-                  { key: "documentation", label: t("tabs.aiDocumentation") },
-                  { key: "prompts",       label: t("tabs.managePrompts") },
-                  { key: "repository",    label: t("tabs.promptsRepository") },
-
-
-
-                  { key: "master",        label: t("tabs.masterData") },
-                                    { key: "parameter",      label: "Manage ETL" },
-                  // { key: "parameter",  label: t("tabs.parameterSettings") },
-                  // { key: "timeline",   label: t("tabs.timelineSettings") },
-                  { key: "kpi",           label: t("tabs.kpiUpdates") },
-                  { key: "report",        label: t("tabs.reports") },
-                ].map((tab) => (
-                  <button
-                    key={tab.key}
-                    className={`flex-shrink-0 px-3 py-1.5 rounded-md font-medium transition-all duration-200 text-xs whitespace-nowrap ${activeTab === tab.key
-                      ? "bg-white text-blue-600 shadow-sm"
-                      : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
-                      }`}
-                    onClick={() => setActiveTab(tab.key)}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-                <LiveData />
+              {/* Desktop: horizontal tabs — icon + label pills, with chevron buttons to
+                  scroll the strip since there are more tabs than fit most viewports. */}
+              <div className="hidden md:flex items-center gap-1">
+                <button
+                  onClick={() => scrollTabBar('left')}
+                  className="flex-shrink-0 p-1.5 rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                  aria-label="Scroll tabs left"
+                >
+                  <FaChevronLeft size={10} />
+                </button>
+                <div ref={tabBarRef} className="flex-1 flex items-center gap-1.5 p-1 overflow-x-auto scrollbar-hide">
+                  {[
+                    { key: "tables",        label: t("tabs.manageTables"),        Icon: Table2 },
+                    { key: "documentation", label: t("tabs.aiDocumentation"),     Icon: FileText },
+                    { key: "prompts",       label: t("tabs.managePrompts"),       Icon: MessageSquare },
+                    { key: "repository",    label: t("tabs.promptsRepository"),   Icon: BookOpen },
+                    { key: "master",        label: t("tabs.masterData"),          Icon: Database },
+                    { key: "parameter",     label: "Manage ETL",                  Icon: Filter },
+                    { key: "kpi",           label: t("tabs.kpiUpdates"),          Icon: TrendingUp },
+                    { key: "report",        label: t("tabs.reports"),             Icon: FileBarChart },
+                  ].map((tab) => (
+                    <button
+                      key={tab.key}
+                      className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full font-medium transition-all duration-200 text-xs whitespace-nowrap border border-transparent ${activeTab === tab.key
+                        ? "bg-blue-600 text-white shadow-sm"
+                        : "bg-gray-100 text-gray-700 hover:bg-gray-200 hover:text-blue-600"
+                        }`}
+                      onClick={() => setActiveTab(tab.key)}
+                    >
+                      <tab.Icon size={12} className="flex-shrink-0" />
+                      {tab.label}
+                    </button>
+                  ))}
+                  <LiveData />
+                </div>
+                <button
+                  onClick={() => scrollTabBar('right')}
+                  className="flex-shrink-0 p-1.5 rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                  aria-label="Scroll tabs right"
+                >
+                  <FaChevronRight size={10} />
+                </button>
               </div>
 
               {/* Mobile: dropdown */}
@@ -4638,7 +4850,7 @@ const SpeechRecognition =
                       return (
                         <div
                           key={prompt.id}
-                          className={`prompt-card border rounded-lg shadow-sm p-3 bg-white transition-all duration-300 hover:shadow-md flex flex-col justify-between ${isGenerated ? 'border-blue-300' : ''}`}
+                          className={`prompt-card border rounded-lg shadow-sm p-3 bg-white transition-all duration-300 hover:shadow-md ${isGenerated ? 'border-blue-300 hover:border-blue-500' : 'border-gray-200 hover:border-blue-300'} flex flex-col justify-between`}
                           style={{ minHeight: '160px', maxWidth: '100%' }}
                         >
                           {/* Prompt text */}
@@ -5695,7 +5907,7 @@ const SpeechRecognition =
               <div className="flex gap-1.5 flex-wrap">
                 <button
                   onClick={fetchDataSources}
-                  className="flex items-center gap-1 px-2 py-1.5 text-xs text-blue-600 border border-blue-200 rounded-md hover:text-blue-800 whitespace-nowrap"
+                  className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-600 bg-white border border-blue-200 rounded-full hover:text-blue-800 hover:border-blue-300 transition-colors whitespace-nowrap"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -5703,18 +5915,20 @@ const SpeechRecognition =
                   Refresh
                 </button>
                 <button
-                  className="px-2 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-full text-xs font-medium whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   onClick={() => !isViewer && handleViewTables()}
                   disabled={isViewer}
                 >
-                  + PG Table
+                  <PlusIcon className="h-3 w-3" />
+                  PG Table
                 </button>
                 <button
-                  className="px-2 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-md text-xs whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
-                  onClick={() => !isViewer && handleeOpenModal()}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-gray-900 hover:bg-black text-white rounded-full text-xs font-medium whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  onClick={() => !isViewer && handleOpenCsvUploadModal()}
                   disabled={isViewer}
                 >
-                  + Info-Object
+                  <PlusIcon className="h-3 w-3" />
+                  CSV-Object
                 </button>
               </div>
             </div>
@@ -5731,14 +5945,14 @@ const SpeechRecognition =
               ) : (
                 <div className="overflow-x-auto w-full">
                   <table className="min-w-[560px] w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
+                    <thead className="bg-blue-600">
                       <tr>
-                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase w-10">Slot</th>
-                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase">Name</th>
-                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase hidden sm:table-cell">Description</th>
-                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase w-16">Type</th>
-                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase w-16">Status</th>
-                        <th className="px-2 py-2 text-center text-xs font-medium text-gray-600 uppercase">Actions</th>
+                        <th className="px-2 py-2 text-left text-xs font-bold text-white uppercase tracking-wide w-10">Slot</th>
+                        <th className="px-2 py-2 text-left text-xs font-bold text-white uppercase tracking-wide">Name</th>
+                        <th className="px-2 py-2 text-left text-xs font-bold text-white uppercase tracking-wide hidden sm:table-cell">Description</th>
+                        <th className="px-2 py-2 text-left text-xs font-bold text-white uppercase tracking-wide w-16">Type</th>
+                        <th className="px-2 py-2 text-left text-xs font-bold text-white uppercase tracking-wide w-16">Status</th>
+                        <th className="px-2 py-2 text-center text-xs font-bold text-white uppercase tracking-wide">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
@@ -5752,7 +5966,7 @@ const SpeechRecognition =
 
                         return (
                           <React.Fragment key={`source-${source.id}`}>
-                            <tr className="hover:bg-gray-50">
+                            <tr className="odd:bg-white even:bg-gray-50 hover:bg-blue-50">
                               <td className="px-2 py-2">
                                 <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs font-bold">
                                   {source.slot_number}
@@ -5778,41 +5992,56 @@ const SpeechRecognition =
                                 </span>
                               </td>
                               <td className="px-2 py-2">
-                                <div className="flex justify-center items-center gap-1.5">
+                                <div className="flex justify-center items-center gap-1.5 flex-wrap">
                                   {source.source_type === "csv" && matchedRow && (
                                     <>
-                                      <button
-                                        onClick={() => !isViewer && handleEdit(matchedRow)}
-                                        className="text-blue-600 hover:text-blue-800 p-1 disabled:opacity-40 disabled:cursor-not-allowed"
-                                        title="Edit"
-                                        disabled={isViewer}
-                                      >
-                                        <FaPen size={12} />
-                                      </button>
+                                      {pendingUploads.some(p => p.tableId === String(matchedRow.id)) && (
+                                        <button
+                                          onClick={() => !isViewer && handleApproveUpload(String(matchedRow.id))}
+                                          className="order-1 flex items-center gap-1 px-2 py-1 bg-green-600 hover:bg-green-700 text-white text-xs font-medium rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                                          title={`Approve ${pendingUploads.find(p => p.tableId === String(matchedRow.id))?.filename ?? ''}`}
+                                          disabled={isViewer || approvingTableId === String(matchedRow.id)}
+                                        >
+                                          <FaCheck size={10} />
+                                          <span>{approvingTableId === String(matchedRow.id) ? 'Approving…' : 'Approve'}</span>
+                                        </button>
+                                      )}
                                       <button
                                         onClick={() => !isViewer && handleOpenUploadModal(matchedRow.id)}
-                                        className="text-green-600 hover:text-green-800 p-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                                        className="order-2 flex items-center gap-1 px-2 py-1 bg-green-500 hover:bg-green-600 text-white text-xs font-medium rounded disabled:opacity-40 disabled:cursor-not-allowed"
                                         title="Upload File"
                                         disabled={isViewer}
                                       >
-                                        <FaFileUpload size={12} />
+                                        <FaFileUpload size={10} />
+                                        <span>Upload</span>
+                                      </button>
+                                      <button
+                                        onClick={() => !isViewer && handleEdit(matchedRow)}
+                                        className="order-3 flex items-center gap-1 px-2 py-1 border border-blue-300 bg-white text-blue-700 hover:bg-blue-50 text-xs font-medium rounded disabled:opacity-40 disabled:cursor-not-allowed"
+                                        title="Edit"
+                                        disabled={isViewer}
+                                      >
+                                        <FaPen size={10} />
+                                        <span>Edit</span>
                                       </button>
                                       <button
                                         onClick={() => toggleDropdowns(String(source.id))}
-                                        className="text-gray-600 hover:text-gray-800 p-1"
+                                        className="order-5 flex items-center gap-1 px-2 py-1 border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 text-xs font-medium rounded"
                                         title={isExpanded ? "Collapse" : "View Files"}
                                       >
-                                        {isExpanded ? <FaCaretUp size={12} /> : <FaCaretDown size={12} />}
+                                        {isExpanded ? <FaCaretUp size={10} /> : <FaCaretDown size={10} />}
+                                        <span>Files</span>
                                       </button>
                                     </>
                                   )}
                                   <button
                                     onClick={() => !isViewer && setDeleteDataSourceConfirm({ isOpen: true, source })}
-                                    className="text-red-600 hover:text-red-800 p-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                                    className="order-4 flex items-center gap-1 px-2 py-1 border border-red-300 bg-white text-red-700 hover:bg-red-50 text-xs font-medium rounded disabled:opacity-40 disabled:cursor-not-allowed"
                                     title="Delete"
                                     disabled={isViewer}
                                   >
-                                    <FaTrash size={12} />
+                                    <FaTrash size={10} />
+                                    <span>Delete</span>
                                   </button>
                                 </div>
                               </td>
@@ -5829,6 +6058,7 @@ const SpeechRecognition =
                                         <thead className="bg-gray-100">
                                           <tr>
                                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">File Name</th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">Month / Year</th>
                                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">Created On</th>
                                           </tr>
                                         </thead>
@@ -5837,12 +6067,13 @@ const SpeechRecognition =
                                             matchedRow.files.map((file) => (
                                               <tr key={file.id} className="hover:bg-gray-50">
                                                 <td className="px-3 py-2 text-gray-700 max-w-[150px] truncate">{file.filename}</td>
+                                                <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{file.month_year}</td>
                                                 <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{new Date(file.created_at).toLocaleDateString()}</td>
                                               </tr>
                                             ))
                                           ) : (
                                             <tr>
-                                              <td colSpan={2} className="px-3 py-3 text-center text-gray-400 text-xs">
+                                              <td colSpan={3} className="px-3 py-3 text-center text-gray-400 text-xs">
                                                 No files uploaded yet
                                               </td>
                                             </tr>
@@ -5894,45 +6125,60 @@ const SpeechRecognition =
                                   </span>
                                 </td>
                                 <td className="px-2 py-2">
-                                  <div className="flex justify-center items-center gap-1 flex-wrap">
+                                  <div className="flex justify-center items-center gap-1.5 flex-wrap">
                                     <button
                                       onClick={() => handleDirectApprove('table', row.id)}
-                                      className="flex items-center gap-0.5 px-1.5 py-1 bg-green-600 hover:bg-green-700 text-white text-xs font-medium rounded"
+                                      className="order-0 flex items-center gap-1 px-2 py-1 bg-green-600 hover:bg-green-700 text-white text-xs font-medium rounded"
                                       title="Approve & Add to Data Sources"
                                     >
-                                      <FaCheck size={9} />
-                                      <span className="hidden sm:inline">Approve</span>
+                                      <FaCheck size={10} />
+                                      <span>Approve</span>
                                     </button>
-                                    <button
-                                      onClick={() => !isViewer && handleEdit(row)}
-                                      className="text-blue-600 hover:text-blue-800 p-1 disabled:opacity-40 disabled:cursor-not-allowed"
-                                      title="Edit"
-                                      disabled={isViewer}
-                                    >
-                                      <FaPen size={12} />
-                                    </button>
+                                    {pendingUploads.some(p => p.tableId === String(row.id)) && (
+                                      <button
+                                        onClick={() => !isViewer && handleApproveUpload(String(row.id))}
+                                        className="order-1 flex items-center gap-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                                        title={`Approve uploaded file: ${pendingUploads.find(p => p.tableId === String(row.id))?.filename ?? ''}`}
+                                        disabled={isViewer || approvingTableId === String(row.id)}
+                                      >
+                                        <FaCheck size={10} />
+                                        <span>{approvingTableId === String(row.id) ? 'Approving…' : 'Approve File'}</span>
+                                      </button>
+                                    )}
                                     <button
                                       onClick={() => !isViewer && handleOpenUploadModal(row.id)}
-                                      className="text-green-600 hover:text-green-800 p-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                                      className="order-2 flex items-center gap-1 px-2 py-1 bg-green-500 hover:bg-green-600 text-white text-xs font-medium rounded disabled:opacity-40 disabled:cursor-not-allowed"
                                       title="Upload File"
                                       disabled={isViewer}
                                     >
-                                      <FaFileUpload size={12} />
+                                      <FaFileUpload size={10} />
+                                      <span>Upload</span>
                                     </button>
                                     <button
-                                      onClick={() => toggleDropdowns(String(row.id))}
-                                      className="text-gray-600 hover:text-gray-800 p-1"
-                                      title={isExpanded ? "Collapse" : "View Files"}
+                                      onClick={() => !isViewer && handleEdit(row)}
+                                      className="order-3 flex items-center gap-1 px-2 py-1 border border-blue-300 bg-white text-blue-700 hover:bg-blue-50 text-xs font-medium rounded disabled:opacity-40 disabled:cursor-not-allowed"
+                                      title="Edit"
+                                      disabled={isViewer}
                                     >
-                                      {isExpanded ? <FaCaretUp size={12} /> : <FaCaretDown size={12} />}
+                                      <FaPen size={10} />
+                                      <span>Edit</span>
                                     </button>
                                     <button
                                       onClick={() => !isViewer && handleDeletes(row)}
-                                      className="text-red-600 hover:text-red-800 p-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                                      className="order-4 flex items-center gap-1 px-2 py-1 border border-red-300 bg-white text-red-700 hover:bg-red-50 text-xs font-medium rounded disabled:opacity-40 disabled:cursor-not-allowed"
                                       title="Delete"
                                       disabled={isViewer}
                                     >
-                                      <FaTrash size={12} />
+                                      <FaTrash size={10} />
+                                      <span>Delete</span>
+                                    </button>
+                                    <button
+                                      onClick={() => toggleDropdowns(String(row.id))}
+                                      className="order-5 flex items-center gap-1 px-2 py-1 border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 text-xs font-medium rounded"
+                                      title={isExpanded ? "Collapse" : "View Files"}
+                                    >
+                                      {isExpanded ? <FaCaretUp size={10} /> : <FaCaretDown size={10} />}
+                                      <span>Files</span>
                                     </button>
                                   </div>
                                 </td>
@@ -5949,6 +6195,7 @@ const SpeechRecognition =
                                           <thead className="bg-gray-100">
                                             <tr>
                                               <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">File Name</th>
+                                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">Month / Year</th>
                                               <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">Created On</th>
                                             </tr>
                                           </thead>
@@ -5957,12 +6204,13 @@ const SpeechRecognition =
                                               row.files.map((file) => (
                                                 <tr key={file.id} className="hover:bg-gray-50">
                                                   <td className="px-3 py-2 text-gray-700 max-w-[150px] truncate">{file.filename}</td>
+                                                  <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{file.month_year}</td>
                                                   <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{new Date(file.created_at).toLocaleDateString()}</td>
                                                 </tr>
                                               ))
                                             ) : (
                                               <tr>
-                                                <td colSpan={2} className="px-3 py-3 text-center text-gray-400 text-xs">
+                                                <td colSpan={3} className="px-3 py-3 text-center text-gray-400 text-xs">
                                                   No files uploaded yet. Click Upload above.
                                                 </td>
                                               </tr>
@@ -5982,7 +6230,7 @@ const SpeechRecognition =
                       {dataSources.length === 0 && rows.filter(r => !r.approval_status || r.approval_status === 'pending').length === 0 && (
                         <tr>
                           <td colSpan={6} className="px-4 py-8 text-center text-xs text-gray-500">
-                            No data sources or info-objects yet. Use "+ PG Table" or "+ Info-Object" to add.
+                            No data sources or info-objects yet. Use "+ PG Table" or "+ CSV-Object" to add.
                           </td>
                         </tr>
                       )}
@@ -6285,21 +6533,73 @@ const SpeechRecognition =
               </div>
             )}
 
-            {/* ── Upload Files Modal ── */}
+            {/* ── Upload Files Modal — picking a file only stages it (fills Filename);
+                clicking Upload runs steps 1+2 of the resumable flow (get a GCS
+                session URL, PUT the file to it), then closes. No Approve button
+                here — step 3 happens from the Approve button on the table/list
+                page, next to whichever row has this pending upload (see
+                pendingUploads). ── */}
             {isUploadModalOpen && (
               <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 px-3">
                 <div className="bg-white rounded-lg shadow-lg w-full max-w-sm p-4">
                   <div className="flex justify-between items-center mb-4">
                     <h3 className="text-base font-semibold">Upload Files</h3>
-                    <button onClick={handleCloseUploadModal} className="text-gray-400 hover:text-gray-500">
+                    <button
+                      onClick={() => !isUploadingFile && handleCloseUploadModal()}
+                      className="text-gray-400 hover:text-gray-500"
+                    >
                       <FaTimes />
                     </button>
                   </div>
 
-                  <form onSubmit={handleSubmitMultipleFiles} className="space-y-4">
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-gray-700 text-xs font-bold mb-1.5">Table ID</label>
+                      <div className="border rounded w-full py-2 px-3 text-gray-500 text-xs bg-gray-50">
+                        {selectedTableId}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-gray-700 text-xs font-bold mb-1.5">Select File:</label>
+                      <div className={`border-2 border-dashed rounded-lg p-4 text-center transition-colors ${isUploadingFile ? 'border-gray-200' : 'border-gray-300 hover:border-blue-500 cursor-pointer'}`}>
+                        <input
+                          id="fileInput"
+                          name="file"
+                          type="file"
+                          onChange={handleSelectFile}
+                          className="hidden"
+                          accept=".csv,.xlsx,.xls"
+                          disabled={isUploadingFile}
+                        />
+                        <label htmlFor="fileInput" className={isUploadingFile ? 'cursor-not-allowed' : 'cursor-pointer'}>
+                          {isUploadingFile ? (
+                            <svg className="animate-spin h-5 w-5 text-blue-500 mx-auto mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            </svg>
+                          ) : (
+                            <FaUpload className="text-gray-500 mx-auto mb-2" size={20} />
+                          )}
+                          <p className="text-xs text-gray-600">
+                            {isUploadingFile ? `Uploading ${selectedFile?.name}…` : selectedFile ? '1 file(s) selected' : 'Click or drag a file to upload'}
+                          </p>
+                        </label>
+                      </div>
+                      <p className="mt-1.5 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">CSV files only.</p>
+                    </div>
+
+                    {/* Auto-filled from the file picked above — nothing to type here. */}
+                    <div>
+                      <label className="block text-gray-700 text-xs font-bold mb-1.5">Filename:</label>
+                      <div className="border rounded w-full py-2 px-3 text-xs bg-gray-50 truncate">
+                        {selectedFile ? <span className="text-blue-600">{selectedFile.name}</span> : <span className="text-gray-400">No file selected yet</span>}
+                      </div>
+                    </div>
+
                     <div>
                       <label className="block text-gray-700 text-xs font-bold mb-1.5" htmlFor="datePicker">
-                        Select Date:
+                        Month / Year:
                       </label>
                       <input
                         type="date"
@@ -6307,80 +6607,40 @@ const SpeechRecognition =
                         name="date"
                         value={selectedDate}
                         onChange={handleDateChange}
-                        className="border rounded w-full py-2 px-3 text-gray-700 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        disabled={isUploadingFile}
+                        className="border rounded w-full py-2 px-3 text-gray-700 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-100 disabled:text-gray-400"
                         required
                       />
-                    </div>
-
-                    <div>
-                      <label className="block text-gray-700 text-xs font-bold mb-1.5">
-                        Select Files (Multiple):
-                      </label>
-                      <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center cursor-pointer hover:border-blue-500 transition-colors">
-                        <input
-                          id="fileInput"
-                          name="files"
-                          type="file"
-                          multiple
-                          onChange={handleMultipleFileSelect}
-                          className="hidden"
-                          accept=".csv,.xlsx,.xls"
-                        />
-                        <label htmlFor="fileInput" className="cursor-pointer">
-                          <FaUpload className="text-gray-500 mx-auto mb-2" size={20} />
-                          <p className="text-xs text-gray-600 mb-1">
-                            {selectedFiles.length > 0
-                              ? `${selectedFiles.length} file(s) selected`
-                              : 'Click or drag files to upload'}
-                          </p>
-                          {selectedFiles.length > 0 && (
-                            <div className="mt-2 text-xs text-left max-h-24 overflow-y-auto">
-                              {selectedFiles.map((file, index) => (
-                                <div key={index} className="text-blue-600 truncate">• {file.name}</div>
-                              ))}
-                            </div>
-                          )}
-                        </label>
-                      </div>
                     </div>
 
                     <div className="flex justify-end gap-2 pt-1">
                       <button
                         type="button"
                         onClick={handleCloseUploadModal}
-                        className="px-3 py-2 border border-gray-300 rounded-md text-xs hover:bg-gray-50"
+                        disabled={isUploadingFile}
+                        className="px-3 py-2 border border-gray-300 rounded-md text-xs hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         Cancel
                       </button>
                       <button
-                        type="submit"
-                        disabled={isUploading || selectedFiles.length === 0}
-                        className={`px-3 py-2 bg-blue-500 text-white rounded-md text-xs hover:bg-blue-600 focus:outline-none ${isUploading || selectedFiles.length === 0 ? 'opacity-75 cursor-not-allowed' : ''
-                          }`}
+                        type="button"
+                        onClick={handleUploadFile}
+                        disabled={!selectedFile || isUploadingFile}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-semibold disabled:bg-blue-300 disabled:cursor-not-allowed"
                       >
-                        {isUploading ? (
-                          <span className="flex items-center gap-1.5">
-                            <svg className="animate-spin h-3.5 w-3.5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                            </svg>
-                            Uploading...
-                          </span>
-                        ) : `Upload${selectedFiles.length > 0 ? ` (${selectedFiles.length})` : ''}`}
+                        {isUploadingFile ? 'Uploading…' : `Upload${selectedFile ? ' (1)' : ''}`}
                       </button>
                     </div>
-                  </form>
+                  </div>
                 </div>
               </div>
             )}
 
-            {/* ── Create / Edit Info-Object Modal ── */}
+            {/* ── Edit Info-Object Modal (name/description only) ── */}
             {isModallOpen && (
               <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 px-3">
                 <div className="bg-white rounded-lg shadow-lg w-full max-w-sm p-4">
-                  <h3 className="text-base font-semibold mb-4">
-                    {editRow ? 'Edit Info-Object' : 'Create New Info-Object'}
-                  </h3>
+                  <h3 className="text-base font-semibold mb-4">Edit Info-Object</h3>
                   <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
                       <label className="block text-gray-700 text-xs font-bold mb-1.5">
@@ -6423,10 +6683,10 @@ const SpeechRecognition =
                               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                             </svg>
-                            {editRow ? 'Updating...' : 'Creating...'}
+                            Updating...
                           </>
                         ) : (
-                          editRow ? 'Update' : 'Save'
+                          'Update'
                         )}
                       </button>
                       <button
@@ -6436,6 +6696,176 @@ const SpeechRecognition =
                         className="flex-1 bg-gray-500 hover:bg-gray-700 text-white text-xs font-bold py-2 px-4 rounded focus:outline-none disabled:bg-gray-300 disabled:cursor-not-allowed"
                       >
                         Close
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* ── Step 1: Upload CSV Modal — just a file picker + explicit Filename field.
+                Clicking Upload runs upload-csv-url (step 1) + a direct PUT to GCS
+                (step 2); board_id/user_id/org_id/filename are all automatic. ── */}
+            {isCsvUploadModalOpen && (
+              <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 px-3">
+                <div className="bg-white rounded-lg shadow-lg w-full max-w-sm p-4">
+                  <h3 className="text-base font-semibold mb-4">Upload CSV</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-gray-700 text-xs font-bold mb-1.5">Select File:</label>
+                      <div className={`border-2 border-dashed rounded-lg p-4 text-center transition-colors ${isUploadingCsv ? 'border-gray-200' : 'border-gray-300 hover:border-blue-500 cursor-pointer'}`}>
+                        <input
+                          id="csvUploadFileInput"
+                          type="file"
+                          onChange={handleSelectCsvUploadFile}
+                          className="hidden"
+                          accept=".csv,.xlsx,.xls"
+                          disabled={isUploadingCsv}
+                        />
+                        <label htmlFor="csvUploadFileInput" className={isUploadingCsv ? 'cursor-not-allowed' : 'cursor-pointer'}>
+                          {isUploadingCsv ? (
+                            <svg className="animate-spin h-5 w-5 text-blue-500 mx-auto mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            </svg>
+                          ) : (
+                            <FaUpload className="text-gray-500 mx-auto mb-2" size={20} />
+                          )}
+                          <p className="text-xs text-gray-600">
+                            {isUploadingCsv ? `Uploading ${csvUploadFile?.name}…` : 'Click or drag a file to upload'}
+                          </p>
+                        </label>
+                      </div>
+                      <p className="mt-1.5 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">CSV files only.</p>
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-xs font-bold mb-1.5">Filename:</label>
+                      <div className="border rounded w-full py-2 px-3 text-xs bg-gray-50 truncate">
+                        {csvUploadFile ? <span className="text-blue-600">{csvUploadFile.name}</span> : <span className="text-gray-400">No file selected yet</span>}
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={handleCloseCsvUploadModal}
+                        disabled={isUploadingCsv}
+                        className="px-3 py-2 border border-gray-300 rounded-md text-xs hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleUploadCsv}
+                        disabled={!csvUploadFile || isUploadingCsv}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-semibold disabled:bg-blue-300 disabled:cursor-not-allowed"
+                      >
+                        {isUploadingCsv ? 'Uploading…' : 'Upload'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Step 3: Approve CSV Upload Modal — gcs_path/filename carried over
+                automatically from step 1/2; the user fills in the rest and Save runs
+                confirm-csv-upload. ── */}
+            {isCsvApproveModalOpen && stagedCsvUpload && (
+              <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 px-3">
+                <div className="bg-white rounded-lg shadow-lg w-full max-w-sm p-4">
+                  <h3 className="text-base font-semibold mb-4">Approve CSV Upload</h3>
+                  <form onSubmit={handleConfirmCsvUpload} className="space-y-3">
+                    <div>
+                      <label className="block text-gray-700 text-xs font-bold mb-1.5">Filename</label>
+                      <div className="border rounded w-full py-2 px-3 text-xs bg-gray-50 truncate text-gray-500">
+                        {stagedCsvUpload.filename}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-xs font-bold mb-1.5">GCS Path</label>
+                      <div className="border rounded w-full py-2 px-3 text-xs bg-gray-50 truncate text-gray-500">
+                        {stagedCsvUpload.gcsPath}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-xs font-bold mb-1.5">
+                        Source Name
+                      </label>
+                      <input
+                        type="text"
+                        value={approveSourceName}
+                        onChange={(e) => setApproveSourceName(e.target.value)}
+                        required
+                        disabled={isApprovingCsv}
+                        placeholder="Name shown in the data source list"
+                        className="border rounded w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-100"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-xs font-bold mb-1.5">
+                        Table Name
+                      </label>
+                      <input
+                        type="text"
+                        value={approveTableName}
+                        onChange={(e) => setApproveTableName(e.target.value)}
+                        required
+                        disabled={isApprovingCsv}
+                        placeholder="Internal name for the data management record"
+                        className="border rounded w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-100"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-xs font-bold mb-1.5">
+                        Table Description (optional)
+                      </label>
+                      <input
+                        type="text"
+                        value={approveTableDescription}
+                        onChange={(e) => setApproveTableDescription(e.target.value)}
+                        disabled={isApprovingCsv}
+                        className="border rounded w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-100"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-xs font-bold mb-1.5">
+                        Month / Year
+                      </label>
+                      <input
+                        type="date"
+                        value={approveMonthYear}
+                        onChange={(e) => setApproveMonthYear(e.target.value)}
+                        required
+                        disabled={isApprovingCsv}
+                        className="border rounded w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-100"
+                      />
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        type="submit"
+                        disabled={isApprovingCsv}
+                        className={`flex-1 text-white text-xs font-bold py-2 px-4 rounded focus:outline-none flex items-center justify-center gap-2 ${isApprovingCsv ? 'bg-green-300 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
+                          }`}
+                      >
+                        {isApprovingCsv ? (
+                          <>
+                            <svg className="animate-spin h-3.5 w-3.5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            </svg>
+                            Saving...
+                          </>
+                        ) : (
+                          'Save'
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCloseCsvApproveModal}
+                        disabled={isApprovingCsv}
+                        className="flex-1 bg-gray-500 hover:bg-gray-700 text-white text-xs font-bold py-2 px-4 rounded focus:outline-none disabled:bg-gray-300 disabled:cursor-not-allowed"
+                      >
+                        Cancel
                       </button>
                     </div>
                   </form>

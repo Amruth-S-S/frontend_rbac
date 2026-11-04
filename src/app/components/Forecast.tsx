@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   TrendingUp, Database, RefreshCw, ChevronDown, Play, X, Download,
   CheckCircle2, AlertCircle, Loader2, Search as SearchIcon, ArrowUpDown,
-  Maximize2, ArrowLeft, Upload,
+  Maximize2, ArrowLeft, Upload, Save,
 } from 'lucide-react';
 import { Line, Bar } from 'react-chartjs-2';
 import {
@@ -18,12 +18,13 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarEleme
 
 // Data-viz palette (see the dataviz skill's reference palette) — sequential blue for
 // single-hue magnitude, and the blue<->red diverging pair for the growth chart's sign.
-const VIZ_BLUE = '#2a78d6';
+const VIZ_BLUE = '#2563EB';
 const VIZ_RED = '#e34948';
-// One color per forecasting model, in a fixed order (never cycled/reassigned) — blue
-// and red cover the API's current two models (Holt-Winters, SARIMA); the extra two
-// only come into play if the API ever adds a third/fourth model.
-const MODEL_COLORS = [VIZ_BLUE, VIZ_RED, '#eda100', '#4a3aa7'];
+// One color per forecasting model, in a fixed order (never cycled/reassigned) — pink
+// is the primary "forecast" color (actuals are blue), teal covers a second model
+// (Holt-Winters, SARIMA); the extra two only come into play if the API ever adds a
+// third/fourth model.
+const MODEL_COLORS = ['#E8527C', '#14A59B', '#eda100', '#4a3aa7'];
 const hexToRgba = (hex: string, alpha: number) => {
   const n = parseInt(hex.slice(1), 16);
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
@@ -94,6 +95,10 @@ export default function Forecast() {
   const [tablesLoading, setTablesLoading] = useState(true);
   const [columnsByTable, setColumnsByTable] = useState<Record<string, string[]>>({});
   const [columnsLoading, setColumnsLoading] = useState(false);
+  // Numeric-only columns, for the Target column picker specifically — a forecast
+  // target has to be numeric, so it's fetched from /columns_numeric instead of the
+  // general /columns list used by Date column / Filter column / Selected columns.
+  const [numericColumnsByTable, setNumericColumnsByTable] = useState<Record<string, string[]>>({});
 
   const loadTables = useCallback(async () => {
     setTablesLoading(true);
@@ -146,6 +151,106 @@ export default function Forecast() {
     }
   };
 
+  // ── View Table modal — quick read-only preview of a table's raw rows, via
+  // GET /table-data/?table_name=&page=&page_size= (distinct from the /tables/{table}
+  // endpoint above, which applies the forecast-specific filters/column selection). ──
+  const [viewTableModalOpen, setViewTableModalOpen] = useState(false);
+  const [viewTableName, setViewTableName] = useState('');
+  const [viewTableRowLimit, setViewTableRowLimit] = useState(10);
+  const [viewTableLoading, setViewTableLoading] = useState(false);
+  const [viewTableColumns, setViewTableColumns] = useState<string[]>([]);
+  const [viewTableRows, setViewTableRows] = useState<Record<string, unknown>[]>([]);
+  const [viewTableRan, setViewTableRan] = useState(false);
+
+  const openViewTableModal = () => {
+    setViewTableModalOpen(true);
+    setViewTableName(selectedTable || tables[0] || '');
+    setViewTableColumns([]);
+    setViewTableRows([]);
+    setViewTableRan(false);
+    setViewTableDropdownOpen(false);
+    setViewTableNameSearch('');
+    setViewTableSort('asc');
+  };
+  const closeViewTableModal = () => { if (!viewTableLoading) setViewTableModalOpen(false); };
+
+  const runViewTable = async () => {
+    if (!viewTableName) return;
+    setViewTableLoading(true);
+    setViewTableRan(true);
+    try {
+      const qs = new URLSearchParams({
+        table_name: viewTableName,
+        page: '1',
+        page_size: String(Math.max(1, viewTableRowLimit || 10)),
+      });
+      const res = await fetch(`/api/forecasting/table-data?${qs.toString()}`);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(extractErrorMessage(json, 'Failed to load table data.'));
+      const rows: Record<string, unknown>[] = Array.isArray(json)
+        ? json
+        : Array.isArray(json?.data) ? json.data
+        : Array.isArray(json?.rows) ? json.rows
+        : [];
+      const cols: string[] = Array.isArray(json?.columns) && json.columns.length > 0
+        ? json.columns
+        : rows.length > 0 ? Object.keys(rows[0]) : [];
+      setViewTableColumns(cols);
+      setViewTableRows(rows);
+    } catch (err: any) {
+      addToast('error', err?.message || 'Failed to load table data.');
+      setViewTableColumns([]);
+      setViewTableRows([]);
+    } finally {
+      setViewTableLoading(false);
+    }
+  };
+
+  // Searchable table-name dropdown inside the View Table modal (same tables list,
+  // own open/search state since it's a separate trigger from the Step 1 one).
+  // Positioned with 'fixed' + a computed rect (like DateField below) instead of
+  // 'absolute', since the modal itself clips overflow for its rounded corners and
+  // would otherwise cut the popup off before the full table list is visible.
+  const [viewTableDropdownOpen, setViewTableDropdownOpen] = useState(false);
+  const [viewTableNameSearch, setViewTableNameSearch] = useState('');
+  const [viewTableSort, setViewTableSort] = useState<'asc' | 'desc'>('asc');
+  const [viewTableDropdownStyle, setViewTableDropdownStyle] = useState<React.CSSProperties>({});
+  const viewTableDropdownRef = useRef<HTMLDivElement>(null);
+  const viewTableTriggerRef = useRef<HTMLButtonElement>(null);
+  const toggleViewTableDropdown = () => {
+    if (viewTableLoading) return;
+    if (!viewTableDropdownOpen && viewTableTriggerRef.current) {
+      const r = viewTableTriggerRef.current.getBoundingClientRect();
+      setViewTableDropdownStyle({ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 300 });
+    }
+    setViewTableDropdownOpen(o => !o);
+  };
+  useEffect(() => {
+    if (!viewTableDropdownOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (viewTableDropdownRef.current && !viewTableDropdownRef.current.contains(e.target as Node)) {
+        setViewTableDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [viewTableDropdownOpen]);
+  const visibleViewTables = useMemo(() => {
+    const q = viewTableNameSearch.trim().toLowerCase();
+    const filtered = q ? tables.filter(t => t.toLowerCase().includes(q)) : tables;
+    const sorted = [...filtered].sort((a, b) => a.localeCompare(b));
+    return viewTableSort === 'asc' ? sorted : sorted.reverse();
+  }, [tables, viewTableNameSearch, viewTableSort]);
+
+  // Esc closes the View Table modal.
+  useEffect(() => {
+    if (!viewTableModalOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeViewTableModal(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewTableModalOpen, viewTableLoading]);
+
   const fetchColumnsFor = useCallback(async (t: string): Promise<string[]> => {
     if (columnsByTable[t]) return columnsByTable[t];
     const res = await fetch(`/api/forecasting/tables/${encodeURIComponent(t)}/columns`);
@@ -155,6 +260,16 @@ export default function Forecast() {
     setColumnsByTable(prev => ({ ...prev, [t]: cols }));
     return cols;
   }, [columnsByTable]);
+
+  const fetchNumericColumnsFor = useCallback(async (t: string): Promise<string[]> => {
+    if (numericColumnsByTable[t]) return numericColumnsByTable[t];
+    const res = await fetch(`/api/forecasting/tables/${encodeURIComponent(t)}/columns_numeric`);
+    const json = await res.json();
+    if (!res.ok) throw new Error(extractErrorMessage(json, `Failed to load numeric columns for ${t}.`));
+    const cols: string[] = Array.isArray(json?.columns) ? json.columns : [];
+    setNumericColumnsByTable(prev => ({ ...prev, [t]: cols }));
+    return cols;
+  }, [numericColumnsByTable]);
 
   const isEligible = (t: string) => REQUIRED_COLUMNS.every(c => (columnsByTable[t] || []).includes(c));
 
@@ -241,6 +356,10 @@ export default function Forecast() {
   };
 
   const selectedColumns = columnsByTable[selectedTable] || [];
+  // Target column is restricted to numeric columns (/columns_numeric) — a forecast
+  // target has to be numeric, unlike Date column / Filter column / Selected columns,
+  // which still use the full column list above.
+  const targetColumnOptions = numericColumnsByTable[selectedTable] || [];
   const selectedEligible = selectedTable ? isEligible(selectedTable) : false;
   // Every column the backend returns is filterable — same list as Selected columns,
   // not just the ones outside GUID/Date/Amount.
@@ -335,7 +454,7 @@ export default function Forecast() {
     if (!t) return;
     setColumnsLoading(true);
     try {
-      const cols = await fetchColumnsFor(t);
+      const [cols] = await Promise.all([fetchColumnsFor(t), fetchNumericColumnsFor(t)]);
       // Default to the columns the API actually needs, but leave it freely editable.
       setSelectedColumnsForLoad(REQUIRED_COLUMNS.filter(c => cols.includes(c)));
     } catch (err: any) {
@@ -426,6 +545,63 @@ export default function Forecast() {
   const [periods, setPeriods] = useState(4);
   const [forecastResult, setForecastResult] = useState<ForecastResult | null>(null);
   const [forecastLoading, setForecastLoading] = useState(false);
+
+  // ── Save Actual Forecast ─────────────────────────────────────────────────
+  // save_mode "all" only needs a table name; "single" also needs which model's
+  // forecast to save, picked from /get_algorithms rather than typed freely.
+  const [saveForecastModalOpen, setSaveForecastModalOpen] = useState(false);
+  const [saveMode, setSaveMode] = useState<'all' | 'single'>('all');
+  const [saveTableName, setSaveTableName] = useState('');
+  const [saveModelName, setSaveModelName] = useState('');
+  const [algorithms, setAlgorithms] = useState<string[]>([]);
+  const [algorithmsLoading, setAlgorithmsLoading] = useState(false);
+  const [savingForecast, setSavingForecast] = useState(false);
+
+  const openSaveForecastModal = () => {
+    setSaveTableName(selectedTable || '');
+    setSaveMode('all');
+    setSaveModelName('');
+    setSaveForecastModalOpen(true);
+  };
+
+  const fetchAlgorithms = useCallback(async () => {
+    if (algorithms.length > 0) return;
+    setAlgorithmsLoading(true);
+    try {
+      const res = await fetch('/api/forecasting/get_algorithms');
+      const json = await res.json();
+      if (!res.ok) throw new Error(extractErrorMessage(json, 'Failed to load algorithms.'));
+      const list: string[] = Array.isArray(json) ? json : Array.isArray(json?.algorithms) ? json.algorithms : [];
+      setAlgorithms(list);
+    } catch (err: any) {
+      addToast('error', err?.message || 'Failed to load algorithms.');
+    } finally {
+      setAlgorithmsLoading(false);
+    }
+  }, [algorithms, addToast]);
+
+  useEffect(() => {
+    if (saveMode === 'single' && saveForecastModalOpen) fetchAlgorithms();
+  }, [saveMode, saveForecastModalOpen, fetchAlgorithms]);
+
+  const handleSaveActualForecast = async () => {
+    if (!saveTableName.trim()) { addToast('error', 'Table name is required.'); return; }
+    if (saveMode === 'single' && !saveModelName) { addToast('error', 'Please select a model.'); return; }
+    setSavingForecast(true);
+    try {
+      const qs = new URLSearchParams({ save_mode: saveMode, table_name: saveTableName.trim() });
+      if (saveMode === 'single') qs.set('model_name', saveModelName);
+      const res = await fetch(`/api/forecasting/save_actual_forecast?${qs.toString()}`, { method: 'POST' });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(extractErrorMessage(json, 'Failed to save forecast.'));
+      addToast('success', 'Forecast saved.');
+      setSaveForecastModalOpen(false);
+    } catch (err: any) {
+      addToast('error', err?.message || 'Failed to save forecast.');
+    } finally {
+      setSavingForecast(false);
+    }
+  };
 
   // Chart date range filter — the API's Date values are plain "YYYY-MM-DD" strings,
   // same format <input type="date"> uses, so they compare/filter lexicographically
@@ -589,6 +765,15 @@ export default function Forecast() {
   // line there. To avoid a gap at the hand-off, the last historical point is also
   // seeded as each model's starting value, so its line picks up exactly where the
   // green one ends instead of jumping in from nothing.
+  // Highest-accuracy model's accuracy string, for the "Best Accuracy" stat tile.
+  const bestModelAccuracy = useMemo(() => {
+    if (!forecastResult || forecastResult.models.length === 0) return null;
+    const best = [...forecastResult.models].sort(
+      (a, b) => (parseFloat(b.accuracy) || 0) - (parseFloat(a.accuracy) || 0)
+    )[0];
+    return best?.accuracy ?? null;
+  }, [forecastResult]);
+
   const chartData = useMemo(() => {
     if (!forecastResult) return null;
     const hist = filteredHistorical;
@@ -610,9 +795,9 @@ export default function Forecast() {
         {
           label: 'Historical',
           data: dates.map(d => histMap.has(d) ? histMap.get(d)! : null),
-          borderColor: '#16a34a',
-          backgroundColor: 'rgba(22, 163, 74, 0.12)',
-          pointBackgroundColor: '#16a34a',
+          borderColor: VIZ_BLUE,
+          backgroundColor: hexToRgba(VIZ_BLUE, 0.10),
+          pointBackgroundColor: VIZ_BLUE,
           pointRadius: 3,
           pointHoverRadius: 6,
           tension: 0.3,
@@ -630,6 +815,7 @@ export default function Forecast() {
               return null;
             }),
             borderColor: color,
+            borderDash: [6, 4],
             backgroundColor: hexToRgba(color, 0.12),
             pointBackgroundColor: color,
             pointRadius: (ctx: any) => dates[ctx.dataIndex] === lastHistoricalDate ? 0 : 3,
@@ -816,38 +1002,46 @@ export default function Forecast() {
       {/* Header */}
       <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
-            <TrendingUp className="w-5 h-5 text-blue-600" />
+          <div className="w-14 h-14 rounded-2xl bg-tint flex items-center justify-center flex-shrink-0">
+            <TrendingUp className="w-6 h-6 text-accent" />
           </div>
           <div>
-            <h2 className="text-base font-bold text-gray-800">Sales Forecasting</h2>
+            <h2 className="text-lg font-bold text-gray-800 font-heading">Sales Forecasting</h2>
             <p className="text-xs text-gray-500">Pick a table and generate a time-series forecast</p>
           </div>
         </div>
       </div>
 
       {/* Step 1: Data Source */}
-      <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5 mb-4">
+      <div className="bg-white border border-card-border rounded-2xl shadow-sm p-5 mb-4">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center flex-shrink-0">1</span>
-            <h3 className="text-sm font-bold text-gray-800">Data Source</h3>
+            <span className="w-8 h-8 rounded-full bg-accent text-white text-xs font-bold flex items-center justify-center flex-shrink-0 font-heading">1</span>
+            <h3 className="text-sm font-bold text-gray-800 font-heading">Data Source</h3>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <button
               onClick={() => setUploadModalOpen(true)}
-              className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-blue-600 border border-blue-200 rounded-md hover:bg-blue-50 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-accent border border-tint rounded-lg hover:bg-tint transition-colors"
             >
-              <Upload className="w-3 h-3" />
+              <Upload className="w-3.5 h-3.5" />
               Upload Files
             </button>
             <button
               onClick={loadTables}
               disabled={tablesLoading}
-              className="flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-800 disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-accent border border-tint rounded-lg hover:bg-tint transition-colors disabled:opacity-50"
             >
-              <RefreshCw className={`w-3 h-3 ${tablesLoading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${tablesLoading ? 'animate-spin' : ''}`} />
               Refresh tables
+            </button>
+            <button
+              onClick={openViewTableModal}
+              disabled={tablesLoading || tables.length === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-accent border border-tint rounded-lg hover:bg-tint transition-colors disabled:opacity-50"
+            >
+              <SearchIcon className="w-3.5 h-3.5" />
+              View Table
             </button>
           </div>
         </div>
@@ -863,7 +1057,7 @@ export default function Forecast() {
                 type="button"
                 onClick={() => !tablesLoading && setTableDropdownOpen(o => !o)}
                 disabled={tablesLoading}
-                className="w-full flex items-center justify-between px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50"
+                className="w-full flex items-center justify-between h-[50px] px-3 border border-card-border rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-accent disabled:bg-gray-50"
               >
                 <span className={`truncate ${selectedTable ? 'text-gray-900' : 'text-gray-400'}`}>
                   {tablesLoading ? 'Loading tables…' : selectedTable || 'Select a table'}
@@ -871,7 +1065,7 @@ export default function Forecast() {
                 <ChevronDown className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${tableDropdownOpen ? 'rotate-180' : ''}`} />
               </button>
               {tableDropdownOpen && !tablesLoading && (
-                <div className="absolute z-20 mt-1 w-full max-h-80 overflow-hidden border border-gray-300 rounded-lg bg-white shadow-lg flex flex-col">
+                <div className="absolute z-20 mt-1 w-full max-h-80 overflow-hidden border border-card-border rounded-2xl bg-white shadow-xl flex flex-col">
                   <div className="flex items-center gap-1.5 p-1.5 border-b border-gray-100">
                     <div className="relative flex-1">
                       <SearchIcon className="w-3.5 h-3.5 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2" />
@@ -903,7 +1097,7 @@ export default function Forecast() {
                           type="button"
                           key={t}
                           onClick={() => { handleSelectTable(t); setTableDropdownOpen(false); setTableSearch(''); }}
-                          className={`w-full text-left px-2.5 py-1.5 rounded text-sm truncate hover:bg-gray-50 ${t === selectedTable ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-900'}`}
+                          className={`w-full text-left px-2.5 py-1.5 rounded-lg text-sm truncate hover:bg-tint ${t === selectedTable ? 'bg-tint text-accent font-bold' : 'text-gray-900'}`}
                         >
                           {t}{!isEligible(t) && columnsByTable[t] ? ' (unsupported schema)' : ''}
                         </button>
@@ -926,7 +1120,7 @@ export default function Forecast() {
                 type="button"
                 onClick={() => selectedTable && !columnsLoading && setFilterColumnDropdownOpen(o => !o)}
                 disabled={!selectedTable || columnsLoading}
-                className="w-full flex items-center justify-between px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50 disabled:text-gray-400"
+                className="w-full flex items-center justify-between h-[50px] px-3 border border-card-border rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-accent disabled:bg-gray-50 disabled:text-gray-400"
               >
                 <span className={`truncate ${filterColumn ? 'text-gray-900' : 'text-gray-400'}`}>
                   {columnsLoading ? 'Loading columns…' : filterColumn || 'No filter'}
@@ -934,11 +1128,11 @@ export default function Forecast() {
                 <ChevronDown className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${filterColumnDropdownOpen ? 'rotate-180' : ''}`} />
               </button>
               {filterColumnDropdownOpen && selectedTable && !columnsLoading && (
-                <div className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto border border-gray-300 rounded-lg bg-white shadow-lg p-1">
+                <div className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto border border-card-border rounded-2xl bg-white shadow-xl p-1">
                   <button
                     type="button"
                     onClick={() => { handleSelectFilterColumn(''); setFilterColumnDropdownOpen(false); }}
-                    className={`w-full text-left px-2.5 py-1.5 rounded text-sm truncate hover:bg-gray-50 ${!filterColumn ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-900'}`}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg text-sm truncate hover:bg-tint ${!filterColumn ? 'bg-tint text-accent font-bold' : 'text-gray-900'}`}
                   >
                     No filter
                   </button>
@@ -947,7 +1141,7 @@ export default function Forecast() {
                       type="button"
                       key={c}
                       onClick={() => { handleSelectFilterColumn(c); setFilterColumnDropdownOpen(false); }}
-                      className={`w-full text-left px-2.5 py-1.5 rounded text-sm truncate hover:bg-gray-50 ${c === filterColumn ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-900'}`}
+                      className={`w-full text-left px-2.5 py-1.5 rounded-lg text-sm truncate hover:bg-tint ${c === filterColumn ? 'bg-tint text-accent font-bold' : 'text-gray-900'}`}
                     >
                       {c}
                     </button>
@@ -966,13 +1160,13 @@ export default function Forecast() {
                 type="button"
                 onClick={() => selectedTable && !columnsLoading && setUseDateColumnDropdownOpen(o => !o)}
                 disabled={!selectedTable || columnsLoading}
-                className="w-full flex items-center justify-between px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50 disabled:text-gray-400"
+                className="w-full flex items-center justify-between h-[50px] px-3 border border-card-border rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-accent disabled:bg-gray-50 disabled:text-gray-400"
               >
                 <span className="truncate text-gray-900">{useDateColumn ? 'True' : 'False'}</span>
                 <ChevronDown className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${useDateColumnDropdownOpen ? 'rotate-180' : ''}`} />
               </button>
               {useDateColumnDropdownOpen && selectedTable && !columnsLoading && (
-                <div className="absolute z-20 mt-1 w-full border border-gray-300 rounded-lg bg-white shadow-lg p-1">
+                <div className="absolute z-20 mt-1 w-full border border-card-border rounded-2xl bg-white shadow-xl p-1">
                   {[false, true].map(v => (
                     <button
                       type="button"
@@ -985,7 +1179,7 @@ export default function Forecast() {
                         if (v) setSelectedColumnsForLoad([]);
                         else { setDateColumn(''); setTargetColumn(''); }
                       }}
-                      className={`w-full text-left px-2.5 py-1.5 rounded text-sm hover:bg-gray-50 ${v === useDateColumn ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-900'}`}
+                      className={`w-full text-left px-2.5 py-1.5 rounded-lg text-sm hover:bg-tint ${v === useDateColumn ? 'bg-tint text-accent font-bold' : 'text-gray-900'}`}
                     >
                       {v ? 'True' : 'False'}
                     </button>
@@ -1011,7 +1205,7 @@ export default function Forecast() {
                   type="button"
                   onClick={() => selectedTable && !columnsLoading && setSelectedColumnsDropdownOpen(o => !o)}
                   disabled={!selectedTable || columnsLoading}
-                  className="w-full flex items-center justify-between px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50 disabled:text-gray-400"
+                  className="w-full flex items-center justify-between h-[50px] px-3 border border-card-border rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-accent disabled:bg-gray-50 disabled:text-gray-400"
                 >
                   <span className={`truncate ${selectedColumnsForLoad.length === 0 ? 'text-gray-400' : 'text-gray-900'}`}>
                     {columnsLoading
@@ -1025,7 +1219,7 @@ export default function Forecast() {
                   <ChevronDown className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${selectedColumnsDropdownOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {selectedColumnsDropdownOpen && selectedTable && !columnsLoading && (
-                  <div className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto border border-gray-300 rounded-lg bg-white shadow-lg p-2 space-y-0.5">
+                  <div className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto border border-card-border rounded-2xl bg-white shadow-xl p-2 space-y-0.5">
                     <div className="flex items-center justify-between px-2 pb-1.5 mb-1 border-b border-gray-100">
                       <button type="button" onClick={() => setSelectedColumnsForLoad(selectedColumns)} className="text-[11px] text-blue-600 hover:underline">Select all</button>
                       <button type="button" onClick={() => setSelectedColumnsForLoad(REQUIRED_COLUMNS.filter(c => selectedColumns.includes(c)))} className="text-[11px] text-gray-400 hover:underline">Reset to required</button>
@@ -1033,7 +1227,7 @@ export default function Forecast() {
                     {selectedColumns.map(c => {
                       const required = REQUIRED_COLUMNS.includes(c);
                       return (
-                        <label key={c} className="flex items-center gap-2.5 px-2 py-1.5 hover:bg-gray-50 cursor-pointer rounded">
+                        <label key={c} className="flex items-center gap-2.5 px-2 py-1.5 hover:bg-tint cursor-pointer rounded-lg">
                           <input
                             type="checkbox"
                             checked={selectedColumnsForLoad.includes(c)}
@@ -1064,7 +1258,7 @@ export default function Forecast() {
                   type="button"
                   onClick={() => selectedTable && !columnsLoading && setDateColumnDropdownOpen(o => !o)}
                   disabled={!selectedTable || columnsLoading}
-                  className="w-full flex items-center justify-between px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50 disabled:text-gray-400"
+                  className="w-full flex items-center justify-between h-[50px] px-3 border border-card-border rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-accent disabled:bg-gray-50 disabled:text-gray-400"
                 >
                   <span className={`truncate ${dateColumn ? 'text-gray-900' : 'text-gray-400'}`}>
                     {columnsLoading ? 'Loading columns…' : dateColumn || 'Select a column'}
@@ -1072,13 +1266,13 @@ export default function Forecast() {
                   <ChevronDown className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${dateColumnDropdownOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {dateColumnDropdownOpen && selectedTable && !columnsLoading && (
-                  <div className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto border border-gray-300 rounded-lg bg-white shadow-lg p-1">
+                  <div className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto border border-card-border rounded-2xl bg-white shadow-xl p-1">
                     {selectedColumns.map(c => (
                       <button
                         type="button"
                         key={c}
                         onClick={() => { setDateColumn(c); setDateColumnDropdownOpen(false); }}
-                        className={`w-full text-left px-2.5 py-1.5 rounded text-sm truncate hover:bg-gray-50 ${c === dateColumn ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-900'}`}
+                        className={`w-full text-left px-2.5 py-1.5 rounded-lg text-sm truncate hover:bg-tint ${c === dateColumn ? 'bg-tint text-accent font-bold' : 'text-gray-900'}`}
                       >
                         {c}
                       </button>
@@ -1096,7 +1290,7 @@ export default function Forecast() {
                   type="button"
                   onClick={() => selectedTable && !columnsLoading && setTargetColumnDropdownOpen(o => !o)}
                   disabled={!selectedTable || columnsLoading}
-                  className="w-full flex items-center justify-between px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50 disabled:text-gray-400"
+                  className="w-full flex items-center justify-between h-[50px] px-3 border border-card-border rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-accent disabled:bg-gray-50 disabled:text-gray-400"
                 >
                   <span className={`truncate ${targetColumn ? 'text-gray-900' : 'text-gray-400'}`}>
                     {columnsLoading ? 'Loading columns…' : targetColumn || 'Select a column'}
@@ -1104,17 +1298,19 @@ export default function Forecast() {
                   <ChevronDown className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${targetColumnDropdownOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {targetColumnDropdownOpen && selectedTable && !columnsLoading && (
-                  <div className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto border border-gray-300 rounded-lg bg-white shadow-lg p-1">
-                    {selectedColumns.map(c => (
+                  <div className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto border border-card-border rounded-2xl bg-white shadow-xl p-1">
+                    {targetColumnOptions.length > 0 ? targetColumnOptions.map(c => (
                       <button
                         type="button"
                         key={c}
                         onClick={() => { setTargetColumn(c); setTargetColumnDropdownOpen(false); }}
-                        className={`w-full text-left px-2.5 py-1.5 rounded text-sm truncate hover:bg-gray-50 ${c === targetColumn ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-900'}`}
+                        className={`w-full text-left px-2.5 py-1.5 rounded-lg text-sm truncate hover:bg-tint ${c === targetColumn ? 'bg-tint text-accent font-bold' : 'text-gray-900'}`}
                       >
                         {c}
                       </button>
-                    ))}
+                    )) : (
+                      <div className="px-2.5 py-1.5 text-sm text-gray-400">No numeric columns found.</div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1138,7 +1334,7 @@ export default function Forecast() {
                   type="button"
                   onClick={() => !filterValuesLoading && setFilterValueDropdownOpen(o => !o)}
                   disabled={filterValuesLoading}
-                  className="w-full flex items-center justify-between px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50 disabled:text-gray-400"
+                  className="w-full flex items-center justify-between h-[50px] px-3 border border-card-border rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-accent disabled:bg-gray-50 disabled:text-gray-400"
                 >
                   <span className={`truncate ${selectedFilterValues.length === 0 ? 'text-gray-400' : 'text-gray-900'}`}>
                     {filterValuesLoading
@@ -1152,7 +1348,7 @@ export default function Forecast() {
                   <ChevronDown className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${filterValueDropdownOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {filterValueDropdownOpen && (
-                  <div className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto border border-gray-300 rounded-lg bg-white shadow-lg p-2 space-y-0.5">
+                  <div className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto border border-card-border rounded-2xl bg-white shadow-xl p-2 space-y-0.5">
                     {filterValueOptions.length === 0 ? (
                       <p className="px-2 py-1.5 text-xs text-gray-400">No values found.</p>
                     ) : (
@@ -1162,7 +1358,7 @@ export default function Forecast() {
                           <button type="button" onClick={() => setSelectedFilterValues([])} className="text-[11px] text-gray-400 hover:underline">Clear</button>
                         </div>
                         {filterValueOptions.map(v => (
-                          <label key={v} className="flex items-center gap-2.5 px-2 py-1.5 hover:bg-gray-50 cursor-pointer rounded">
+                          <label key={v} className="flex items-center gap-2.5 px-2 py-1.5 hover:bg-tint cursor-pointer rounded-lg">
                             <input
                               type="checkbox"
                               checked={selectedFilterValues.includes(v)}
@@ -1200,7 +1396,12 @@ export default function Forecast() {
               !selectedTable || columnsLoading || dataLoading ||
               (useDateColumn ? (!dateColumn || !targetColumn) : selectedColumnsForLoad.length === 0)
             }
-            className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg shadow-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className={`flex items-center gap-1.5 px-5 h-11 text-sm font-bold rounded-xl shadow-sm transition-colors ${
+              !selectedTable || columnsLoading || dataLoading ||
+              (useDateColumn ? (!dateColumn || !targetColumn) : selectedColumnsForLoad.length === 0)
+                ? 'bg-tint text-accent/50 cursor-not-allowed'
+                : 'bg-accent hover:bg-accent-hover text-white'
+            }`}
           >
             {dataLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
             Load Data
@@ -1217,15 +1418,15 @@ export default function Forecast() {
         {/* Summary — sits above the preview table */}
         {loadedData && dataSummary && (
           <div className="mt-4 grid grid-cols-3 gap-2">
-            <div className="bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">
+            <div className="bg-tint rounded-xl px-3 py-2.5">
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Rows</p>
               <p className="text-sm font-bold text-gray-800">{formatNumber(loadedData.rows)}</p>
             </div>
-            <div className="bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">
+            <div className="bg-tint rounded-xl px-3 py-2.5">
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Date range (preview)</p>
               <p className="text-xs font-bold text-gray-800">{formatDate(dataSummary.min)} – {formatDate(dataSummary.max)}</p>
             </div>
-            <div className="bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">
+            <div className="bg-tint rounded-xl px-3 py-2.5">
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Total amount (preview)</p>
               <p className="text-sm font-bold text-gray-800">₹{formatNumber(dataSummary.total)}</p>
             </div>
@@ -1285,22 +1486,24 @@ export default function Forecast() {
       </div>
 
       {/* Step 2: Generate Forecast */}
-      <div className={`bg-white border border-gray-200 rounded-xl shadow-sm p-5 mb-4 transition-opacity ${!loadedData ? 'opacity-50 pointer-events-none' : ''}`}>
+      <div className={`bg-white border border-card-border rounded-2xl shadow-sm p-5 mb-4 transition-opacity ${!loadedData ? 'opacity-[0.55] pointer-events-none' : ''}`}>
         <div className="flex items-center gap-2 mb-4">
-          <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center flex-shrink-0">2</span>
-          <h3 className="text-sm font-bold text-gray-800">Generate Forecast</h3>
+          <span className={`w-8 h-8 rounded-full text-white text-xs font-bold flex items-center justify-center flex-shrink-0 font-heading ${
+            forecastResult ? 'bg-emerald-500' : !loadedData ? 'bg-tint text-accent' : 'bg-accent'
+          }`}>2</span>
+          <h3 className="text-sm font-bold text-gray-800 font-heading">Generate Forecast</h3>
         </div>
 
         <div className="flex flex-wrap items-end gap-4">
           <div>
             <label className="block text-xs font-semibold text-gray-700 mb-1.5">Frequency</label>
-            <div className="flex bg-gray-100 rounded-lg p-1">
+            <div className="flex bg-tint rounded-xl p-1">
               {(['raw', 'weekly', 'monthly'] as Frequency[]).map(f => (
                 <button
                   key={f}
                   onClick={() => setFrequency(f)}
-                  className={`px-4 py-1.5 rounded-md text-xs font-semibold capitalize transition-colors ${
-                    frequency === f ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                  className={`px-4 py-2 rounded-lg text-xs font-semibold capitalize transition-colors ${
+                    frequency === f ? 'bg-accent text-white shadow-sm' : 'text-accent hover:bg-white/60'
                   }`}
                 >
                   {f}
@@ -1316,47 +1519,71 @@ export default function Forecast() {
               max={52}
               value={periods}
               onChange={e => setPeriods(Math.max(1, Number(e.target.value) || 1))}
-              className="w-24 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              className="w-24 h-[50px] px-3 border border-card-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-accent"
             />
           </div>
           <button
             onClick={handleRunForecast}
             disabled={!loadedData || forecastLoading}
-            className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg shadow-sm transition-colors disabled:opacity-40"
+            className="flex items-center gap-1.5 px-5 h-11 bg-accent hover:bg-accent-hover text-white text-sm font-bold rounded-xl shadow-sm transition-colors disabled:opacity-40"
           >
             {forecastLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
             Run Forecast
           </button>
           {forecastResult && (
-            <button
-              onClick={downloadForecast}
-              className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold rounded-lg border border-emerald-200 transition-colors ml-auto"
-            >
-              <Download className="w-3.5 h-3.5" />
-              Download Excel
-            </button>
+            <div className="flex items-center gap-2 ml-auto">
+              <button
+                onClick={openSaveForecastModal}
+                className="flex items-center gap-1.5 px-3 h-11 bg-tint hover:bg-[#DCE8FD] text-accent text-xs font-bold rounded-xl border border-transparent transition-colors"
+              >
+                <Save className="w-3.5 h-3.5" />
+                Save Actual Forecast
+              </button>
+              <button
+                onClick={downloadForecast}
+                className="flex items-center gap-1.5 px-3 h-11 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold rounded-xl border border-emerald-200 transition-colors"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Download Excel
+              </button>
+            </div>
           )}
         </div>
 
         {forecastResult && (
           <div className="mt-5">
-            <p className="text-[11px] text-gray-400 mb-3">
-              Based on {formatNumber(forecastResult.historical.length)} historical {forecastResult.frequency} observations
-              {forecastResult.models.length > 0 && (
-                <> · {forecastResult.models.map(m => `${m.model} ${m.accuracy} acc`).join(' · ')}</>
-              )}
-            </p>
+            {/* Stat tiles */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+              <div className="bg-tint rounded-xl px-3 py-2.5">
+                <p className="text-[10px] font-bold text-accent/70 uppercase tracking-wide font-heading">Historical</p>
+                <p className="text-base font-bold text-gray-800">{formatNumber(forecastResult.historical.length)}</p>
+              </div>
+              <div className="bg-tint rounded-xl px-3 py-2.5">
+                <p className="text-[10px] font-bold text-accent/70 uppercase tracking-wide font-heading">Forecast Periods</p>
+                <p className="text-base font-bold text-gray-800">{formatNumber(forecastResult.forecast_count)}</p>
+              </div>
+              <div className="bg-tint rounded-xl px-3 py-2.5">
+                <p className="text-[10px] font-bold text-accent/70 uppercase tracking-wide font-heading">Models</p>
+                <p className="text-base font-bold text-gray-800">{formatNumber(forecastResult.models.length)}</p>
+              </div>
+              <div className="bg-tint rounded-xl px-3 py-2.5">
+                <p className="text-[10px] font-bold text-accent/70 uppercase tracking-wide font-heading">Best Accuracy</p>
+                <p className="text-base font-bold text-gray-800">
+                  {bestModelAccuracy ?? '—'}
+                </p>
+              </div>
+            </div>
 
             {/* Chart date filter — narrows the chart (and only the chart) to a range;
                 the results table on the right has its own separate period filter. */}
             {renderChartDateFilter(true)}
 
-            <div className="relative h-64 border border-gray-100 rounded-lg p-3">
+            <div className="relative h-64 border border-card-border rounded-2xl p-3">
               <button
                 type="button"
                 onClick={() => setChartModalOpen(true)}
                 title="Expand all charts"
-                className="absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-gray-500 bg-white/90 border border-gray-200 rounded-md shadow-sm hover:text-blue-600 hover:border-blue-300"
+                className="absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-gray-500 bg-white/90 border border-card-border rounded-md shadow-sm hover:text-accent hover:border-accent"
               >
                 <Maximize2 className="w-3 h-3" /> Expand
               </button>
@@ -1391,13 +1618,13 @@ export default function Forecast() {
                     <ChevronDown className={`w-3.5 h-3.5 text-gray-400 flex-shrink-0 transition-transform ${periodFilterOpen ? 'rotate-180' : ''}`} />
                   </button>
                   {periodFilterOpen && (
-                    <div className="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto border border-gray-300 rounded-lg bg-white shadow-lg p-2 space-y-0.5">
+                    <div className="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto border border-card-border rounded-2xl bg-white shadow-xl p-2 space-y-0.5">
                       <div className="flex items-center justify-between px-2 pb-1.5 mb-1 border-b border-gray-100">
                         <button type="button" onClick={() => setSelectedForecastPeriods(forecastPeriods)} className="text-[11px] text-blue-600 hover:underline">Select all</button>
                         <button type="button" onClick={() => setSelectedForecastPeriods([])} className="text-[11px] text-gray-400 hover:underline">Clear</button>
                       </div>
                       {forecastPeriods.map(p => (
-                        <label key={p} className="flex items-center gap-2.5 px-2 py-1.5 hover:bg-gray-50 cursor-pointer rounded">
+                        <label key={p} className="flex items-center gap-2.5 px-2 py-1.5 hover:bg-tint cursor-pointer rounded-lg">
                           <input
                             type="checkbox"
                             checked={selectedForecastPeriods.includes(p)}
@@ -1412,22 +1639,22 @@ export default function Forecast() {
                 </div>
                 <span className="text-[11px] text-gray-500 flex-shrink-0">{formatNumber(visiblePeriods.length)} of {formatNumber(forecastPeriods.length)}</span>
               </div>
-              <div className="border border-gray-100 rounded-lg overflow-hidden max-h-80 overflow-y-auto">
+              <div className="border border-card-border rounded-2xl overflow-hidden max-h-80 overflow-y-auto">
                 <table className="w-full text-xs">
-                  <thead className="bg-gray-50 sticky top-0">
+                  <thead className="bg-tint sticky top-0">
                     <tr>
-                      <th className="text-left px-3 py-1.5 font-semibold text-gray-500">
-                        <button type="button" onClick={() => toggleForecastSort('Date')} className="flex items-center gap-1 hover:text-gray-700">
-                          Period <ArrowUpDown className={`w-3 h-3 ${forecastSortCol === 'Date' ? 'text-blue-600' : 'text-gray-300'}`} />
+                      <th className="text-left px-3 py-2 font-bold text-gray-700">
+                        <button type="button" onClick={() => toggleForecastSort('Date')} className="flex items-center gap-1 hover:text-accent">
+                          Period <ArrowUpDown className={`w-3 h-3 ${forecastSortCol === 'Date' ? 'text-accent' : 'text-gray-400'}`} />
                         </button>
                       </th>
                       {modelForecastMaps.map((m, i) => (
-                        <th key={m.model} className="text-right px-3 py-1.5 font-semibold text-gray-500">
-                          <button type="button" onClick={() => toggleForecastSort(m.model)} className="flex items-center gap-1.5 ml-auto hover:text-gray-700">
+                        <th key={m.model} className="text-right px-3 py-2 font-bold text-gray-700">
+                          <button type="button" onClick={() => toggleForecastSort(m.model)} className="flex items-center gap-1.5 ml-auto hover:text-accent">
                             <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: MODEL_COLORS[i % MODEL_COLORS.length] }} />
                             {m.model}
-                            <span className="text-[10px] font-normal text-gray-400">({m.accuracy} acc)</span>
-                            <ArrowUpDown className={`w-3 h-3 ${forecastSortCol === m.model ? 'text-blue-600' : 'text-gray-300'}`} />
+                            <span className="text-[10px] font-normal text-gray-500">({m.accuracy} acc)</span>
+                            <ArrowUpDown className={`w-3 h-3 ${forecastSortCol === m.model ? 'text-accent' : 'text-gray-400'}`} />
                           </button>
                         </th>
                       ))}
@@ -1438,10 +1665,10 @@ export default function Forecast() {
                       <tr><td colSpan={1 + modelForecastMaps.length} className="px-3 py-3 text-center text-gray-400">No periods selected.</td></tr>
                     ) : (
                       visiblePeriods.map((p, i) => (
-                        <tr key={i} className="border-t border-gray-50">
+                        <tr key={i} className={`border-t border-card-border ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/60'}`}>
                           <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{formatDate(p)}</td>
                           {modelForecastMaps.map(m => (
-                            <td key={m.model} className="px-3 py-1.5 text-right text-blue-700 font-semibold whitespace-nowrap">
+                            <td key={m.model} className="px-3 py-1.5 text-right text-accent font-semibold whitespace-nowrap tabular-nums">
                               ₹{formatNumber(m.map.get(p) ?? null, 2)}
                             </td>
                           ))}
@@ -1457,8 +1684,8 @@ export default function Forecast() {
                 chart above: a plain magnitude read of the forecast, and a
                 period-over-period growth read across the whole visible series. */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-              <div className="border border-gray-100 rounded-lg p-3">
-                <h4 className="text-xs font-bold text-gray-700 mb-2">Forecast by Period</h4>
+              <div className="border border-card-border rounded-2xl p-3">
+                <h4 className="text-xs font-bold text-gray-700 mb-2 font-heading">Forecast by Period</h4>
                 <div className="h-56">
                   {barChartData ? (
                     <Bar data={barChartData} options={barChartOptions} />
@@ -1469,8 +1696,8 @@ export default function Forecast() {
                   )}
                 </div>
               </div>
-              <div className="border border-gray-100 rounded-lg p-3">
-                <h4 className="text-xs font-bold text-gray-700 mb-2">Period-over-Period Change</h4>
+              <div className="border border-card-border rounded-2xl p-3">
+                <h4 className="text-xs font-bold text-gray-700 mb-2 font-heading">Period-over-Period Change</h4>
                 <div className="h-56">
                   {changeChartData ? (
                     <Bar data={changeChartData} options={changeChartOptions} />
@@ -1626,6 +1853,251 @@ export default function Forecast() {
                 className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* View Table modal — pick a table (from the same list loaded above), run a quick
+          preview query against /table-data/, and show the raw rows it returns. */}
+      {viewTableModalOpen && (
+        <div
+          className="fixed inset-0 z-[200] bg-navy/60 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={closeViewTableModal}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl w-full max-w-5xl max-h-[85vh] flex flex-col overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-card-border flex-shrink-0">
+              <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2 font-heading">
+                <SearchIcon className="w-4 h-4 text-accent" />
+                View Table
+              </h3>
+              <button
+                type="button"
+                onClick={closeViewTableModal}
+                className="flex items-center justify-center w-8 h-8 text-gray-500 border border-card-border rounded-full hover:bg-gray-50 hover:text-gray-700 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="px-5 py-4 flex flex-wrap items-end gap-3 border-b border-card-border flex-shrink-0">
+              <div className="flex-1 min-w-[220px]">
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Table name</label>
+                <div className="relative" ref={viewTableDropdownRef}>
+                  <button
+                    type="button"
+                    ref={viewTableTriggerRef}
+                    onClick={toggleViewTableDropdown}
+                    disabled={viewTableLoading}
+                    aria-expanded={viewTableDropdownOpen}
+                    className="w-full flex items-center justify-between h-[50px] px-3 border border-card-border rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-accent disabled:bg-gray-50"
+                  >
+                    <span className={`truncate ${viewTableName ? 'text-gray-900' : 'text-gray-400'}`}>
+                      {viewTableName || 'Select a table'}
+                    </span>
+                    <ChevronDown className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${viewTableDropdownOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  {viewTableDropdownOpen && (
+                    <div role="listbox" style={viewTableDropdownStyle} className="max-h-[340px] overflow-hidden border border-card-border rounded-2xl bg-white shadow-xl flex flex-col">
+                      {tables.length > 8 && (
+                        <div className="flex items-center gap-1.5 p-1.5 border-b border-gray-100 flex-shrink-0">
+                          <div className="relative flex-1">
+                            <SearchIcon className="w-3.5 h-3.5 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2" />
+                            <input
+                              type="text"
+                              autoFocus
+                              value={viewTableNameSearch}
+                              onChange={e => setViewTableNameSearch(e.target.value)}
+                              placeholder="Search tables…"
+                              className="w-full pl-7 pr-2 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-accent"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setViewTableSort(s => s === 'asc' ? 'desc' : 'asc')}
+                            title={viewTableSort === 'asc' ? 'Sorted A–Z' : 'Sorted Z–A'}
+                            className="flex items-center gap-1 px-2 py-1.5 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-50 rounded-md border border-gray-200 flex-shrink-0"
+                          >
+                            <ArrowUpDown className="w-3.5 h-3.5" />
+                            {viewTableSort === 'asc' ? 'A–Z' : 'Z–A'}
+                          </button>
+                        </div>
+                      )}
+                      <div className="overflow-y-auto p-1">
+                        {visibleViewTables.length === 0 ? (
+                          <p className="px-2.5 py-1.5 text-xs text-gray-400">No tables found.</p>
+                        ) : (
+                          visibleViewTables.map(t => (
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected={t === viewTableName}
+                              key={t}
+                              onClick={() => { setViewTableName(t); setViewTableDropdownOpen(false); setViewTableNameSearch(''); }}
+                              className={`w-full text-left px-2.5 py-1.5 rounded-lg text-sm truncate hover:bg-tint ${t === viewTableName ? 'bg-tint text-accent font-bold' : 'text-gray-900'}`}
+                            >
+                              {t}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="w-full sm:w-[220px]">
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Rows limit</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={1000}
+                  value={viewTableRowLimit}
+                  onChange={e => setViewTableRowLimit(Math.max(1, Math.min(1000, Number(e.target.value) || 1)))}
+                  disabled={viewTableLoading}
+                  className="w-full h-[50px] px-3 border border-card-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-accent disabled:bg-gray-50"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={runViewTable}
+                disabled={!viewTableName || viewTableLoading}
+                className="flex items-center justify-center gap-1.5 px-5 h-[50px] bg-accent hover:bg-accent-hover text-white text-sm font-bold rounded-xl disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {viewTableLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                Run
+              </button>
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-auto px-5 py-4">
+              {viewTableLoading ? (
+                <div className="flex items-center justify-center py-12 text-gray-400 gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span className="text-sm">Loading data…</span>
+                </div>
+              ) : !viewTableRan ? (
+                <p className="text-center py-12 text-sm text-gray-400">Pick a table and click Run to preview its rows.</p>
+              ) : viewTableRows.length === 0 ? (
+                <p className="text-center py-12 text-sm text-gray-400">No rows returned.</p>
+              ) : (
+                <>
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-tint text-accent text-xs font-bold rounded-full mb-3">
+                    {viewTableName} · {formatNumber(viewTableRows.length)} rows
+                  </span>
+                  <div className="border border-card-border rounded-2xl overflow-hidden" style={{ maxHeight: 340, overflowY: 'auto' }}>
+                    <table className="w-full text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-tint">
+                          {viewTableColumns.map(col => (
+                            <th key={col} className="px-3 py-2.5 text-left font-bold text-gray-800 whitespace-nowrap sticky top-0 bg-tint">
+                              {col}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {viewTableRows.map((row, i) => (
+                          <tr key={i} className={`hover:bg-[#F3F7FF] transition-colors ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/60'}`}>
+                            {viewTableColumns.map(col => (
+                              <td key={col} className="px-3 py-2 text-gray-700 whitespace-nowrap border-t border-card-border tabular-nums">
+                                {row[col] == null || row[col] === '' ? <span className="text-gray-400">—</span> : String(row[col])}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {saveForecastModalOpen && (
+        <div
+          className="fixed inset-0 z-[200] bg-black/60 flex items-center justify-center p-4"
+          onClick={() => !savingForecast && setSaveForecastModalOpen(false)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-gray-100">
+              <h3 className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
+                <Save className="w-4 h-4 text-blue-600" />
+                Save Actual Forecast
+              </h3>
+              <button type="button" onClick={() => !savingForecast && setSaveForecastModalOpen(false)} className="text-gray-400 hover:text-gray-700">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="px-5 py-4 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Save mode</label>
+                <select
+                  value={saveMode}
+                  onChange={e => { setSaveMode(e.target.value as 'all' | 'single'); setSaveModelName(''); }}
+                  disabled={savingForecast}
+                  className="w-full h-[50px] px-3 border border-card-border rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-accent disabled:bg-gray-50"
+                >
+                  <option value="all">All</option>
+                  <option value="single">Single</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Table name</label>
+                <input
+                  type="text"
+                  value={saveTableName}
+                  onChange={e => setSaveTableName(e.target.value)}
+                  placeholder="e.g. sales_2025"
+                  disabled={savingForecast}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50"
+                />
+              </div>
+
+              {saveMode === 'single' && (
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">Model name</label>
+                  <select
+                    value={saveModelName}
+                    onChange={e => setSaveModelName(e.target.value)}
+                    disabled={savingForecast || algorithmsLoading}
+                    className="w-full h-[50px] px-3 border border-card-border rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-accent disabled:bg-gray-50"
+                  >
+                    <option value="">{algorithmsLoading ? 'Loading models…' : 'Select a model'}</option>
+                    {algorithms.map(a => (
+                      <option key={a} value={a}>{a}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50">
+              <button
+                type="button"
+                onClick={() => !savingForecast && setSaveForecastModalOpen(false)}
+                disabled={savingForecast}
+                className="flex-1 py-2 text-sm bg-white text-gray-700 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveActualForecast}
+                disabled={!saveTableName.trim() || (saveMode === 'single' && !saveModelName) || savingForecast}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {savingForecast ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                 Save
               </button>
             </div>

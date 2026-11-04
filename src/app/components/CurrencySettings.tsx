@@ -2,7 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   X, Plus, RefreshCw, Loader2, AlertTriangle, Trash2, Edit3, Check,
-  Coins, Hash, Percent, ToggleLeft, ToggleRight, Info, Database, ChevronDown,
+  Coins, Hash, Percent, Info, Database, ChevronDown,
   Search, ArrowUp, ArrowDown, ArrowUpDown,
 } from "lucide-react";
 
@@ -340,6 +340,18 @@ export default function CurrencySettings(props: CurrencySettingsProps = {}) {
     return { icon: <Hash className="h-3 w-3" />, cls: "bg-blue-50 text-blue-700 border-blue-200" };
   };
 
+  // Digit grouping only (no symbol) — INDIAN uses 2-digit groups after the
+  // leading thousands (lakh/crore style), WESTERN is plain 3-digit groups.
+  const formatNumberGrouping = (n: number, fmt: string) => {
+    const sign = n < 0 ? "-" : "";
+    const abs = String(Math.trunc(Math.abs(n)));
+    if (fmt !== "INDIAN") return sign + Number(abs).toLocaleString("en-US");
+    if (abs.length <= 3) return sign + abs;
+    const last3 = abs.slice(-3);
+    const rest = abs.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ",");
+    return `${sign}${rest},${last3}`;
+  };
+
   const formatDisplay = (s: CurrencySetting) => {
     if (s.setting_type === "CURRENCY") {
       const sym = s.currency_symbol || "";
@@ -422,11 +434,11 @@ export default function CurrencySettings(props: CurrencySettingsProps = {}) {
         {/* HEADER */}
         <div className="flex justify-between items-center flex-wrap gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-md">
-              <Coins className="h-5 w-5 text-white" />
+            <div className="w-14 h-14 rounded-2xl bg-tint flex items-center justify-center flex-shrink-0">
+              <Coins className="h-6 w-6 text-accent" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-gray-900">Currency Settings</h1>
+              <h1 className="text-lg font-bold text-gray-800 font-heading">Currency Settings</h1>
               <p className="text-xs text-gray-500">Format amount, number & percentage columns for this board</p>
             </div>
           </div>
@@ -434,68 +446,100 @@ export default function CurrencySettings(props: CurrencySettingsProps = {}) {
             {props.onSwitchToMasterData && (
               <button
                 onClick={props.onSwitchToMasterData}
-                className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 text-gray-600 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-all text-sm font-medium"
+                className="flex items-center gap-1.5 h-11 px-4 bg-white border border-card-border text-gray-700 rounded-full hover:border-accent hover:bg-tint transition-all text-sm font-medium"
               >
                 <Database className="w-4 h-4" />
                 <span>Master Data</span>
               </button>
             )}
             <button onClick={fetchBoardSettings} disabled={loadingSettings}
-              className="px-3 py-2 bg-white border border-gray-300 text-gray-600 rounded-lg flex items-center gap-1.5 hover:border-blue-400 hover:bg-blue-50 transition-all disabled:opacity-50 text-sm font-medium">
+              className="h-11 px-4 bg-white border border-card-border text-gray-700 rounded-full flex items-center gap-1.5 hover:border-accent hover:bg-tint transition-all disabled:opacity-50 text-sm font-medium">
               <RefreshCw className={`h-4 w-4 ${loadingSettings ? "animate-spin text-blue-600" : ""}`} />
               <span className="hidden sm:inline">Refresh</span>
             </button>
             <button onClick={openCreateModal}
-              className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg flex items-center gap-2 shadow-md hover:shadow-lg hover:from-blue-700 hover:to-indigo-700 transition-all font-medium text-sm">
+              className="h-11 px-4 bg-accent text-white rounded-full flex items-center gap-2 shadow-sm hover:bg-accent-hover transition-all font-medium text-sm">
               <Plus className="h-4 w-4" />
               <span>Create Currency</span>
             </button>
           </div>
         </div>
 
-        {/* BOARD TOGGLE CARD */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex items-center justify-between flex-wrap gap-4">
-          <div className="flex items-center gap-3">
+        {/* TOGGLE + DEFAULT FORMAT */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Currency Formatting toggle card */}
+          <div className="bg-white rounded-2xl border border-card-border shadow-sm p-5">
+            <div className="flex items-center justify-between gap-3 mb-1">
+              <h3 className="text-base font-bold text-gray-800 font-heading">Currency Formatting</h3>
+              <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${isEnabled ? "bg-tint text-accent" : "bg-gray-100 text-gray-400"}`}>
+                {isEnabled ? "ON" : "OFF"}
+              </span>
+            </div>
+            <p className="text-xs text-gray-500 mb-4">
+              {isEnabled ? "Column settings below are applied to prompt results." : "Prompt results run unformatted until this is turned on."}
+            </p>
             <button
               onClick={() => saveConfig(!isEnabled, defaultFormat)}
               disabled={isSavingConfig}
-              className="disabled:opacity-50"
-              title={isEnabled ? "Turn currency formatting off" : "Turn currency formatting on"}
+              className="flex items-center gap-2.5 disabled:opacity-50 mb-4"
             >
-              {isEnabled
-                ? <ToggleRight className="h-8 w-8 text-blue-600" />
-                : <ToggleLeft className="h-8 w-8 text-gray-300" />}
+              <span className={`relative w-11 h-6 rounded-full transition-colors ${isEnabled ? "bg-accent" : "bg-gray-200"}`}>
+                <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${isEnabled ? "left-5" : "left-0.5"}`} />
+              </span>
+              <span className="text-sm font-medium text-gray-700">
+                {isEnabled ? "Turn off formatting" : "Turn on to format results"}
+              </span>
             </button>
-            <div>
-              <p className="text-sm font-semibold text-gray-900">
-                Currency Formatting {isEnabled ? <span className="text-blue-600">ON</span> : <span className="text-gray-400">OFF</span>}
-              </p>
-              <p className="text-xs text-gray-500">
-                {isEnabled ? "Column settings below are applied to prompt results." : "Prompt results run unformatted until this is turned on."}
-              </p>
+            <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+              <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wide">Example</span>
+              <span className="text-lg font-bold text-gray-900">
+                {isEnabled ? formatNumberGrouping(1845200, defaultFormat) : "1845200"}
+              </span>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Default format</label>
-            <select
-              value={defaultFormat}
-              onChange={e => saveConfig(isEnabled, e.target.value)}
-              disabled={isSavingConfig}
-              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-            >
-              {(numberFormats.length > 0 ? numberFormats : [{ value: "INDIAN", label: "Indian", example: "" }, { value: "WESTERN", label: "Western", example: "" }]).map(f => (
-                <option key={f.value} value={f.value}>{f.label}{f.example ? ` (${f.example})` : ""}</option>
-              ))}
-            </select>
+
+          {/* Default format card */}
+          <div className="bg-white rounded-2xl border border-card-border shadow-sm p-5">
+            <h3 className="text-base font-bold text-gray-800 font-heading mb-1">Default format</h3>
+            <p className="text-xs text-gray-500 mb-4">Used for every currency column in this board.</p>
+            <div className="grid grid-cols-2 gap-3">
+              {(numberFormats.length > 0 ? numberFormats : [{ value: "INDIAN", label: "Indian", example: "1,00,000" }, { value: "WESTERN", label: "Western", example: "1,000,000" }]).map(f => {
+                const selected = defaultFormat === f.value;
+                const symbol = f.value === "INDIAN" ? "₹" : "$";
+                return (
+                  <button
+                    key={f.value}
+                    onClick={() => saveConfig(isEnabled, f.value)}
+                    disabled={isSavingConfig}
+                    className={`relative text-left rounded-xl border-2 p-4 transition-colors disabled:opacity-50 ${
+                      selected ? "border-accent" : "border-card-border hover:border-blue-300"
+                    }`}
+                  >
+                    {selected && (
+                      <span className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-accent text-white flex items-center justify-center">
+                        <Check className="w-3 h-3" />
+                      </span>
+                    )}
+                    <p className="text-sm font-bold text-gray-900">
+                      {f.label}{f.example ? <span className="font-normal text-gray-400"> ({f.example})</span> : null}
+                    </p>
+                    <p className="text-lg font-bold text-accent mt-1">
+                      {symbol}{formatNumberGrouping(f.value === "INDIAN" ? 120000 : 1200000, f.value)}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
         {/* SETTINGS TABLE */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-2xl border border-card-border shadow-sm overflow-hidden">
           {loadingSettings ? (
-            <div className="flex flex-col justify-center items-center h-48">
-              <Loader2 className="h-10 w-10 animate-spin text-blue-600 mb-3" />
-              <span className="text-gray-500 text-sm">Loading currency settings...</span>
+            <div className="p-4 space-y-3">
+              {[0, 1, 2].map(i => (
+                <div key={i} className="h-3 bg-tint rounded animate-pulse" style={{ width: `${60 - i * 10}%` }} />
+              ))}
             </div>
           ) : settings.length === 0 ? (
             <div className="flex flex-col justify-center items-center h-48">
@@ -526,8 +570,8 @@ export default function CurrencySettings(props: CurrencySettingsProps = {}) {
                   </div>
                 ) : (
                 <table className="w-full text-sm border-collapse">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200">
+                  <thead className="bg-blue-600">
+                    <tr>
                       {([
                         ["column", "Column"],
                         ["type", "Type"],
@@ -539,25 +583,25 @@ export default function CurrencySettings(props: CurrencySettingsProps = {}) {
                           <th
                             key={key}
                             onClick={() => handleSort(key)}
-                            className="text-left px-4 py-2.5 font-semibold text-gray-600 text-xs uppercase tracking-wide cursor-pointer select-none hover:bg-gray-100 transition-colors"
+                            className="text-left px-4 py-2.5 font-bold text-white text-xs uppercase tracking-wide cursor-pointer select-none hover:bg-blue-700 transition-colors"
                           >
                             <span className="flex items-center gap-1">
                               {label}
                               {isSorted
-                                ? (sortDir === "asc" ? <ArrowUp className="w-3 h-3 text-blue-600" /> : <ArrowDown className="w-3 h-3 text-blue-600" />)
-                                : <ArrowUpDown className="w-3 h-3 text-gray-300" />}
+                                ? (sortDir === "asc" ? <ArrowUp className="w-3 h-3 text-white" /> : <ArrowDown className="w-3 h-3 text-white" />)
+                                : <ArrowUpDown className="w-3 h-3 text-blue-200" />}
                             </span>
                           </th>
                         );
                       })}
-                      <th className="text-right px-4 py-2.5 font-semibold text-gray-600 text-xs uppercase tracking-wide">Actions</th>
+                      <th className="text-right px-4 py-2.5 font-bold text-white text-xs uppercase tracking-wide">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {visibleSettings.map(s => {
                     const badge = typeBadge(s.setting_type);
                     return (
-                      <tr key={s.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/60 transition-colors">
+                      <tr key={s.id} className="odd:bg-white even:bg-gray-50 border-b border-card-border last:border-0 hover:bg-[#F3F7FF] transition-colors">
                         <td className="px-4 py-2.5 font-medium text-gray-900">{s.column_name}</td>
                         <td className="px-4 py-2.5">
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${badge.cls}`}>
@@ -596,10 +640,15 @@ export default function CurrencySettings(props: CurrencySettingsProps = {}) {
 
       {/* CREATE / EDIT MODAL */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full max-h-[95vh] overflow-y-auto">
-            <div className="px-4 py-2.5 border-b border-gray-200 flex items-center justify-between bg-gradient-to-r from-blue-50 to-indigo-50 sticky top-0">
-              <h3 className="text-sm font-bold text-gray-900">{editingSetting ? "Edit Setting" : "Create Currency Setting"}</h3>
+        <div className="fixed inset-0 bg-navy/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[95vh] overflow-y-auto">
+            <div className="px-5 py-4 border-b border-card-border flex items-center justify-between sticky top-0 bg-white rounded-t-2xl">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-tint flex items-center justify-center flex-shrink-0">
+                  <Coins className="h-4 w-4 text-accent" />
+                </div>
+                <h3 className="text-sm font-bold text-gray-800 font-heading">{editingSetting ? "Edit Setting" : "Create Currency Setting"}</h3>
+              </div>
               <button onClick={closeModal} className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full"><X className="h-4 w-4" /></button>
             </div>
 
@@ -613,7 +662,7 @@ export default function CurrencySettings(props: CurrencySettingsProps = {}) {
                   )}
                 </label>
                 {editingSetting ? (
-                  <input value={form.column_names[0] || ""} disabled className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-500" />
+                  <input value={form.column_names[0] || ""} disabled className="w-full h-11 px-3 border border-card-border rounded-xl text-sm bg-gray-50 text-gray-500" />
                 ) : loadingColumns ? (
                   <div className="flex items-center gap-2 text-xs text-gray-500 px-3 py-1.5 border border-gray-200 rounded-lg bg-gray-50">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" /> Fetching numeric columns from this board's data sources...
@@ -623,7 +672,7 @@ export default function CurrencySettings(props: CurrencySettingsProps = {}) {
                     <button
                       type="button"
                       onClick={() => setColumnDropdownOpen(o => !o)}
-                      className="w-full flex items-center justify-between px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full h-11 flex items-center justify-between px-3 border border-card-border rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-accent"
                     >
                       <span className={form.column_names.length === 0 ? "text-gray-400" : "text-gray-900"}>
                         {form.column_names.length === 0
@@ -679,14 +728,14 @@ export default function CurrencySettings(props: CurrencySettingsProps = {}) {
                   <input
                     value={selectedTypeInfo?.label || form.setting_type}
                     disabled
-                    className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-500"
+                    className="w-full h-11 px-3 border border-card-border rounded-xl text-sm bg-gray-50 text-gray-500"
                   />
                 ) : (
                   <select
                     value={form.setting_type}
                     onChange={e => handleTypeChange(e.target.value)}
                     disabled={loadingLookups}
-                    className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:bg-gray-50"
+                    className="w-full h-11 px-3 border border-card-border rounded-xl text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50 disabled:bg-gray-50"
                   >
                     {(settingTypes.length > 0 ? settingTypes : [
                       { value: "CURRENCY", label: "Currency", description: "", uses_symbol: true },
@@ -708,7 +757,7 @@ export default function CurrencySettings(props: CurrencySettingsProps = {}) {
                     <select
                       value={form.currency_code}
                       onChange={e => handleCurrencyChange(e.target.value)}
-                      className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full h-11 px-3 border border-card-border rounded-xl text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-accent"
                     >
                       <option value="">Select a currency...</option>
                       {currencies.map(c => (
@@ -723,7 +772,7 @@ export default function CurrencySettings(props: CurrencySettingsProps = {}) {
                       <input
                         value={form.currency_symbol}
                         onChange={e => setForm(f => ({ ...f, currency_symbol: e.target.value }))}
-                        className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full h-11 px-3 border border-card-border rounded-xl text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-accent"
                         placeholder="₹"
                       />
                     </div>
@@ -752,7 +801,7 @@ export default function CurrencySettings(props: CurrencySettingsProps = {}) {
                       <select
                         value={form.number_format}
                         onChange={e => setForm(f => ({ ...f, number_format: e.target.value }))}
-                        className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full h-11 px-3 border border-card-border rounded-xl text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-accent"
                       >
                         {(numberFormats.length > 0 ? numberFormats : [{ value: "INDIAN", label: "Indian", example: "" }, { value: "WESTERN", label: "Western", example: "" }]).map(f => (
                           <option key={f.value} value={f.value}>{f.label}</option>
@@ -765,7 +814,7 @@ export default function CurrencySettings(props: CurrencySettingsProps = {}) {
                         type="number" min={0} max={4}
                         value={form.decimal_places}
                         onChange={e => setForm(f => ({ ...f, decimal_places: Math.max(0, Math.min(4, Number(e.target.value) || 0)) }))}
-                        className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full h-11 px-3 border border-card-border rounded-xl text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-accent"
                       />
                     </div>
                   </div>
@@ -779,7 +828,7 @@ export default function CurrencySettings(props: CurrencySettingsProps = {}) {
                   <select
                     value={form.number_format}
                     onChange={e => setForm(f => ({ ...f, number_format: e.target.value }))}
-                    className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full h-11 px-3 border border-card-border rounded-xl text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-accent"
                   >
                     {(numberFormats.length > 0 ? numberFormats : [{ value: "INDIAN", label: "Indian", example: "" }, { value: "WESTERN", label: "Western", example: "" }]).map(f => (
                       <option key={f.value} value={f.value}>{f.label}{f.example ? ` (${f.example})` : ""}</option>
@@ -796,16 +845,16 @@ export default function CurrencySettings(props: CurrencySettingsProps = {}) {
                     type="number" min={0} max={4}
                     value={form.decimal_places}
                     onChange={e => setForm(f => ({ ...f, decimal_places: Math.max(0, Math.min(4, Number(e.target.value) || 0)) }))}
-                    className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full h-11 px-3 border border-card-border rounded-xl text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-accent"
                   />
                   <p className="mt-0.5 text-[11px] text-gray-500">Shown as e.g. {(45.67).toFixed(form.decimal_places)}%</p>
                 </div>
               )}
             </div>
 
-            <div className="px-4 py-2.5 border-t border-gray-200 bg-gray-50 flex justify-end gap-2 sticky bottom-0">
-              <button onClick={closeModal} disabled={isSaving} className="px-4 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">Cancel</button>
-              <button onClick={handleSubmit} disabled={isSaving || form.column_names.length === 0} className="px-4 py-2 text-xs font-medium text-white bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 flex items-center gap-1.5">
+            <div className="px-5 py-3.5 border-t border-card-border bg-white flex justify-end gap-2 sticky bottom-0 rounded-b-2xl">
+              <button onClick={closeModal} disabled={isSaving} className="h-11 px-4 text-sm font-medium text-gray-700 bg-white border border-card-border rounded-xl hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+              <button onClick={handleSubmit} disabled={isSaving || form.column_names.length === 0} className="h-11 px-4 text-sm font-medium text-white bg-accent rounded-xl hover:bg-accent-hover disabled:opacity-50 flex items-center gap-1.5">
                 {isSaving
                   ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />{editingSetting ? "Saving..." : "Creating..."}</>
                   : editingSetting ? "Save Changes" : `Create${form.column_names.length > 1 ? ` (${form.column_names.length})` : ""}`}

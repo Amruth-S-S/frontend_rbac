@@ -21,7 +21,7 @@ import React from "react";
 import { saveAs } from 'file-saver';
 import * as XLSX from 'xlsx';
 // import { useDropzone } from "react-dropzone";
-import { PencilIcon, TrashIcon, PlusIcon, CheckIcon, ChevronUpIcon, ChevronDownIcon, Edit, Sparkles, LayoutGrid, MousePointerClick, MessageCircle, Users, AlertTriangle, Loader2 } from 'lucide-react';
+import { PencilIcon, TrashIcon, PlusIcon, CheckIcon, ChevronUpIcon, ChevronDownIcon, Edit, Sparkles, LayoutGrid, MousePointerClick, MessageCircle, Users, AlertTriangle, Loader2, Table2, FileText, MessageSquare, BookOpen, Database, Filter, TrendingUp, FileBarChart, Receipt } from 'lucide-react';
 import { Pie, Bar, Line } from "react-chartjs-2";
 import { MdArrowDropDown, MdArrowDropUp } from 'react-icons/md';
 import {
@@ -109,6 +109,11 @@ interface Item {
   name?: string;
   configuration_details: Record<string, string>;
 }
+
+// A file that has finished step 2 (landed in GCS) but not yet step 3 (confirm-upload)
+// — tracked per table so the Approve action can live on the table/list page instead
+// of inside the Upload Files modal.
+interface PendingUpload { tableId: string; filename: string; gcsPath: string; monthYear: string; }
 
 
 
@@ -291,19 +296,6 @@ function GroupContainerPage() {
   }, [translatedPromptInput, newPromptName, isModalOpen]);
   const promptDisplayRef = useRef<HTMLTextAreaElement | null>(null);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const getCurrentMonthYear = () => {
-    const now = new Date();
-    return `${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
-  };
-  const [infoObjForm, setInfoObjForm] = useState({
-    source_name: "",
-    month_year: getCurrentMonthYear(),
-    table_name: "",
-    description: "",
-    table_description: "",
-  });
-  const [infoObjFile, setInfoObjFile] = useState<File | null>(null);
-  const [isCreatingInfoObj, setIsCreatingInfoObj] = useState(false);
 
   const [formData, setFormData] = useState({
     tableName: "",
@@ -313,8 +305,30 @@ function GroupContainerPage() {
   const [deletePromptId, setDeletePromptId] = useState<string | null>(null);
   const [isDeletingPrompt, setIsDeletingPrompt] = useState(false);
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  // Upload Files modal — the modal itself only runs steps 1+2 (get a GCS session URL,
+  // PUT the file straight to it) and closes the moment that succeeds; it never shows
+  // an Approve button. Step 3 (confirm-upload) happens from the table/list page
+  // instead, via the Approve button next to whichever row has a pending upload.
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
+  const [approvingTableId, setApprovingTableId] = useState<string | null>(null);
+  // "+ Info-Object" is now a two-step flow against the board-scoped CSV endpoints:
+  // 1) Upload CSV modal — just a file picker; on Upload it runs upload-csv-url (step 1)
+  //    + a direct PUT to GCS (step 2), board_id/user_id/org_id/filename all automatic.
+  // 2) Approve CSV modal — opens right after, with gcs_path/filename carried over
+  //    automatically; the user fills in Source Name / Table Name / Month-Year /
+  //    descriptions and Save runs confirm-csv-upload (step 3).
+  const [isCsvUploadModalOpen, setIsCsvUploadModalOpen] = useState(false);
+  const [csvUploadFile, setCsvUploadFile] = useState<File | null>(null);
+  const [isUploadingCsv, setIsUploadingCsv] = useState(false);
+  const [stagedCsvUpload, setStagedCsvUpload] = useState<{ filename: string; gcsPath: string } | null>(null);
+  const [isCsvApproveModalOpen, setIsCsvApproveModalOpen] = useState(false);
+  const [approveSourceName, setApproveSourceName] = useState('');
+  const [approveTableName, setApproveTableName] = useState('');
+  const [approveTableDescription, setApproveTableDescription] = useState('');
+  const [approveMonthYear, setApproveMonthYear] = useState('');
+  const [isApprovingCsv, setIsApprovingCsv] = useState(false);
   // const [selectedMonth, setSelectedMonth] = useState('');
   const [selectedPrompt, setSelectedPrompt] = useState("");
   const [isResultModalOpen, setIsResultModalOpen] = useState(false);
@@ -346,7 +360,6 @@ function GroupContainerPage() {
 
   const [isOpen, setIsOpen] = useState(false);
 
-  const [isUploading, setIsUploading] = useState(false);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   // const [comments, setComments] = useState<Comment[]>([]);
 
@@ -466,7 +479,12 @@ function GroupContainerPage() {
 
   const [showExportModal, setShowExportModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  // Chooser shown first when "Import / Export" is clicked — picks which of the two
+  // modals above to open, instead of guessing from whether prompts.length is 0.
+  const [showImportExportModal, setShowImportExportModal] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  // Bumped by the toolbar's refresh icon to re-run the prompts fetch effect below.
+  const [promptsRefreshKey, setPromptsRefreshKey] = useState(0);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [filterStatusMap, setFilterStatusMap] = useState<Record<number, boolean>>({});
 
@@ -932,96 +950,128 @@ useEffect(() => {
   };
 
 
-  const handleSubmitMultipleFiles = async (e: { preventDefault: () => void; }) => {
-    e.preventDefault();
+  // The upload API wants "MMYYYY" (e.g. "012024" for Jan 2024), not the ISO
+  // "YYYY-MM-DD" the <input type="date"> gives us.
+  const toMonthYear = (isoDate: string) => {
+    const [year, month] = isoDate.split('-');
+    return `${month}${year}`;
+  };
 
-    if (!selectedDate || selectedFiles.length === 0) {
-      toast.error('Please select both date and files');
-      return;
-    }
+  // Just captures the picked file's name (fills the Filename field) — the file's
+  // contents are never read or sent; only its name is used.
+  const handleSelectFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    e.target.value = ''; // so re-selecting the same filename after a failure still fires onChange
+    if (!file) return;
+    setSelectedFile(file);
+  };
 
-    let userId: string | null = null;
-    let orgId: string | null = null;
-    const currentUserData = sessionStorage.getItem("currentUserData");
-    if (currentUserData) {
-      try {
-        const parsed = JSON.parse(currentUserData);
-        userId = parsed.userId ? String(parsed.userId) : null;
-        orgId = parsed.orgId ? String(parsed.orgId) : null;
-      } catch { /* ignore */ }
-    }
-    if (!userId) { toast.error("User session not found. Please log in again."); return; }
-    if (!orgId) { toast.error("Could not determine your organization. Please log out and log back in."); return; }
+  // Step 1 only (get a GCS resumable upload session URL / gcs_path for this
+  // filename + month/year) — triggered by the Upload button, and operates directly
+  // on the existing table (selectedTableId) the "Upload File" button was clicked
+  // on. The file's bytes are never PUT to that URL; this just reserves the
+  // gcs_path. On success the modal closes and the gcs_path is staged in
+  // `pendingUploads` for the Approve button on the table/list page (not this
+  // modal) to confirm via handleApproveUpload (step 3, confirm-upload).
+  const handleUploadFile = async () => {
+    const file = selectedFile;
+    if (!file) { toast.error('Please choose a file first.'); return; }
+    if (!selectedTableId) { toast.error('No table selected.'); return; }
+    if (!selectedDate) { toast.error('Please select a month/year first.'); return; }
 
-    // The unified upload-csv endpoint creates the data-management-table, uploads the
-    // file, and links it as a board data source in one call — reuse the existing
-    // Info-Object's name/description (set when it was created via "+ Info-Object").
-    const sourceRow = rows.find(r => String(r.id) === String(selectedTableId));
-    const tableName = sourceRow?.table_name || 'Untitled Table';
-    const tableDescription = sourceRow?.table_description || '';
+    setIsUploadingFile(true);
 
-    setIsUploading(true);
     try {
-      for (const file of selectedFiles) {
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('source_name', tableName);
-        formData.append('month_year', selectedDate);
-        formData.append('table_name', tableName);
-        formData.append('description', tableDescription);
-        formData.append('table_description', tableDescription);
-
-        const response = await fetch(
-          `${API_BASE_URL}/rbac/data-sources/board/${boardId}/upload-csv?user_id=${userId}&org_id=${orgId}`,
-          {
-            method: 'POST',
-            headers: {
-              'Accept': 'application/json',
-              'X-API-Key': EXCEL_API_KEY,
-              // Don't set Content-Type header - let browser set it with boundary
-            },
-            body: formData,
-          }
-        );
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('Error response:', errorText);
-          throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
-        }
+      const monthYear = toMonthYear(selectedDate);
+      const qs = new URLSearchParams({ filename: file.name, month_year: monthYear });
+      const urlRes = await fetch(
+        `${API_BASE_URL}/main-boards/boards/data-management-table/status/upload-url/${selectedTableId}?${qs.toString()}`,
+        { headers: { 'Accept': 'application/json', 'X-API-Key': EXCEL_API_KEY } }
+      );
+      if (!urlRes.ok) {
+        const errText = await urlRes.text();
+        throw new Error(errText || `Failed to start upload (${urlRes.status})`);
       }
+      const { gcs_path } = await urlRes.json();
 
-      // upload-csv creates a brand-new data-management-table + data source from
-      // scratch — it doesn't attach to the original pending Info-Object row that
-      // "Upload File" was clicked on, which would otherwise be left behind as a
-      // permanently-empty duplicate. Clean that original row up now that its
-      // replacement exists.
-      if (sourceRow) {
-        try {
-          const delResponse = await fetch(
-            `${API_BASE_URL}/main-boards/boards/data-management-table/${sourceRow.id}`,
-            { method: "DELETE", headers: { "X-API-Key": EXCEL_API_KEY } }
-          );
-          if (delResponse.ok) {
-            setRows(prevRows => prevRows.filter(item => item.id !== sourceRow.id));
-          }
-        } catch (cleanupError) {
-          console.error('Error cleaning up superseded Info-Object row:', cleanupError);
-        }
-      }
-
-      toast.success("Files uploaded successfully!");
+      const tableId = selectedTableId;
+      setPendingUploads(prev => [
+        ...prev.filter(p => p.tableId !== tableId), // a fresh upload replaces any earlier unapproved one for this table
+        { tableId, filename: file.name, gcsPath: gcs_path, monthYear },
+      ]);
+      toast.success(`"${file.name}" uploaded — click Approve on the table below to finish.`);
       handleCloseUploadModal();
-    } catch (error) {
-      console.error('Upload error:', error);
-      toast.error('An unknown error occurred. Please try again later.');
+    } catch (error: any) {
+      console.error('Resumable upload error:', error);
+      toast.error(error?.message || 'Failed to upload file.');
     } finally {
-      setIsUploading(false);
+      setIsUploadingFile(false);
     }
+  };
 
-    // After successful upload, refresh so the row shows up with its current
-    // approval status (and Approve button, if still pending).
-    await fetchDataSources(); // refresh approved sources
+  // Step 3 — confirm-upload, triggered from the Approve button on a table row (not
+  // the modal). Looks up that table's staged upload and passes back the exact
+  // gcs_path step 1 returned.
+  const handleApproveUpload = async (tableId: string) => {
+    const pending = pendingUploads.find(p => p.tableId === tableId);
+    if (!pending) return;
+    setApprovingTableId(tableId);
+
+    try {
+      const body = new URLSearchParams({
+        month_year: pending.monthYear,
+        filename: pending.filename,
+        gcs_path: pending.gcsPath,
+      });
+      const res = await fetch(
+        `${API_BASE_URL}/main-boards/boards/data-management-table/status/confirm-upload/${tableId}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json',
+            'X-API-Key': EXCEL_API_KEY,
+          },
+          body: body.toString(),
+        }
+      );
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || `Approve failed (${res.status})`);
+      }
+
+      const result = await res.json().catch(() => null);
+
+      toast.success('File approved and added!');
+      setPendingUploads(prev => prev.filter(p => p.tableId !== tableId));
+      // `rows` is only ever updated locally (on create/edit) — there's no background
+      // refetch for it — so patch the newly-approved file onto its row here, otherwise
+      // "Uploaded Files" won't show it until the page is reloaded.
+      setRows(prev => prev.map(r => String(r.id) === tableId
+        ? {
+            ...r,
+            files: [
+              ...(r.files || []),
+              {
+                id: String(result?.id ?? `local-${Date.now()}`),
+                approval_status: (result?.approval_status ?? 'approved') as 'pending' | 'approved' | 'rejected',
+                month_year: result?.month_year ?? pending.monthYear,
+                filename: result?.filename ?? pending.filename,
+                created_at: result?.created_at ?? new Date().toISOString(),
+              },
+            ],
+          }
+        : r
+      ));
+      // The pending-rows list hides any row that now has a matching data source, so
+      // refreshing data sources alone is enough to move this row out of "pending".
+      await fetchDataSources();
+    } catch (error: any) {
+      console.error('Confirm upload error:', error);
+      toast.error(error?.message || 'Failed to approve upload.');
+    } finally {
+      setApprovingTableId(null);
+    }
   };
 
   const handleViewTables = async () => {
@@ -1449,11 +1499,6 @@ useEffect(() => {
 
 
 
-  // Multiple file upload handler
-  const handleMultipleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []) as File[];
-    setSelectedFiles(files);
-  };
 
 
 
@@ -2261,8 +2306,8 @@ useEffect(() => {
 
   const handleeOpenModal = () => {
     setIsModallOpen(true);
-    setEditRow(null); // Reset editRow when opening modal for new entry
-    setFormData({ tableName: "", tableDescription: "" }); // Reset form data
+    setEditRow(null);
+    setFormData({ tableName: "", tableDescription: "" });
   };
 
 
@@ -2270,15 +2315,9 @@ useEffect(() => {
     setIsModallOpen(false);
     setEditRow(null);
     setFormData({ tableName: "", tableDescription: "" });
-    setInfoObjForm({ source_name: "", month_year: getCurrentMonthYear(), table_name: "", description: "", table_description: "" });
-    setInfoObjFile(null);
   };
 
-  const handleCreateInfoObject = async () => {
-    if (!infoObjForm.source_name || !infoObjForm.month_year || !infoObjForm.table_name || !infoObjFile) {
-      toast.error("Please fill all required fields and select a CSV file.");
-      return;
-    }
+  const getUserOrgIds = (): { userId: string | null; orgId: string | null } => {
     let userId: string | null = null;
     let orgId: string | null = null;
     const currentUserData = sessionStorage.getItem("currentUserData");
@@ -2287,36 +2326,134 @@ useEffect(() => {
         const parsed = JSON.parse(currentUserData);
         userId = String(parsed.userId);
         orgId = parsed.orgId ? String(parsed.orgId) : null;
-      } catch {}
+      } catch { }
     }
-    if (!userId) { toast.error("User session not found."); return; }
+    return { userId, orgId };
+  };
 
-    setIsCreatingInfoObj(true);
-    const fd = new FormData();
-    fd.append("file", infoObjFile);
-    fd.append("source_name", infoObjForm.source_name);
-    fd.append("month_year", infoObjForm.month_year);
-    fd.append("table_name", infoObjForm.table_name);
-    if (infoObjForm.description) fd.append("description", infoObjForm.description);
-    if (infoObjForm.table_description) fd.append("table_description", infoObjForm.table_description);
+  // Step 1 of the "+ Info-Object" flow: Upload CSV modal.
+  const handleOpenCsvUploadModal = () => {
+    setCsvUploadFile(null);
+    setIsCsvUploadModalOpen(true);
+  };
+
+  const handleCloseCsvUploadModal = () => {
+    setIsCsvUploadModalOpen(false);
+    setCsvUploadFile(null);
+  };
+
+  // Just captures the picked file name; the file is read and uploaded only when
+  // handleUploadCsv runs (on Upload click).
+  const handleSelectCsvUploadFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    e.target.value = "";
+    if (!file) return;
+    setCsvUploadFile(file);
+  };
+
+  // Step 1 (get a GCS resumable upload session URL) + Step 2 (PUT the file straight to
+  // GCS) for the board-scoped CSV flow -- board_id/user_id/org_id/filename are all
+  // automatic. On success, stages { filename, gcsPath } and opens the Approve CSV
+  // modal, where the user fills in the rest and step 3 (confirm-csv-upload) runs.
+  const handleUploadCsv = async () => {
+    if (!csvUploadFile) { toast.error("Please choose a CSV file."); return; }
+    const { userId, orgId } = getUserOrgIds();
+    if (!userId || !orgId || !boardId) { toast.error("Missing user/org/board context."); return; }
+
+    setIsUploadingCsv(true);
+    try {
+      const urlQs = new URLSearchParams({ filename: csvUploadFile.name, user_id: userId, org_id: orgId });
+      const urlRes = await fetch(
+        `${API_BASE_URL}/rbac/data-sources/board/${boardId}/upload-csv-url?${urlQs.toString()}`,
+        { headers: { "Accept": "application/json", "X-API-Key": EXCEL_API_KEY } }
+      );
+      if (!urlRes.ok) {
+        const errText = await urlRes.text();
+        throw new Error(errText || `Failed to start upload (${urlRes.status})`);
+      }
+      const { gcs_path } = await urlRes.json();
+
+      toast.success(`"${csvUploadFile.name}" uploaded -- fill in the details to finish.`);
+      setStagedCsvUpload({ filename: csvUploadFile.name, gcsPath: gcs_path });
+      handleCloseCsvUploadModal();
+      setApproveSourceName("");
+      setApproveTableName("");
+      setApproveTableDescription("");
+      setApproveMonthYear("");
+      setIsCsvApproveModalOpen(true);
+    } catch (error: any) {
+      console.error("CSV upload error:", error);
+      toast.error(error?.message || "Failed to upload file.");
+    } finally {
+      setIsUploadingCsv(false);
+    }
+  };
+
+  const handleCloseCsvApproveModal = () => {
+    setIsCsvApproveModalOpen(false);
+    setStagedCsvUpload(null);
+    setApproveSourceName("");
+    setApproveTableName("");
+    setApproveTableDescription("");
+    setApproveMonthYear("");
+  };
+
+  // Step 3 of the "+ Info-Object" flow -- confirm-csv-upload, using the gcs_path/filename
+  // staged by step 2 above plus the fields the user fills in here. Creates the
+  // DataManagementTable, TableStatus, and BoardDataSource records together, so the new
+  // source is Active immediately.
+  const handleConfirmCsvUpload = async (e: { preventDefault: () => void }) => {
+    e.preventDefault();
+    if (!stagedCsvUpload) return;
+    if (!approveSourceName.trim()) { toast.error("Source Name is required."); return; }
+    if (!approveTableName.trim()) { toast.error("Table Name is required."); return; }
+    if (!approveMonthYear) { toast.error("Please select a month/year."); return; }
+
+    const { userId, orgId } = getUserOrgIds();
+    if (!userId || !orgId || !boardId) { toast.error("Missing user/org/board context."); return; }
+
+    setIsApprovingCsv(true);
+    const loadingToast = toast.loading("Creating Info-Object...");
 
     try {
-      const res = await fetch(
-        `${API_BASE_URL}/rbac/data-sources/board/${boardId}/upload-csv?user_id=${userId}&org_id=${orgId}`,
-        { method: "POST", headers: { accept: "application/json", "X-API-Key": EXCEL_API_KEY }, body: fd }
+      const monthYear = toMonthYear(approveMonthYear);
+      const confirmQs = new URLSearchParams({ user_id: userId, org_id: orgId });
+      const body = new URLSearchParams({
+        source_name: approveSourceName,
+        month_year: monthYear,
+        table_name: approveTableName,
+        filename: stagedCsvUpload.filename,
+        gcs_path: stagedCsvUpload.gcsPath,
+      });
+      if (approveTableDescription) body.set("table_description", approveTableDescription);
+
+      const confirmRes = await fetch(
+        `${API_BASE_URL}/rbac/data-sources/board/${boardId}/confirm-csv-upload?${confirmQs.toString()}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+            "X-API-Key": EXCEL_API_KEY,
+          },
+          body: body.toString(),
+        }
       );
-      const data = await res.json();
-      if (res.ok) {
-        toast.success(`Data source "${infoObjForm.source_name}" created! (Slot ${data.slot_number ?? ""})`);
-        fetchDataSources();
-        handleeCloseModal();
-      } else {
-        toast.error(typeof data.detail === "string" ? data.detail : data.message || `Error ${res.status}`);
+      if (!confirmRes.ok) {
+        const errText = await confirmRes.text();
+        throw new Error(errText || `Failed to confirm upload (${confirmRes.status})`);
       }
-    } catch (e: any) {
-      toast.error(`Network error: ${e.message}`);
+
+      toast.dismiss(loadingToast);
+      toast.success("Info-Object created!");
+      handleCloseCsvApproveModal();
+      await fetchDataSources();
+    } catch (error: any) {
+      console.error("Confirm CSV upload error:", error);
+      toast.dismiss(loadingToast);
+      toast.error(error?.message || "Failed to create Info-Object.");
     } finally {
-      setIsCreatingInfoObj(false);
+      setIsApprovingCsv(false);
     }
   };
 
@@ -3426,6 +3563,18 @@ const SpeechRecognition =
           })
         );
         setCommentsMap(Object.fromEntries(commentEntries));
+
+        // Derive each prompt's header chip from the same comments response,
+        // so cards show their header immediately without needing View Prompts
+        // to be opened first (that's the only other place that populated this).
+        setPromptHeaderMap(prev => {
+          const next = { ...prev };
+          for (const [promptId, comments] of commentEntries as [string, PromptComment[]][]) {
+            const headerComment = comments.find(c => c.comment_text?.startsWith(HEADER_PREFIX));
+            next[promptId] = headerComment ? headerComment.comment_text.slice(HEADER_PREFIX.length) : "";
+          }
+          return next;
+        });
       } catch (error) {
         setError(error instanceof Error ? error.message : "An unknown error occurred");
         console.error("Error fetching prompts:", error);
@@ -3436,7 +3585,7 @@ const SpeechRecognition =
 
 
     fetchPrompts();
-  }, [boardId]);
+  }, [boardId, promptsRefreshKey]);
 
   const handleRunnPrompt = async (promptText: string, promptId?: string) => {
     setIsLoading(true);
@@ -4020,7 +4169,7 @@ const SpeechRecognition =
   // Handle modal close
   const handleCloseUploadModal = () => {
     setIsUploadModalOpen(false);
-    setSelectedFiles([]);
+    setSelectedFile(null);
     setSelectedDate('');
     setSelectedTableId(null);
   };
@@ -4122,12 +4271,15 @@ const SpeechRecognition =
       } else {
         setRows((prevRows) => [...prevRows, newTableData]);
         toast.dismiss(loadingToast);
-        toast.success("Info-Object created successfully!");
+        toast.success("Info-Object created — now upload its file.");
       }
 
+      const createdId = !editRow ? newTableData.id : null;
       setIsModallOpen(false);
       setFormData({ tableName: "", tableDescription: "" });
       setEditRow(null);
+      // Chain straight into the Upload Files modal for the table that was just created.
+      if (createdId) handleOpenUploadModal(String(createdId));
     } catch (error: any) {
       console.error("Error saving or updating table:", error);
       toast.dismiss(loadingToast);
@@ -4224,17 +4376,17 @@ const SpeechRecognition =
       // (className="flex-1 overflow-y-auto") is actually scrollable. `position: sticky`
       // kept breaking here because it depends on which ancestor is "really" scrolling —
       // this sidesteps that question by making the header structurally un-scrollable.
-      className="flex-1 flex flex-col h-full overflow-hidden bg-gray-200 rounded-2xl shadow-lg border border-gray-200"
+      className="flex-1 flex flex-col h-full overflow-hidden bg-page-bg rounded-2xl shadow-lg border border-card-border"
     >
       {/* Header — the top bar (board group / language / role / account) and the
           breadcrumb + tab strip below it. Never scrolls: it's outside the scrollable
           tab-content area below, not pinned via sticky/fixed positioning. */}
       <div className="flex-shrink-0">
-      <header className="bg-white p-3 shadow-sm">
+      <header className="bg-white p-3 shadow-sm sticky top-0 z-30 border-b border-card-border">
         <div className="flex justify-end items-center gap-2 max-w-screen-xl mx-auto">
           {/* Role badge — the group the logged-in user's email belongs to */}
           {userRoleName && (
-            <span className="flex items-center gap-1.5 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-md">
+            <span className="flex items-center gap-1.5 h-11 text-sm font-medium text-accent bg-tint px-3.5 rounded-xl">
               <Users className="w-3.5 h-3.5" />
               {userRoleName}
             </span>
@@ -4247,7 +4399,7 @@ const SpeechRecognition =
           <div className="relative">
             <button
               onClick={toggleDropdown}
-              className="flex items-center gap-2 text-gray-700 hover:bg-gray-50 px-3 py-1.5 rounded-md transition-colors border border-gray-200 text-sm"
+              className="flex items-center gap-2 h-11 text-gray-700 bg-white hover:bg-gray-50 px-3.5 rounded-xl transition-colors border border-card-border text-sm font-medium"
             >
               <span className="text-sm font-medium">
                 {activeScreenRole === 'cxo' ? t('header.cxoRole') : t('header.consultantRole')}
@@ -4310,11 +4462,11 @@ const SpeechRecognition =
         </div>
       </header> */}
 
-      <div className="bg-gray-200 border-b border-gray-200">
+      <div className="bg-page-bg border-b border-card-border">
         <div className="w-full">
           <div className="max-w-[1400px] mx-auto px-3 py-2">
             {/* Tab Navigation */}
-            <div className="w-full bg-white rounded-xl shadow-md px-2 py-1.5 mb-3 border border-gray-200">
+            <div className="w-full bg-white rounded-2xl shadow-sm px-2 py-1.5 mb-3 border border-card-border">
 
               {/* Board breadcrumb */}
               {(mainBoardDisplayName || boardDisplayName) && (
@@ -4325,41 +4477,37 @@ const SpeechRecognition =
                 </div>
               )}
 
-              {/* Desktop: horizontal tabs */}
+              {/* Desktop: horizontal tabs — icon + label pills */}
               <div className="hidden md:flex items-center gap-1">
                 <button
                   onClick={() => scrollTabBar('left')}
-                  className="flex-shrink-0 p-1.5 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                  className="flex-shrink-0 p-1.5 rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
                   aria-label="Scroll tabs left"
                 >
                   <FaChevronLeft size={10} />
                 </button>
-                <div ref={tabBarRef} className="flex-1 flex gap-0.5 p-1 bg-gray-100 rounded-lg overflow-x-auto scrollbar-hide">
+                <div ref={tabBarRef} className="flex-1 flex items-center gap-1.5 p-1 overflow-x-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: '#2563EB #F0F5FE' }}>
                 {[
-                  { key: "tables",        label: t("tabs.manageTables") },
-                  { key: "documentation", label: t("tabs.aiDocumentation") },
-                  { key: "prompts",       label: t("tabs.managePrompts") },
-                  { key: "repository",    label: t("tabs.promptsRepository") },
-
-
-
-                  { key: "master",        label: t("tabs.masterData") },
-                                    { key: "parameter",      label: "Manage Filter" },
-                  // { key: "parameter",  label: t("tabs.parameterSettings") },
-                  // { key: "timeline",   label: t("tabs.timelineSettings") },
+                  { key: "tables",        label: t("tabs.manageTables"),      Icon: Table2 },
+                  { key: "documentation", label: t("tabs.aiDocumentation"),   Icon: FileText },
+                  { key: "prompts",       label: t("tabs.managePrompts"),     Icon: MessageSquare },
+                  { key: "repository",    label: t("tabs.promptsRepository"), Icon: BookOpen },
+                  { key: "master",        label: t("tabs.masterData"),        Icon: Database },
+                  { key: "parameter",     label: "Manage Filter",             Icon: Filter },
                   // { key: "kpi",           label: t("tabs.kpiUpdates") },
-                  { key: "transactionData", label: "Transaction Data" },
-                  { key: "forecast",      label: "Forecast" },
-                  { key: "report",        label: t("tabs.reports") },
+                  { key: "transactionData", label: "Transaction Data",        Icon: Receipt },
+                  { key: "forecast",      label: "Forecast",                  Icon: TrendingUp },
+                  { key: "report",        label: t("tabs.reports"),           Icon: FileBarChart },
                 ].filter((tab) => !(hideUsRestrictedTabs && (tab.key === "report" || tab.key === "kpi" || tab.key === "transactionData"))).map((tab) => (
                   <button
                     key={tab.key}
-                    className={`flex-shrink-0 px-2 py-1.5 rounded-md font-medium transition-all duration-200 text-[11px] whitespace-nowrap ${activeTab === tab.key
-                      ? "bg-white text-blue-600 shadow-sm"
-                      : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+                    className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full font-medium transition-all duration-200 text-[11px] whitespace-nowrap border border-transparent ${activeTab === tab.key
+                      ? "bg-blue-600 text-white shadow-sm"
+                      : "bg-gray-100 text-gray-700 hover:bg-gray-200 hover:text-blue-600"
                       }`}
                     onClick={() => setActiveTab(tab.key)}
                   >
+                    <tab.Icon size={12} className="flex-shrink-0" />
                     {tab.label}
                   </button>
                 ))}
@@ -4367,7 +4515,7 @@ const SpeechRecognition =
                 </div>
                 <button
                   onClick={() => scrollTabBar('right')}
-                  className="flex-shrink-0 p-1.5 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                  className="flex-shrink-0 p-1.5 rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
                   aria-label="Scroll tabs right"
                 >
                   <FaChevronRight size={10} />
@@ -4466,19 +4614,19 @@ const SpeechRecognition =
                       placeholder={t("prompts.search")}
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
-                      className="w-full py-1.5 px-3 pr-8 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs"
+                      className="w-full h-12 py-1.5 px-4 pr-9 border border-card-border rounded-full focus:outline-none focus:ring-2 focus:ring-accent text-sm"
                     />
                     {searchTerm ? (
                       <button
                         onClick={() => setSearchTerm("")}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                           <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                         </svg>
                       </button>
                     ) : (
-                      <div className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                           <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
                         </svg>
@@ -4488,7 +4636,7 @@ const SpeechRecognition =
 
                   {/* Buttons */}
                   <button
-                    className="flex-shrink-0 py-1.5 px-3 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors text-xs font-medium whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="flex-shrink-0 h-12 px-4 bg-accent text-white rounded-xl hover:bg-accent-hover transition-colors text-sm font-bold whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
                     onClick={() => {
                       if (isViewer && !isEditorOrAnalyst) return;
                       setIsRunClicked(false);
@@ -4507,10 +4655,10 @@ const SpeechRecognition =
                   </button>
 
                   <button
-                    className={`flex-shrink-0 py-1.5 px-3 rounded-md text-xs font-medium whitespace-nowrap flex items-center gap-1 transition-colors ${
+                    className={`flex-shrink-0 h-12 px-4 rounded-xl text-sm font-bold whitespace-nowrap flex items-center gap-1.5 transition-colors ${
                       isViewer
-                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed opacity-40'
-                        : 'bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-60'
+                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-40'
+                        : 'bg-tint text-accent hover:bg-[#DCE8FD] disabled:opacity-60'
                     }`}
                     onClick={() => {
                       if (isViewer) return;
@@ -4521,29 +4669,32 @@ const SpeechRecognition =
                     title={isViewer ? 'View only' : 'Generate AI prompts'}
                   >
                     {isSavingGenerated ? (
-                      <><span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin inline-block" /> {t("prompts.generating")}</>
+                      <><span className="w-3 h-3 border-2 border-accent border-t-transparent rounded-full animate-spin inline-block" /> {t("prompts.generating")}</>
                     ) : (
-                      <>{t("prompts.promptsSuggestion")}</>
+                      <><Sparkles size={14} /> {t("prompts.promptsSuggestion")}</>
                     )}
                   </button>
 
-                  {prompts.length === 0 ? (
-                    <button
-                      className="flex-shrink-0 py-1.5 px-3 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-xs font-medium whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
-                      onClick={() => { if (isViewer) return; setImportFile(null); setShowImportModal(true); }}
-                      disabled={isViewer}
-                    >
-                      Import Prompts
-                    </button>
-                  ) : (
-                    <button
-                      className="flex-shrink-0 py-1.5 px-3 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-xs font-medium whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
-                      onClick={() => !isViewer && setShowExportModal(true)}
-                      disabled={isViewer}
-                    >
-                      Export Prompts
-                    </button>
-                  )}
+                  <button
+                    className="flex-shrink-0 h-12 px-4 bg-white border-2 border-accent text-accent rounded-xl hover:bg-blue-50 transition-colors text-sm font-bold whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                    onClick={() => !isViewer && setShowImportExportModal(true)}
+                    disabled={isViewer}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
+                    </svg>
+                    Import / Export
+                  </button>
+
+                  <button
+                    onClick={() => setPromptsRefreshKey(k => k + 1)}
+                    title="Refresh prompts"
+                    className="flex-shrink-0 h-12 w-12 flex items-center justify-center bg-white border border-card-border text-accent rounded-xl hover:bg-blue-50 transition-colors"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                  </button>
                 </div>
               </div>
             </div>
@@ -4552,7 +4703,7 @@ const SpeechRecognition =
             <div className="w-full">
               <div className="max-w-[1400px] mx-auto px-3 py-3">
                 {!isLoading && filteredPrompts.length > 0 && (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 auto-rows-fr">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 auto-rows-fr">
                     {filteredPrompts.map((prompt, _idx, arr) => {
                       const gIds = generatedPromptIds;
                       const gCount = arr.slice(0, arr.indexOf(prompt)).filter(p => gIds.has(String(p.id))).length + 1;
@@ -4561,19 +4712,34 @@ const SpeechRecognition =
                       const label = isGenerated ? `G${gCount}` : `${nCount}`;
                       const datasetName = getDatasetName(prompt);
                       const outputType = promptOutputTypes[prompt.id];
+                      const runInfo = promptRunInfo[prompt.id];
+                      const displayName = translatedTitles[prompt.id] || promptHeaderMap[prompt.id] || runInfo?.sourceName || datasetName;
+                      const filteredVersion = runInfo?.filteredVersion;
 
                       return (
                         <div
                           key={prompt.id}
-                          className={`prompt-card border rounded-lg shadow-sm p-3 bg-white transition-all duration-300 hover:shadow-md flex flex-col justify-between ${isGenerated ? 'border-blue-300' : ''}`}
-                          style={{ minHeight: '160px', maxWidth: '100%' }}
+                          className={`prompt-card border-2 rounded-2xl shadow-sm p-4 bg-white transition-all duration-300 hover:shadow-md hover:-translate-y-1 hover:ring-2 hover:ring-accent hover:ring-offset-1 ${isGenerated ? 'border-blue-300 hover:border-blue-500' : 'border-card-border hover:border-blue-300'} flex flex-col justify-between`}
+                          style={{ minHeight: '200px', maxWidth: '100%' }}
                         >
+                          {/* Top row: number badge + category chip */}
+                          <div className="flex items-center gap-1.5 mb-2">
+                            <span className={`flex-shrink-0 w-6 h-6 rounded-full text-[10px] font-bold flex items-center justify-center ${isGenerated ? 'bg-blue-600 text-white' : 'bg-tint text-accent'}`}>
+                              {label}
+                            </span>
+                            {displayName && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-tint text-accent rounded-full text-xs font-bold max-w-[85%] min-w-0 truncate">
+                                {displayName}
+                              </span>
+                            )}
+                          </div>
+
                           {/* Prompt text */}
                           <p
-                            className="text-xs font-semibold mb-2 flex-grow text-gray-800"
+                            className="text-xs font-bold mb-2 flex-grow text-gray-800 font-heading"
                             style={{
                               display: '-webkit-box',
-                              WebkitLineClamp: 3,
+                              WebkitLineClamp: 2,
                               WebkitBoxOrient: 'vertical',
                               overflow: 'hidden',
                               wordBreak: 'break-word',
@@ -4581,134 +4747,114 @@ const SpeechRecognition =
                             }}
                             title={prompt.prompt_text}
                           >
-                            <span className={isGenerated ? 'text-blue-600 font-bold' : ''}>{label}.</span> &quot;{translatedTexts[prompt.id] || prompt.prompt_text}&quot;
+                            &quot;{translatedTexts[prompt.id] || prompt.prompt_text}&quot;
                           </p>
 
                           <div className="mt-auto">
-                            {/* Meta row */}
-              
-<div className="mb-1 text-[10px] space-y-1">
+                            {runInfo && (
+                              <div className="mb-1.5">
+                                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold border ${
+                                  filteredVersion
+                                    ? 'bg-violet-50 text-violet-700 border-violet-300'
+                                    : 'bg-amber-50 text-amber-700 border-amber-300'
+                                }`}>
+                                  {filteredVersion ? `🔀 ${filteredVersion.toUpperCase()}` : '📊 Actual Data'}
+                                </span>
+                              </div>
+                            )}
 
-  {/* Source name badge — full width row */}
-{(() => {
-  const runInfo = promptRunInfo[prompt.id];
-  const displayName = runInfo?.sourceName || datasetName;
-  const filteredVersion = runInfo?.filteredVersion;
-  return (
-    <>
-      {displayName && (
-        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 border border-blue-200 rounded text-[9px] font-medium max-w-full truncate">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-2.5 w-2.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
-          </svg>
-          {displayName}
-        </span>
-      )}
-      {runInfo && (
-        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold border ${
-          filteredVersion
-            ? 'bg-violet-50 text-violet-700 border-violet-300'
-            : 'bg-amber-50 text-amber-700 border-amber-300'
-        }`}>
-          {filteredVersion ? `🔀 ${filteredVersion.toUpperCase()}` : '📊 Actual Data'}
-        </span>
-      )}
-    </>
-  );
-})()}
+                            {/* Created By / Updated + C/T/M avatars */}
+                            <div className="mb-1.5 text-[10px] flex items-center justify-between gap-1">
+                              <div>
+                                <p className="text-gray-500 truncate">
+                                  {t('prompts.createdBy')}: {prompt.user_name && prompt.user_name !== "undefined" ? prompt.user_name : ""}
+                                </p>
+                                <p className="text-gray-500">
+                                  {t('prompts.updated')}: {new Date(prompt.updated_at || prompt.created_at).toLocaleDateString()}
+                                </p>
+                              </div>
+                              {outputType && (
+                                <div className="flex gap-0.5 shrink-0">
+                                  {outputType.includes('C') && (
+                                    <span className="w-5 h-5 rounded-full bg-purple-100 text-purple-700 text-[9px] font-bold flex items-center justify-center border border-purple-300" title="Chart">C</span>
+                                  )}
+                                  {outputType.includes('T') && (
+                                    <span className="w-5 h-5 rounded-full bg-green-100 text-green-700 text-[9px] font-bold flex items-center justify-center border border-green-300" title="Table">T</span>
+                                  )}
+                                  {outputType.includes('M') && (
+                                    <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 text-[9px] font-bold flex items-center justify-center border border-blue-300" title="Message">M</span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
 
-  {/* Meta + badges row */}
-  <div className="flex items-center justify-between gap-1">
-    <div>
-      <p className="text-gray-600 truncate">
-        {t('prompts.createdBy')}: {prompt.user_name && prompt.user_name !== "undefined" ? prompt.user_name : ""}
-      </p>
-      <p className="text-gray-600">
-        {t('prompts.updated')}: {new Date(prompt.updated_at || prompt.created_at).toLocaleDateString()}
-      </p>
-    </div>
-    <div className="flex flex-col items-end gap-1">
-      {outputType && (
-        <div className="flex gap-0.5 shrink-0">
-          {outputType.includes('C') && (
-            <span className="w-4 h-4 rounded-full bg-purple-100 text-purple-700 text-[9px] font-bold flex items-center justify-center border border-purple-300" title="Chart">C</span>
-          )}
-          {outputType.includes('T') && (
-            <span className="w-4 h-4 rounded-full bg-green-100 text-green-700 text-[9px] font-bold flex items-center justify-center border border-green-300" title="Table">T</span>
-          )}
-          {outputType.includes('M') && (
-            <span className="w-4 h-4 rounded-full bg-blue-100 text-blue-700 text-[9px] font-bold flex items-center justify-center border border-blue-300" title="Message">M</span>
-          )}
-        </div>
-      )}
-      {prompt.data_source_id && filterStatusMap[prompt.data_source_id] !== undefined && (
-        <span className={`inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full font-bold border ${
-          filterStatusMap[prompt.data_source_id]
-            ? "bg-emerald-50 text-emerald-700 border-emerald-300"
-            : "bg-gray-100 text-gray-500 border-gray-300"
-        }`}>
-          <span className={`w-1.5 h-1.5 rounded-full ${filterStatusMap[prompt.data_source_id] ? "bg-emerald-500" : "bg-gray-400"}`} />
-          {filterStatusMap[prompt.data_source_id] ? t('prompts.filterOn') : t('prompts.filterOff')}
-        </span>
-      )}
-    </div>
-  </div>
-</div>
+                            {/* Filter status pills */}
+                            <div className="mb-1.5 flex items-center justify-end gap-1 flex-wrap">
+                              {prompt.data_source_id && filterStatusMap[prompt.data_source_id] !== undefined && (
+                                <span className={`inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full font-bold border ${
+                                  filterStatusMap[prompt.data_source_id]
+                                    ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                                    : "bg-gray-100 text-gray-500 border-gray-300"
+                                }`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full ${filterStatusMap[prompt.data_source_id] ? "bg-emerald-500" : "bg-gray-400"}`} />
+                                  {filterStatusMap[prompt.data_source_id] ? t('prompts.filterOn') : t('prompts.filterOff')}
+                                </span>
+                              )}
+                              {anyFilterEnabled !== null && (
+                                <span className={`inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full font-bold border ${
+                                  anyFilterEnabled
+                                    ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                                    : "bg-gray-100 text-gray-400 border-gray-200"
+                                }`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                                    anyFilterEnabled ? "bg-emerald-500" : "bg-gray-400"
+                                  }`} />
+                                  {anyFilterEnabled ? "Filter ON" : "Filter OFF"}
+                                </span>
+                              )}
+                            </div>
 
-                            {anyFilterEnabled !== null && (
-  <div className="mb-1.5 flex justify-end">
-    <span className={`inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full font-bold border ${
-      anyFilterEnabled
-        ? "bg-emerald-50 text-emerald-700 border-emerald-300"
-        : "bg-gray-100 text-gray-400 border-gray-200"
-    }`}>
-      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-        anyFilterEnabled ? "bg-emerald-500" : "bg-gray-400"
-      }`} />
-      {anyFilterEnabled ? "Filter ON" : "Filter OFF"}
-    </span>
-  </div>
-)}
+                            <hr className="my-1.5 border-t border-gray-100" />
 
-<hr className="my-1.5 border-t border-gray-100" />
-
-{/* Action buttons */}
-<div className="flex justify-center items-center gap-2 mt-1">
+                            {/* Footer: Run button left, Edit/Delete/Comment icons right */}
+                            <div className="flex items-center justify-between mt-1">
                               <button
-                                className="text-gray-500 hover:text-blue-600 transition-colors p-0.5"
+                                className="flex items-center gap-1 px-3 py-1.5 bg-tint text-accent rounded-full text-[10px] font-bold hover:bg-[#DCE8FD] hover:ring-2 hover:ring-accent transition-colors"
                                 onClick={() => handlePlayClick(prompt)}
-                                title="Play"
+                                title="Run"
                               >
-                                <FaPlay size={11} />
+                                <FaPlay size={9} /> Run
                               </button>
-                              <button
-                                className="text-gray-500 hover:text-blue-600 transition-colors p-0.5 disabled:opacity-40 disabled:cursor-not-allowed"
-                                onClick={() => !(isViewer && !isEditorOrAnalyst) && handleEditPrompt(prompt)}
-                                title="Edit"
-                                disabled={isViewer && !isEditorOrAnalyst}
-                              >
-                                <FaPen size={11} />
-                              </button>
-                              <button
-                                className="text-gray-500 hover:text-red-600 transition-colors p-0.5 disabled:opacity-40 disabled:cursor-not-allowed"
-                                onClick={() => !isViewer && handleDeletePrompt(prompt.id)}
-                                title="Delete"
-                                disabled={isViewer}
-                              >
-                                <FaTrash size={11} />
-                              </button>
-                              <button
-                                className="text-gray-500 hover:text-blue-600 transition-colors p-0.5 relative"
-                                onClick={() => handleCommentClick(prompt.id)}
-                                title="Comments"
-                              >
-                                <FaComment size={11} />
-                                {getCommentCount(prompt.id) > 0 && (
-                                  <span className="absolute -top-1 -right-1 bg-blue-500 text-white text-[8px] rounded-full h-3 w-3 flex items-center justify-center leading-none">
-                                    {getCommentCount(prompt.id)}
-                                  </span>
-                                )}
-                              </button>
+                              <div className="flex items-center gap-0.5">
+                                <button
+                                  className="w-9 h-9 rounded-full flex items-center justify-center text-gray-500 hover:text-accent hover:bg-tint transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                  onClick={() => !(isViewer && !isEditorOrAnalyst) && handleEditPrompt(prompt)}
+                                  title="Edit"
+                                  disabled={isViewer && !isEditorOrAnalyst}
+                                >
+                                  <FaPen size={11} />
+                                </button>
+                                <button
+                                  className="w-9 h-9 rounded-full flex items-center justify-center text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                  onClick={() => !isViewer && handleDeletePrompt(prompt.id)}
+                                  title="Delete"
+                                  disabled={isViewer}
+                                >
+                                  <FaTrash size={11} />
+                                </button>
+                                <button
+                                  className="w-9 h-9 rounded-full flex items-center justify-center text-gray-500 hover:text-accent hover:bg-tint transition-colors relative"
+                                  onClick={() => handleCommentClick(prompt.id)}
+                                  title="Comments"
+                                >
+                                  <FaComment size={11} />
+                                  {getCommentCount(prompt.id) > 0 && (
+                                    <span className="absolute top-0.5 right-0.5 bg-blue-500 text-white text-[8px] rounded-full h-3 w-3 flex items-center justify-center leading-none">
+                                      {getCommentCount(prompt.id)}
+                                    </span>
+                                  )}
+                                </button>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -4719,20 +4865,89 @@ const SpeechRecognition =
 
                 {/* Empty state */}
                 {!isLoading && filteredPrompts.length === 0 && (
-                  <div className="text-center py-8">
-                    <p className="text-gray-500 text-xs">
-                      {searchTerm ? t("prompts.noPromptsFound", { term: searchTerm }) : t("prompts.noPromptsAvailable")}
-                    </p>
-                    {searchTerm && (
+                  searchTerm ? (
+                    <div className="text-center py-8">
+                      <p className="text-gray-500 text-xs">
+                        {t("prompts.noPromptsFound", { term: searchTerm })}
+                      </p>
                       <button
                         onClick={() => setSearchTerm("")}
                         className="mt-3 text-blue-500 hover:text-blue-700 text-xs"
                       >
                         Clear search
                       </button>
-                    )}
-                  </div>
+                    </div>
+                  ) : (
+                    <div className="border-2 border-dashed border-card-border rounded-2xl bg-white flex flex-col items-center justify-center text-center py-14 px-6">
+                      <div className="w-16 h-16 rounded-2xl bg-tint flex items-center justify-center mb-4">
+                        <MessageCircle className="w-8 h-8 text-accent" />
+                      </div>
+                      <h3 className="text-base font-bold text-gray-800 font-heading mb-1">No prompts yet</h3>
+                      <p className="text-xs text-gray-500 mb-5">{t("prompts.noPromptsAvailable")}</p>
+                      <button
+                        className="h-12 px-5 bg-accent text-white rounded-xl hover:bg-accent-hover transition-colors text-sm font-bold whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
+                        onClick={() => {
+                          if (isViewer && !isEditorOrAnalyst) return;
+                          setIsRunClicked(false);
+                          setRunResult(null);
+                          setNewPromptName('');
+                          setNewPromptTitle('');
+                          setHeaderCommentId(null);
+                          setEditPromptId(null);
+                          setResultTab('message');
+                          setShowTopBtn(false);
+                          setIsModalOpen(true);
+                        }}
+                        disabled={isViewer && !isEditorOrAnalyst}
+                      >
+                        {t("prompts.newPrompts")}
+                      </button>
+                    </div>
+                  )
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Import / Export chooser — opened from the toolbar's "Import / Export" button;
+            picks which of the two modals below to open. */}
+        {showImportExportModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="text-lg font-bold text-gray-800">Import / Export Prompts</h3>
+                <button onClick={() => setShowImportExportModal(false)} className="text-gray-400 hover:text-gray-600">
+                  <FaTimes size={16} />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <button
+                  onClick={() => { setShowImportExportModal(false); setImportFile(null); setShowImportModal(true); }}
+                  className="w-full flex items-center gap-3 p-4 border border-gray-200 rounded-xl hover:border-blue-300 hover:bg-blue-50 transition-colors text-left"
+                >
+                  <span className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                    <FaUpload className="text-blue-600" size={16} />
+                  </span>
+                  <span>
+                    <span className="block text-sm font-semibold text-gray-800">Import Prompts</span>
+                    <span className="block text-xs text-gray-500 mt-0.5">Bring in prompts from a .csv or .txt file</span>
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => { setShowImportExportModal(false); setShowExportModal(true); }}
+                  className="w-full flex items-center gap-3 p-4 border border-gray-200 rounded-xl hover:border-green-300 hover:bg-green-50 transition-colors text-left"
+                >
+                  <span className="flex-shrink-0 w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
+                    <FileText className="text-green-600" size={18} />
+                  </span>
+                  <span>
+                    <span className="block text-sm font-semibold text-gray-800">Export Prompts</span>
+                    <span className="block text-xs text-gray-500 mt-0.5">Save this board&apos;s prompts as .csv or .txt</span>
+                  </span>
+                </button>
               </div>
             </div>
           </div>
@@ -4849,19 +5064,19 @@ const SpeechRecognition =
                     placeholder="Search prompts..."
                     value={searchTermRepository}
                     onChange={(e) => setSearchTermRepository(e.target.value)}
-                    className="w-full py-1.5 px-3 pr-8 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs"
+                    className="w-full h-12 py-1.5 px-4 pr-9 border border-card-border rounded-full focus:outline-none focus:ring-2 focus:ring-accent text-sm"
                   />
                   {searchTermRepository ? (
                     <button
                       onClick={() => setSearchTermRepository("")}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                       </svg>
                     </button>
                   ) : (
-                    <div className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                         <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
                       </svg>
@@ -4871,29 +5086,46 @@ const SpeechRecognition =
               </div>
             </div>
 
-            {/* Grid */}
+            {/* Grid — 5 tiles per row on wide screens, matching the Manage Prompts card design */}
             <div className="w-full">
               <div className="max-w-[1400px] mx-auto px-3 py-3">
                 {!isLoading && filteredRepositoryPrompts.length > 0 ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 auto-rows-fr">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 auto-rows-fr">
                     {filteredRepositoryPrompts.map((prompt, index) => {
                       const isGenerated = generatedPromptIds.has(String(prompt.id));
                       const gCount = filteredRepositoryPrompts.slice(0, index).filter(p => generatedPromptIds.has(String(p.id))).length + 1;
                       const nCount = filteredRepositoryPrompts.slice(0, index).filter(p => !generatedPromptIds.has(String(p.id))).length + 1;
                       const label = isGenerated ? `G${gCount}` : `${nCount}`;
+                      const outputType = promptOutputTypes[prompt.id];
+                      const datasetName = getDatasetName(prompt);
+                      const runInfo = promptRunInfo[prompt.id];
+                      const displayName = translatedTitles[prompt.id] || promptHeaderMap[prompt.id] || runInfo?.sourceName || datasetName;
+                      const filteredVersion = runInfo?.filteredVersion;
                       return (
                       <div
                         key={prompt.id}
-                        className={`prompt-card border rounded-lg shadow-sm p-3 bg-white transition-all duration-300 hover:shadow-md flex flex-col justify-between cursor-pointer ${isGenerated ? 'border-blue-300 hover:border-blue-500' : 'hover:border-blue-200'}`}
-                        style={{ minHeight: '150px', maxWidth: '100%' }}
+                        className={`prompt-card border-2 rounded-2xl shadow-sm p-4 bg-white transition-all duration-300 hover:shadow-md hover:-translate-y-1 hover:ring-2 hover:ring-accent hover:ring-offset-1 cursor-pointer ${isGenerated ? 'border-blue-300 hover:border-blue-500' : 'border-card-border hover:border-blue-300'} flex flex-col justify-between`}
+                        style={{ minHeight: '200px', maxWidth: '100%' }}
                         onClick={() => handlePlayClick(prompt)}
                       >
+                        {/* Top row: number badge + category chip */}
+                        <div className="flex items-center gap-1.5 mb-2">
+                          <span className={`flex-shrink-0 w-6 h-6 rounded-full text-[10px] font-bold flex items-center justify-center ${isGenerated ? 'bg-blue-600 text-white' : 'bg-tint text-accent'}`}>
+                            {label}
+                          </span>
+                          {displayName && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-tint text-accent rounded-full text-xs font-bold max-w-[85%] min-w-0 truncate">
+                              {displayName}
+                            </span>
+                          )}
+                        </div>
+
                         {/* Prompt text */}
                         <p
-                          className="text-xs font-semibold mb-2 flex-grow text-gray-800"
+                          className="text-xs font-bold mb-2 flex-grow text-gray-800 font-heading"
                           style={{
                             display: '-webkit-box',
-                            WebkitLineClamp: 3,
+                            WebkitLineClamp: 2,
                             WebkitBoxOrient: 'vertical',
                             overflow: 'hidden',
                             wordBreak: 'break-word',
@@ -4902,29 +5134,59 @@ const SpeechRecognition =
                           }}
                           title={prompt.prompt_text}
                         >
-                          <span className={isGenerated ? 'text-blue-600 font-bold' : ''}>{label}.</span> &quot;{translatedTexts[prompt.id] || prompt.prompt_text}&quot;
+                          &quot;{translatedTexts[prompt.id] || prompt.prompt_text}&quot;
                         </p>
 
                         <div className="mt-auto">
-                          <hr className="my-1.5 border-t border-gray-100" />
-                          <div className="mt-2 text-xs space-y-1">
-                            <p className="opacity-90 truncate">
-                              {t('prompts.createdBy')}: {prompt.user_name && prompt.user_name !== "undefined" ? prompt.user_name : ""}
-                            </p>
-                            <div className="flex items-center justify-between gap-1">
-                              <p className="opacity-80">{t('prompts.updated')}: {new Date(prompt.updated_at).toLocaleDateString()}</p>
-                              {(() => {
-                                const ot = promptOutputTypes[prompt.id];
-                                if (!ot) return null;
-                                return (
-                                  <div className="flex gap-0.5 shrink-0">
-                                    {ot.includes('C') && <span className="w-4 h-4 rounded-full bg-purple-100 text-purple-700 text-[9px] font-bold flex items-center justify-center border border-purple-300" title="Chart">C</span>}
-                                    {ot.includes('T') && <span className="w-4 h-4 rounded-full bg-green-100 text-green-700 text-[9px] font-bold flex items-center justify-center border border-green-300" title="Table">T</span>}
-                                    {ot.includes('M') && <span className="w-4 h-4 rounded-full bg-blue-100 text-blue-700 text-[9px] font-bold flex items-center justify-center border border-blue-300" title="Message">M</span>}
-                                  </div>
-                                );
-                              })()}
+                          {runInfo && (
+                            <div className="mb-1.5">
+                              <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold border ${
+                                filteredVersion
+                                  ? 'bg-violet-50 text-violet-700 border-violet-300'
+                                  : 'bg-amber-50 text-amber-700 border-amber-300'
+                              }`}>
+                                {filteredVersion ? `🔀 ${filteredVersion.toUpperCase()}` : '📊 Actual Data'}
+                              </span>
                             </div>
+                          )}
+
+                          <div className="mb-1.5 text-[10px] flex items-center justify-between gap-1">
+                            <div>
+                              <p className="text-gray-500 truncate">
+                                {t('prompts.createdBy')}: {prompt.user_name && prompt.user_name !== "undefined" ? prompt.user_name : ""}
+                              </p>
+                              <p className="text-gray-500">{t('prompts.updated')}: {new Date(prompt.updated_at).toLocaleDateString()}</p>
+                            </div>
+                            {outputType && (
+                              <div className="flex gap-0.5 shrink-0">
+                                {outputType.includes('C') && <span className="w-5 h-5 rounded-full bg-purple-100 text-purple-700 text-[9px] font-bold flex items-center justify-center border border-purple-300" title="Chart">C</span>}
+                                {outputType.includes('T') && <span className="w-5 h-5 rounded-full bg-green-100 text-green-700 text-[9px] font-bold flex items-center justify-center border border-green-300" title="Table">T</span>}
+                                {outputType.includes('M') && <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 text-[9px] font-bold flex items-center justify-center border border-blue-300" title="Message">M</span>}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="mb-1.5 flex items-center justify-end gap-1 flex-wrap">
+                            {prompt.data_source_id && filterStatusMap[prompt.data_source_id] !== undefined && (
+                              <span className={`inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full font-bold border ${
+                                filterStatusMap[prompt.data_source_id]
+                                  ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                                  : "bg-gray-100 text-gray-500 border-gray-300"
+                              }`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${filterStatusMap[prompt.data_source_id] ? "bg-emerald-500" : "bg-gray-400"}`} />
+                                {filterStatusMap[prompt.data_source_id] ? t('prompts.filterOn') : t('prompts.filterOff')}
+                              </span>
+                            )}
+                            {anyFilterEnabled !== null && (
+                              <span className={`inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full font-bold border ${
+                                anyFilterEnabled
+                                  ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                                  : "bg-gray-100 text-gray-400 border-gray-200"
+                              }`}>
+                                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${anyFilterEnabled ? "bg-emerald-500" : "bg-gray-400"}`} />
+                                {anyFilterEnabled ? "Filter ON" : "Filter OFF"}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -5823,7 +6085,7 @@ const SpeechRecognition =
               <div className="flex gap-1.5 flex-wrap">
                 <button
                   onClick={fetchDataSources}
-                  className="flex items-center gap-1 px-2 py-1.5 text-xs text-blue-600 border border-blue-200 rounded-md hover:text-blue-800 whitespace-nowrap"
+                  className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-600 bg-white border border-blue-200 rounded-full hover:text-blue-800 hover:border-blue-300 transition-colors whitespace-nowrap"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -5831,18 +6093,20 @@ const SpeechRecognition =
                   Refresh
                 </button>
                 <button
-                  className="px-2 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-full text-xs font-medium whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   onClick={() => !isViewer && handleViewTables()}
                   disabled={isViewer}
                 >
-                  + PG Table
+                  <PlusIcon className="h-3 w-3" />
+                  PG Table
                 </button>
                 <button
-                  className="px-2 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-md text-xs whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
-                  onClick={() => !isViewer && handleeOpenModal()}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-gray-900 hover:bg-black text-white rounded-full text-xs font-medium whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  onClick={() => !isViewer && handleOpenCsvUploadModal()}
                   disabled={isViewer}
                 >
-                  + Info-Object
+                  <PlusIcon className="h-3 w-3" />
+                  CSV-Object
                 </button>
               </div>
             </div>
@@ -5859,14 +6123,14 @@ const SpeechRecognition =
               ) : (
                 <div className="overflow-x-auto w-full">
                   <table className="min-w-[560px] w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
+                    <thead className="bg-blue-600">
                       <tr>
-                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase w-10">Slot</th>
-                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase">Name</th>
-                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase hidden sm:table-cell">Description</th>
-                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase whitespace-nowrap">Type</th>
-                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase w-20">Status</th>
-                        <th className="px-2 py-2 text-center text-xs font-medium text-gray-600 uppercase">Actions</th>
+                        <th className="px-2 py-2 text-left text-xs font-bold text-white uppercase tracking-wide w-10">Slot</th>
+                        <th className="px-2 py-2 text-left text-xs font-bold text-white uppercase tracking-wide">Name</th>
+                        <th className="px-2 py-2 text-left text-xs font-bold text-white uppercase tracking-wide hidden sm:table-cell">Description</th>
+                        <th className="px-2 py-2 text-left text-xs font-bold text-white uppercase tracking-wide whitespace-nowrap">Type</th>
+                        <th className="px-2 py-2 text-left text-xs font-bold text-white uppercase tracking-wide w-20">Status</th>
+                        <th className="px-2 py-2 text-center text-xs font-bold text-white uppercase tracking-wide">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
@@ -5880,7 +6144,7 @@ const SpeechRecognition =
 
                         return (
                           <React.Fragment key={`source-${source.id}`}>
-                            <tr className="hover:bg-gray-50">
+                            <tr className="odd:bg-white even:bg-gray-50 hover:bg-blue-50">
                               <td className="px-2 py-2">
                                 <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs font-bold">
                                   {source.slot_number}
@@ -5906,41 +6170,56 @@ const SpeechRecognition =
                                 </span>
                               </td>
                               <td className="px-2 py-2">
-                                <div className="flex justify-center items-center gap-1.5">
+                                <div className="flex justify-center items-center gap-1.5 flex-wrap">
                                   {source.source_type === "csv" && matchedRow && (
                                     <>
-                                      <button
-                                        onClick={() => !isViewer && handleEdit(matchedRow)}
-                                        className="text-blue-600 hover:text-blue-800 p-1 disabled:opacity-40 disabled:cursor-not-allowed"
-                                        title="Edit"
-                                        disabled={isViewer}
-                                      >
-                                        <FaPen size={12} />
-                                      </button>
+                                      {pendingUploads.some(p => p.tableId === String(matchedRow.id)) && (
+                                        <button
+                                          onClick={() => !isViewer && handleApproveUpload(String(matchedRow.id))}
+                                          className="order-1 flex items-center gap-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                                          title={`Approve uploaded file: ${pendingUploads.find(p => p.tableId === String(matchedRow.id))?.filename ?? ''}`}
+                                          disabled={isViewer || approvingTableId === String(matchedRow.id)}
+                                        >
+                                          <FaCheck size={10} />
+                                          <span>{approvingTableId === String(matchedRow.id) ? 'Approving…' : 'Approve'}</span>
+                                        </button>
+                                      )}
                                       <button
                                         onClick={() => !isViewer && handleOpenUploadModal(matchedRow.id)}
-                                        className="text-green-600 hover:text-green-800 p-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                                        className="order-2 flex items-center gap-1 px-2 py-1 bg-green-500 hover:bg-green-600 text-white text-xs font-medium rounded disabled:opacity-40 disabled:cursor-not-allowed"
                                         title="Upload File"
                                         disabled={isViewer}
                                       >
-                                        <FaFileUpload size={12} />
+                                        <FaFileUpload size={10} />
+                                        <span>Upload</span>
+                                      </button>
+                                      <button
+                                        onClick={() => !isViewer && handleEdit(matchedRow)}
+                                        className="order-3 flex items-center gap-1 px-2 py-1 border border-blue-300 bg-white text-blue-700 hover:bg-blue-50 text-xs font-medium rounded disabled:opacity-40 disabled:cursor-not-allowed"
+                                        title="Edit"
+                                        disabled={isViewer}
+                                      >
+                                        <FaPen size={10} />
+                                        <span>Edit</span>
                                       </button>
                                       <button
                                         onClick={() => toggleDropdowns(String(source.id))}
-                                        className="text-gray-600 hover:text-gray-800 p-1"
+                                        className="order-5 flex items-center gap-1 px-2 py-1 border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 text-xs font-medium rounded"
                                         title={isExpanded ? "Collapse" : "View Files"}
                                       >
-                                        {isExpanded ? <FaCaretUp size={12} /> : <FaCaretDown size={12} />}
+                                        {isExpanded ? <FaCaretUp size={10} /> : <FaCaretDown size={10} />}
+                                        <span>Files</span>
                                       </button>
                                     </>
                                   )}
                                   <button
                                     onClick={() => !isViewer && setDeleteDataSourceConfirm({ isOpen: true, source })}
-                                    className="text-red-600 hover:text-red-800 p-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                                    className="order-4 flex items-center gap-1 px-2 py-1 border border-red-300 bg-white text-red-700 hover:bg-red-50 text-xs font-medium rounded disabled:opacity-40 disabled:cursor-not-allowed"
                                     title="Delete"
                                     disabled={isViewer}
                                   >
-                                    <FaTrash size={12} />
+                                    <FaTrash size={10} />
+                                    <span>Delete</span>
                                   </button>
                                 </div>
                               </td>
@@ -5957,6 +6236,7 @@ const SpeechRecognition =
                                         <thead className="bg-gray-100">
                                           <tr>
                                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">File Name</th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">Month / Year</th>
                                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">Created On</th>
                                           </tr>
                                         </thead>
@@ -5965,12 +6245,13 @@ const SpeechRecognition =
                                             matchedRow.files.map((file) => (
                                               <tr key={file.id} className="hover:bg-gray-50">
                                                 <td className="px-3 py-2 text-gray-700 max-w-[150px] truncate">{file.filename}</td>
+                                                <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{file.month_year}</td>
                                                 <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{new Date(file.created_at).toLocaleDateString()}</td>
                                               </tr>
                                             ))
                                           ) : (
                                             <tr>
-                                              <td colSpan={2} className="px-3 py-3 text-center text-gray-400 text-xs">
+                                              <td colSpan={3} className="px-3 py-3 text-center text-gray-400 text-xs">
                                                 No files uploaded yet
                                               </td>
                                             </tr>
@@ -6022,37 +6303,52 @@ const SpeechRecognition =
                                   </span>
                                 </td>
                                 <td className="px-2 py-2">
-                                  <div className="flex justify-center items-center gap-1 flex-wrap">
-                                    <button
-                                      onClick={() => !isViewer && handleEdit(row)}
-                                      className="text-blue-600 hover:text-blue-800 p-1 disabled:opacity-40 disabled:cursor-not-allowed"
-                                      title="Edit"
-                                      disabled={isViewer}
-                                    >
-                                      <FaPen size={12} />
-                                    </button>
+                                  <div className="flex justify-center items-center gap-1.5 flex-wrap">
+                                    {pendingUploads.some(p => p.tableId === String(row.id)) && (
+                                      <button
+                                        onClick={() => !isViewer && handleApproveUpload(String(row.id))}
+                                        className="order-1 flex items-center gap-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                                        title={`Approve uploaded file: ${pendingUploads.find(p => p.tableId === String(row.id))?.filename ?? ''}`}
+                                        disabled={isViewer || approvingTableId === String(row.id)}
+                                      >
+                                        <FaCheck size={10} />
+                                        <span>{approvingTableId === String(row.id) ? 'Approving…' : 'Approve'}</span>
+                                      </button>
+                                    )}
                                     <button
                                       onClick={() => !isViewer && handleOpenUploadModal(row.id)}
-                                      className="text-green-600 hover:text-green-800 p-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                                      className="order-2 flex items-center gap-1 px-2 py-1 bg-green-500 hover:bg-green-600 text-white text-xs font-medium rounded disabled:opacity-40 disabled:cursor-not-allowed"
                                       title="Upload File"
                                       disabled={isViewer}
                                     >
-                                      <FaFileUpload size={12} />
+                                      <FaFileUpload size={10} />
+                                      <span>Upload</span>
                                     </button>
                                     <button
-                                      onClick={() => toggleDropdowns(String(row.id))}
-                                      className="text-gray-600 hover:text-gray-800 p-1"
-                                      title={isExpanded ? "Collapse" : "View Files"}
+                                      onClick={() => !isViewer && handleEdit(row)}
+                                      className="order-3 flex items-center gap-1 px-2 py-1 border border-blue-300 bg-white text-blue-700 hover:bg-blue-50 text-xs font-medium rounded disabled:opacity-40 disabled:cursor-not-allowed"
+                                      title="Edit"
+                                      disabled={isViewer}
                                     >
-                                      {isExpanded ? <FaCaretUp size={12} /> : <FaCaretDown size={12} />}
+                                      <FaPen size={10} />
+                                      <span>Edit</span>
                                     </button>
                                     <button
                                       onClick={() => !isViewer && handleDeletes(row)}
-                                      className="text-red-600 hover:text-red-800 p-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                                      className="order-4 flex items-center gap-1 px-2 py-1 border border-red-300 bg-white text-red-700 hover:bg-red-50 text-xs font-medium rounded disabled:opacity-40 disabled:cursor-not-allowed"
                                       title="Delete"
                                       disabled={isViewer}
                                     >
-                                      <FaTrash size={12} />
+                                      <FaTrash size={10} />
+                                      <span>Delete</span>
+                                    </button>
+                                    <button
+                                      onClick={() => toggleDropdowns(String(row.id))}
+                                      className="order-5 flex items-center gap-1 px-2 py-1 border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 text-xs font-medium rounded"
+                                      title={isExpanded ? "Collapse" : "View Files"}
+                                    >
+                                      {isExpanded ? <FaCaretUp size={10} /> : <FaCaretDown size={10} />}
+                                      <span>Files</span>
                                     </button>
                                   </div>
                                 </td>
@@ -6069,6 +6365,7 @@ const SpeechRecognition =
                                           <thead className="bg-gray-100">
                                             <tr>
                                               <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">File Name</th>
+                                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">Month / Year</th>
                                               <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">Created On</th>
                                             </tr>
                                           </thead>
@@ -6077,12 +6374,13 @@ const SpeechRecognition =
                                               row.files.map((file) => (
                                                 <tr key={file.id} className="hover:bg-gray-50">
                                                   <td className="px-3 py-2 text-gray-700 max-w-[150px] truncate">{file.filename}</td>
+                                                  <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{file.month_year}</td>
                                                   <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{new Date(file.created_at).toLocaleDateString()}</td>
                                                 </tr>
                                               ))
                                             ) : (
                                               <tr>
-                                                <td colSpan={2} className="px-3 py-3 text-center text-gray-400 text-xs">
+                                                <td colSpan={3} className="px-3 py-3 text-center text-gray-400 text-xs">
                                                   No files uploaded yet. Click Upload above.
                                                 </td>
                                               </tr>
@@ -6102,7 +6400,7 @@ const SpeechRecognition =
                       {dataSources.length === 0 && rows.filter(r => !r.approval_status || r.approval_status === 'pending').length === 0 && (
                         <tr>
                           <td colSpan={6} className="px-4 py-8 text-center text-xs text-gray-500">
-                            No data sources or info-objects yet. Use "+ PG Table" or "+ Info-Object" to add.
+                            No data sources or info-objects yet. Use "+ PG Table" or "+ CSV-Object" to add.
                           </td>
                         </tr>
                       )}
@@ -6405,21 +6703,73 @@ const SpeechRecognition =
               </div>
             )}
 
-            {/* ── Upload Files Modal ── */}
+            {/* ── Upload Files Modal — picking a file only stages it (fills Filename);
+                clicking Upload runs steps 1+2 of the resumable flow (get a GCS
+                session URL, PUT the file to it), then closes. No Approve button
+                here — step 3 happens from the Approve button on the table/list
+                page, next to whichever row has this pending upload (see
+                pendingUploads). ── */}
             {isUploadModalOpen && (
               <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 px-3">
                 <div className="bg-white rounded-lg shadow-lg w-full max-w-sm p-4">
                   <div className="flex justify-between items-center mb-4">
                     <h3 className="text-base font-semibold">Upload Files</h3>
-                    <button onClick={handleCloseUploadModal} className="text-gray-400 hover:text-gray-500">
+                    <button
+                      onClick={() => !isUploadingFile && handleCloseUploadModal()}
+                      className="text-gray-400 hover:text-gray-500"
+                    >
                       <FaTimes />
                     </button>
                   </div>
 
-                  <form onSubmit={handleSubmitMultipleFiles} className="space-y-4">
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-gray-700 text-xs font-bold mb-1.5">Table ID</label>
+                      <div className="border rounded w-full py-2 px-3 text-gray-500 text-xs bg-gray-50">
+                        {selectedTableId}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-gray-700 text-xs font-bold mb-1.5">Select File:</label>
+                      <div className={`border-2 border-dashed rounded-lg p-4 text-center transition-colors ${isUploadingFile ? 'border-gray-200' : 'border-gray-300 hover:border-blue-500 cursor-pointer'}`}>
+                        <input
+                          id="fileInput"
+                          name="file"
+                          type="file"
+                          onChange={handleSelectFile}
+                          className="hidden"
+                          accept=".csv,.xlsx,.xls"
+                          disabled={isUploadingFile}
+                        />
+                        <label htmlFor="fileInput" className={isUploadingFile ? 'cursor-not-allowed' : 'cursor-pointer'}>
+                          {isUploadingFile ? (
+                            <svg className="animate-spin h-5 w-5 text-blue-500 mx-auto mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            </svg>
+                          ) : (
+                            <FaUpload className="text-gray-500 mx-auto mb-2" size={20} />
+                          )}
+                          <p className="text-xs text-gray-600">
+                            {isUploadingFile ? `Uploading ${selectedFile?.name}…` : selectedFile ? '1 file(s) selected' : 'Click or drag a file to upload'}
+                          </p>
+                        </label>
+                      </div>
+                      <p className="mt-1.5 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">CSV files only.</p>
+                    </div>
+
+                    {/* Auto-filled from the file picked above — nothing to type here. */}
+                    <div>
+                      <label className="block text-gray-700 text-xs font-bold mb-1.5">Filename:</label>
+                      <div className="border rounded w-full py-2 px-3 text-xs bg-gray-50 truncate">
+                        {selectedFile ? <span className="text-blue-600">{selectedFile.name}</span> : <span className="text-gray-400">No file selected yet</span>}
+                      </div>
+                    </div>
+
                     <div>
                       <label className="block text-gray-700 text-xs font-bold mb-1.5" htmlFor="datePicker">
-                        Select Date:
+                        Month / Year:
                       </label>
                       <input
                         type="date"
@@ -6427,66 +6777,68 @@ const SpeechRecognition =
                         name="date"
                         value={selectedDate}
                         onChange={handleDateChange}
-                        className="border rounded w-full py-2 px-3 text-gray-700 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        disabled={isUploadingFile}
+                        className="border rounded w-full py-2 px-3 text-gray-700 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-100 disabled:text-gray-400"
                         required
                       />
-                    </div>
-
-                    <div>
-                      <label className="block text-gray-700 text-xs font-bold mb-1.5">
-                        Select Files (Multiple):
-                      </label>
-                      <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center cursor-pointer hover:border-blue-500 transition-colors">
-                        <input
-                          id="fileInput"
-                          name="files"
-                          type="file"
-                          multiple
-                          onChange={handleMultipleFileSelect}
-                          className="hidden"
-                          accept=".csv,.xlsx,.xls"
-                        />
-                        <label htmlFor="fileInput" className="cursor-pointer">
-                          <FaUpload className="text-gray-500 mx-auto mb-2" size={20} />
-                          <p className="text-xs text-gray-600 mb-1">
-                            {selectedFiles.length > 0
-                              ? `${selectedFiles.length} file(s) selected`
-                              : 'Click or drag files to upload'}
-                          </p>
-                          {selectedFiles.length > 0 && (
-                            <div className="mt-2 text-xs text-left max-h-24 overflow-y-auto">
-                              {selectedFiles.map((file, index) => (
-                                <div key={index} className="text-blue-600 truncate">• {file.name}</div>
-                              ))}
-                            </div>
-                          )}
-                        </label>
-                      </div>
                     </div>
 
                     <div className="flex justify-end gap-2 pt-1">
                       <button
                         type="button"
                         onClick={handleCloseUploadModal}
-                        className="px-3 py-2 border border-gray-300 rounded-md text-xs hover:bg-gray-50"
+                        disabled={isUploadingFile}
+                        className="px-3 py-2 border border-gray-300 rounded-md text-xs hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         Cancel
                       </button>
                       <button
-                        type="submit"
-                        disabled={isUploading || selectedFiles.length === 0}
-                        className={`px-3 py-2 bg-blue-500 text-white rounded-md text-xs hover:bg-blue-600 focus:outline-none ${isUploading || selectedFiles.length === 0 ? 'opacity-75 cursor-not-allowed' : ''
-                          }`}
+                        type="button"
+                        onClick={handleUploadFile}
+                        disabled={!selectedFile || isUploadingFile}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-semibold disabled:bg-blue-300 disabled:cursor-not-allowed"
                       >
-                        {isUploading ? (
-                          <span className="flex items-center gap-1.5">
-                            <svg className="animate-spin h-3.5 w-3.5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                            </svg>
-                            Uploading...
-                          </span>
-                        ) : `Upload${selectedFiles.length > 0 ? ` (${selectedFiles.length})` : ''}`}
+                        {isUploadingFile ? 'Uploading…' : `Upload${selectedFile ? ' (1)' : ''}`}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Edit Info-Object Modal (name/description only) ── */}
+            {isModallOpen && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-3">
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+                  <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                    <div>
+                      <h3 className="text-base font-bold text-gray-800">Edit Info-Object</h3>
+                      <p className="text-xs text-gray-400 mt-0.5">Update name and description</p>
+                    </div>
+                    <button onClick={handleeCloseModal} className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleSubmit} className="px-6 py-4 space-y-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Name</label>
+                      <input type="text" name="tableName" value={formData.tableName} onChange={handleChange} required disabled={isSavingInfoObject}
+                        className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Description</label>
+                      <input type="text" name="tableDescription" value={formData.tableDescription} onChange={handleChange} disabled={isSavingInfoObject}
+                        className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50" />
+                    </div>
+                    <div className="flex gap-2 pt-2">
+                      <button type="submit" disabled={isSavingInfoObject}
+                        className={`flex-1 text-white text-xs font-bold py-2 px-4 rounded-lg focus:outline-none flex items-center justify-center gap-2 ${isSavingInfoObject ? 'bg-blue-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                        {isSavingInfoObject ? 'Updating...' : 'Update'}
+                      </button>
+                      <button type="button" onClick={handleeCloseModal} disabled={isSavingInfoObject}
+                        className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold py-2 px-4 rounded-lg focus:outline-none">
+                        Cancel
                       </button>
                     </div>
                   </form>
@@ -6494,108 +6846,133 @@ const SpeechRecognition =
               </div>
             )}
 
-            {/* ── Create / Edit Info-Object Modal ── */}
-            {isModallOpen && (
+            {/* ── Step 1: Upload CSV Modal — just a file picker + explicit Filename field.
+                Clicking Upload runs upload-csv-url (step 1) + a direct PUT to GCS
+                (step 2); board_id/user_id/org_id/filename are all automatic. ── */}
+            {isCsvUploadModalOpen && (
               <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-3">
                 <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
-                  {/* Header */}
                   <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                     <div>
-                      <h3 className="text-base font-bold text-gray-800">
-                        {editRow ? 'Edit Info-Object' : 'Upload Data Source'}
-                      </h3>
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        {editRow ? 'Update name and description' : 'Upload a CSV file to create a new data source'}
-                      </p>
+                      <h3 className="text-base font-bold text-gray-800">Upload CSV</h3>
+                      <p className="text-xs text-gray-400 mt-0.5">Pick a file — you'll fill in details next</p>
                     </div>
-                    <button onClick={handleeCloseModal} className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100">
+                    <button onClick={handleCloseCsvUploadModal} className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100">
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                     </button>
                   </div>
 
-                  {editRow ? (
-                    /* Edit mode — keep existing simple form */
-                    <form onSubmit={handleSubmit} className="px-6 py-4 space-y-3">
-                      <div>
-                        <label className="block text-xs font-semibold text-gray-600 mb-1">Name</label>
-                        <input type="text" name="tableName" value={formData.tableName} onChange={handleChange} required disabled={isSavingInfoObject}
-                          className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-gray-600 mb-1">Description</label>
-                        <input type="text" name="tableDescription" value={formData.tableDescription} onChange={handleChange} disabled={isSavingInfoObject}
-                          className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50" />
-                      </div>
-                      <div className="flex gap-2 pt-2">
-                        <button type="submit" disabled={isSavingInfoObject}
-                          className={`flex-1 text-white text-xs font-bold py-2 px-4 rounded-lg focus:outline-none flex items-center justify-center gap-2 ${isSavingInfoObject ? 'bg-blue-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}>
-                          {isSavingInfoObject ? 'Updating...' : 'Update'}
-                        </button>
-                        <button type="button" onClick={handleeCloseModal} disabled={isSavingInfoObject}
-                          className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold py-2 px-4 rounded-lg focus:outline-none">
-                          Cancel
-                        </button>
-                      </div>
-                    </form>
-                  ) : (
-                    /* Create mode — unified CSV upload */
-                    <div className="px-6 py-4 space-y-3 max-h-[70vh] overflow-y-auto">
-                      {/* CSV File upload */}
-                      <div>
-                        <label className="block text-xs font-semibold text-gray-600 mb-1">CSV File <span className="text-red-500">*</span></label>
-                        <label className={`flex items-center gap-3 border-2 border-dashed rounded-xl px-4 py-3 cursor-pointer transition-colors ${infoObjFile ? 'border-green-400 bg-green-50' : 'border-gray-200 hover:border-blue-400 hover:bg-blue-50'}`}>
-                          <svg className={`w-5 h-5 flex-shrink-0 ${infoObjFile ? 'text-green-500' : 'text-gray-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                          </svg>
-                          <div className="min-w-0">
-                            <p className="text-xs font-medium text-gray-700 truncate">{infoObjFile ? infoObjFile.name : 'Click to choose CSV file'}</p>
-                            <p className="text-[10px] text-gray-400">{infoObjFile ? `${(infoObjFile.size / 1024).toFixed(1)} KB` : 'Only .csv files supported'}</p>
-                          </div>
-                          <input type="file" accept=".csv" className="hidden" onChange={e => setInfoObjFile(e.target.files?.[0] ?? null)} />
+                  <div className="px-6 py-4 space-y-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Select File:</label>
+                      <div className={`border-2 border-dashed rounded-lg p-4 text-center transition-colors ${isUploadingCsv ? 'border-gray-200' : 'border-gray-300 hover:border-blue-500 cursor-pointer'}`}>
+                        <input
+                          id="csvUploadFileInput"
+                          type="file"
+                          onChange={handleSelectCsvUploadFile}
+                          className="hidden"
+                          accept=".csv,.xlsx,.xls"
+                          disabled={isUploadingCsv}
+                        />
+                        <label htmlFor="csvUploadFileInput" className={isUploadingCsv ? 'cursor-not-allowed' : 'cursor-pointer'}>
+                          {isUploadingCsv ? (
+                            <svg className="animate-spin h-5 w-5 text-blue-500 mx-auto mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            </svg>
+                          ) : (
+                            <FaUpload className="text-gray-500 mx-auto mb-2" size={18} />
+                          )}
+                          <p className="text-xs text-gray-600">
+                            {isUploadingCsv ? `Uploading ${csvUploadFile?.name}…` : 'Click or drag a file to upload'}
+                          </p>
                         </label>
                       </div>
-
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-600 mb-1">Source Name <span className="text-red-500">*</span></label>
-                          <input
-                            type="text"
-                            value={infoObjForm.source_name}
-                            onChange={e => setInfoObjForm(p => ({ ...p, source_name: e.target.value, table_name: e.target.value }))}
-                            placeholder="e.g. Sales Report Jan"
-                            className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-600 mb-1">Month / Year <span className="text-red-500">*</span></label>
-                          <input
-                            type="month"
-                            value={infoObjForm.month_year
-                              ? (() => { const [m, y] = infoObjForm.month_year.split('/'); return y && m ? `${y}-${m.padStart(2,'0')}` : ''; })()
-                              : ''}
-                            onChange={e => {
-                              const [y, m] = (e.target.value || '').split('-');
-                              setInfoObjForm(p => ({ ...p, month_year: y && m ? `${m}/${y}` : '' }));
-                            }}
-                            className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="flex gap-2 pt-2">
-                        <button onClick={handleCreateInfoObject} disabled={isCreatingInfoObj}
-                          className={`flex-1 text-white text-xs font-bold py-2.5 px-4 rounded-lg flex items-center justify-center gap-2 ${isCreatingInfoObj ? 'bg-green-300 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}>
-                          {isCreatingInfoObj ? (
-                            <><svg className="animate-spin h-3.5 w-3.5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg> Uploading...</>
-                          ) : 'Upload & Create'}
-                        </button>
-                        <button onClick={handleeCloseModal} disabled={isCreatingInfoObj}
-                          className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold py-2.5 px-4 rounded-lg">
-                          Cancel
-                        </button>
+                      <p className="mt-1.5 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">CSV files only.</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Filename:</label>
+                      <div className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs bg-gray-50 truncate">
+                        {csvUploadFile ? <span className="text-blue-600">{csvUploadFile.name}</span> : <span className="text-gray-400">No file selected yet</span>}
                       </div>
                     </div>
-                  )}
+                    <div className="flex gap-2 pt-2">
+                      <button type="button" onClick={handleUploadCsv} disabled={!csvUploadFile || isUploadingCsv}
+                        className={`flex-1 text-white text-xs font-bold py-2 px-4 rounded-lg focus:outline-none flex items-center justify-center gap-2 ${!csvUploadFile || isUploadingCsv ? 'bg-blue-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                        {isUploadingCsv ? 'Uploading...' : 'Upload'}
+                      </button>
+                      <button type="button" onClick={handleCloseCsvUploadModal} disabled={isUploadingCsv}
+                        className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold py-2 px-4 rounded-lg focus:outline-none">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Step 3: Approve CSV Upload Modal — gcs_path/filename carried over
+                automatically from step 1/2; the user fills in the rest and Save runs
+                confirm-csv-upload. ── */}
+            {isCsvApproveModalOpen && stagedCsvUpload && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-3">
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+                  <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                    <div>
+                      <h3 className="text-base font-bold text-gray-800">Approve CSV Upload</h3>
+                      <p className="text-xs text-gray-400 mt-0.5">Fill in the details to finish</p>
+                    </div>
+                    <button onClick={handleCloseCsvApproveModal} className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleConfirmCsvUpload} className="px-6 py-4 space-y-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Filename</label>
+                      <div className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs bg-gray-50 truncate text-gray-500">
+                        {stagedCsvUpload.filename}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">GCS Path</label>
+                      <div className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs bg-gray-50 truncate text-gray-500">
+                        {stagedCsvUpload.gcsPath}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Source Name</label>
+                      <input type="text" value={approveSourceName} onChange={(e) => setApproveSourceName(e.target.value)} required disabled={isApprovingCsv}
+                        placeholder="Name shown in the data source list"
+                        className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Table Name</label>
+                      <input type="text" value={approveTableName} onChange={(e) => setApproveTableName(e.target.value)} required disabled={isApprovingCsv}
+                        placeholder="Internal name for the data management record"
+                        className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Table Description (optional)</label>
+                      <input type="text" value={approveTableDescription} onChange={(e) => setApproveTableDescription(e.target.value)} disabled={isApprovingCsv}
+                        className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Month / Year</label>
+                      <input type="date" value={approveMonthYear} onChange={(e) => setApproveMonthYear(e.target.value)} required disabled={isApprovingCsv}
+                        className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50" />
+                    </div>
+                    <div className="flex gap-2 pt-2">
+                      <button type="submit" disabled={isApprovingCsv}
+                        className={`flex-1 text-white text-xs font-bold py-2 px-4 rounded-lg focus:outline-none flex items-center justify-center gap-2 ${isApprovingCsv ? 'bg-green-300 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}>
+                        {isApprovingCsv ? 'Saving...' : 'Save'}
+                      </button>
+                      <button type="button" onClick={handleCloseCsvApproveModal} disabled={isApprovingCsv}
+                        className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold py-2 px-4 rounded-lg focus:outline-none">
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
                 </div>
               </div>
             )}
@@ -6608,28 +6985,28 @@ const SpeechRecognition =
             <div className="max-w-[1400px] mx-auto px-3 py-3">
 
               {/* Summary Cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3">
-                  <p className="text-[10px] text-gray-500 uppercase tracking-wide font-medium">Total Sources</p>
-                  <p className="text-2xl font-bold text-blue-600 mt-0.5">{data.length}</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+                <div className="bg-white rounded-xl shadow-sm border border-card-border p-4">
+                  <p className="text-xs text-gray-500 uppercase tracking-wide font-semibold">Total Sources</p>
+                  <p className="text-3xl font-bold text-blue-600 mt-1">{data.length}</p>
                 </div>
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3">
-                  <p className="text-[10px] text-gray-500 uppercase tracking-wide font-medium">Total Columns</p>
-                  <p className="text-2xl font-bold text-green-600 mt-0.5">
+                <div className="bg-white rounded-xl shadow-sm border border-card-border p-4">
+                  <p className="text-xs text-gray-500 uppercase tracking-wide font-semibold">Total Columns</p>
+                  <p className="text-3xl font-bold text-green-600 mt-1">
                     {data.reduce((acc, src) => acc + (src.columns?.length || 0), 0)}
                   </p>
                 </div>
               </div>
 
               {/* AI Documentation Table */}
-              <div className="bg-white rounded-lg shadow-sm overflow-hidden border border-gray-200 mb-4">
+              <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-card-border mb-4">
 
                 {/* Table Header */}
-                <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
-                  <h3 className="text-xs font-semibold text-gray-800">AI Documentation</h3>
+                <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-gray-800">AI Documentation</h3>
                   <button
                     onClick={fetchData}
-                    className="text-[10px] text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                    className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 font-medium"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -6640,13 +7017,13 @@ const SpeechRecognition =
 
                 <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
+                    <thead className="bg-blue-600">
                       <tr>
-                        <th className="w-8 px-3 py-2"></th>
-                        <th className="px-3 py-2 text-left text-[10px] font-medium text-gray-600 uppercase tracking-wider">Source Name</th>
-                        <th className="px-3 py-2 text-left text-[10px] font-medium text-gray-600 uppercase tracking-wider">Type</th>
-                        <th className="px-3 py-2 text-left text-[10px] font-medium text-gray-600 uppercase tracking-wider">Columns</th>
-                        <th className="px-3 py-2 text-center text-[10px] font-medium text-gray-600 uppercase tracking-wider">Actions</th>
+                        <th className="w-8 px-3 py-2.5"></th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-white uppercase tracking-wide">Source Name</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-white uppercase tracking-wide">Type</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-white uppercase tracking-wide">Columns</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-white uppercase tracking-wide">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
@@ -6657,21 +7034,21 @@ const SpeechRecognition =
                           </td>
                         </tr>
                       ) : (
-                        data.map((source) => {
+                        data.map((source, sourceIdx) => {
                           const isExpanded = expandedRow === source.id;
                           return (
                             <React.Fragment key={source.id}>
-                              <tr className={`hover:bg-gray-50 transition-colors ${isExpanded ? "bg-blue-50" : ""}`}>
+                              <tr className={`transition-colors ${isExpanded ? "bg-blue-50" : sourceIdx % 2 === 0 ? "bg-white hover:bg-blue-50" : "bg-gray-50 hover:bg-blue-50"}`}>
                                 {/* Status dot */}
-                                <td className="px-3 py-2 text-center">
+                                <td className="px-3 py-2.5 text-center">
                                   <div className="w-1.5 h-1.5 rounded-full bg-green-400 mx-auto"></div>
                                 </td>
 
                                 {/* Source name */}
-                                <td className="px-3 py-2">
+                                <td className="px-3 py-2.5">
                                   <div className="flex items-center gap-2">
-                                    <div className="w-6 h-6 rounded-md bg-blue-100 flex items-center justify-center flex-shrink-0">
-                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <div className="w-7 h-7 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4" />
                                       </svg>
                                     </div>
@@ -6680,7 +7057,7 @@ const SpeechRecognition =
                                 </td>
 
                                 {/* Type badge */}
-                                <td className="px-3 py-2">
+                                <td className="px-3 py-2.5">
                                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${source.source_type === "table_data"
                                     ? "bg-purple-100 text-purple-700"
                                     : "bg-green-100 text-green-700"
@@ -6690,20 +7067,17 @@ const SpeechRecognition =
                                 </td>
 
                                 {/* Column count */}
-                                <td className="px-3 py-2">
+                                <td className="px-3 py-2.5">
                                   <span className="text-xs text-gray-600">
-                                    <span className="font-medium text-blue-600">{source.columns?.length || 0}</span> cols
+                                    <span className="font-semibold text-blue-600">{source.columns?.length || 0}</span> cols
                                   </span>
                                 </td>
 
                                 {/* Expand button */}
-                                <td className="px-3 py-2 text-center">
+                                <td className="px-3 py-2.5 text-center">
                                   <button
                                     onClick={() => setExpandedRow(isExpanded ? null : source.id)}
-                                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-colors ${isExpanded
-                                      ? "bg-blue-100 text-blue-700 hover:bg-blue-200"
-                                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                                      }`}
+                                    className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-semibold border border-blue-300 bg-white text-blue-600 hover:bg-blue-50 transition-colors"
                                   >
                                     {isExpanded
                                       ? <><MdArrowDropUp size={14} /> Collapse</>
@@ -6726,14 +7100,14 @@ const SpeechRecognition =
                                         </span>
                                       </div>
 
-                                      <div className="rounded-lg overflow-hidden border border-gray-200 shadow-sm">
+                                      <div className="rounded-xl overflow-hidden border border-card-border shadow-sm">
                                         <table className="min-w-full bg-white">
                                           <thead>
-                                            <tr className="bg-gray-100">
-                                              <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-600 uppercase w-6">#</th>
-                                              <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-600 uppercase w-48">Column Name</th>
-                                              <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-600 uppercase">Description</th>
-                                              <th className="px-3 py-2 text-center text-[10px] font-semibold text-gray-600 uppercase w-16">Edit</th>
+                                            <tr className="bg-blue-600">
+                                              <th className="px-3 py-2 text-left text-[10px] font-bold text-white uppercase tracking-wide w-6">#</th>
+                                              <th className="px-3 py-2 text-left text-[10px] font-bold text-white uppercase tracking-wide w-48">Column Name</th>
+                                              <th className="px-3 py-2 text-left text-[10px] font-bold text-white uppercase tracking-wide">Description</th>
+                                              <th className="px-3 py-2 text-center text-[10px] font-bold text-white uppercase tracking-wide w-16">Edit</th>
                                             </tr>
                                           </thead>
                                           <tbody className="divide-y divide-gray-100">
@@ -6743,7 +7117,7 @@ const SpeechRecognition =
                                                   editRowId === source.id &&
                                                   editRowKey === col.column_name;
                                                 return (
-                                                  <tr key={colIdx} className="hover:bg-gray-50">
+                                                  <tr key={colIdx} className={colIdx % 2 === 0 ? "bg-white hover:bg-blue-50" : "bg-gray-50 hover:bg-blue-50"}>
                                                     <td className="px-3 py-2 text-[10px] text-gray-400">{colIdx + 1}</td>
                                                     <td className="px-3 py-2">
                                                       <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-gray-100 text-[10px] font-mono text-gray-700 border border-gray-200">
@@ -6776,7 +7150,7 @@ const SpeechRecognition =
                                                       {isEditingCol ? (
                                                         <button
                                                           onClick={() => handleSaveClicks(source.id, boardId)}
-                                                          className="inline-flex items-center gap-1 px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-[10px] rounded"
+                                                          className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-semibold rounded-full"
                                                         >
                                                           <FiSave size={10} /> Save
                                                         </button>
@@ -6795,7 +7169,7 @@ const SpeechRecognition =
                                                             }));
                                                           }}
                                                           disabled={isViewer}
-                                                          className={`inline-flex items-center gap-1 px-2 py-1 text-[10px] rounded ${isViewer ? 'bg-gray-50 text-gray-300 cursor-not-allowed opacity-40' : 'bg-gray-100 hover:bg-gray-200 text-gray-600'}`}
+                                                          className={`inline-flex items-center gap-1 px-2.5 py-1 text-[10px] font-semibold rounded-full border transition-colors ${isViewer ? 'bg-gray-50 text-gray-300 border-gray-200 cursor-not-allowed opacity-40' : 'bg-white border-blue-300 hover:bg-blue-50 text-blue-600'}`}
                                                         >
                                                           <FaPen size={9} /> Edit
                                                         </button>
@@ -7675,7 +8049,7 @@ const SpeechRecognition =
             {/* Stays visible regardless of which sub-view (table / currency) is selected below */}
             <OrganizationSummary />
             {masterDataView === "table" ? (
-              <ExcelTableComponent boardId={boardId} onSwitchToCurrency={() => setMasterDataView("currency")} />
+              <ExcelTableComponent boardId={boardId} onSwitchToCurrency={() => setMasterDataView("currency")} blueHeaders />
             ) : (
               <CurrencySettings boardId={boardId ?? ""} onSwitchToMasterData={() => setMasterDataView("table")} />
             )}
@@ -8020,7 +8394,7 @@ const SpeechRecognition =
         )}
 
         {activeTab === "report" && !hideUsRestrictedTabs && (
-          <ReportComponent />
+          <ReportComponent blueHeaders />
         )}
 
       </div>

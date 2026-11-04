@@ -1333,7 +1333,7 @@ function TableDropdown({
 
 // Main Report Component
 // ══════════════════════════════════════════════════════════════
-export default function ReportComponent() {
+export default function ReportComponent({ blueHeaders = false }: { blueHeaders?: boolean }) {
   // Table list
   const [tables,        setTables]        = useState<string[]>([]);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
@@ -1515,14 +1515,14 @@ export default function ReportComponent() {
     <div className="w-full bg-gray-50">
 
       {/* ── Page Header ─────────────────────────────────────── */}
-      <div className="w-full bg-white border-b border-gray-200">
+      <div className={blueHeaders ? "w-full" : "w-full bg-white border-b border-gray-200"}>
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center flex-shrink-0">
-              <FaFileAlt className="text-indigo-600" size={16} />
+            <div className={blueHeaders ? "w-14 h-14 rounded-2xl bg-tint flex items-center justify-center flex-shrink-0" : "w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center flex-shrink-0"}>
+              <FaFileAlt className={blueHeaders ? "text-accent" : "text-indigo-600"} size={blueHeaders ? 18 : 16} />
             </div>
             <div>
-              <h2 className="text-base font-bold text-gray-800">Reports</h2>
+              <h2 className={blueHeaders ? "text-lg font-bold text-gray-800 font-heading" : "text-base font-bold text-gray-800"}>Reports</h2>
               <p className="text-xs text-gray-500">
                 {tablesLoading ? 'Loading tables…' : tables.length > 0 ? `${tables.length} tables available · click any to load its data` : 'No tables available'}
               </p>
@@ -1531,7 +1531,9 @@ export default function ReportComponent() {
           <button
             onClick={fetchTables}
             disabled={tablesLoading}
-            className="flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg shadow-sm hover:bg-gray-50 hover:text-gray-800 transition-colors disabled:opacity-60 flex-shrink-0"
+            className={blueHeaders
+              ? "flex items-center gap-1.5 h-11 px-4 text-sm font-medium text-gray-700 bg-white border border-card-border rounded-full shadow-sm hover:bg-tint hover:border-accent transition-colors disabled:opacity-60 flex-shrink-0"
+              : "flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg shadow-sm hover:bg-gray-50 hover:text-gray-800 transition-colors disabled:opacity-60 flex-shrink-0"}
           >
             <FaSync size={11} className={tablesLoading ? 'animate-spin' : ''} />
             Refresh
@@ -1542,15 +1544,15 @@ export default function ReportComponent() {
       <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4 space-y-3">
 
         {/* ── Table Selector — compact single row ─────────── */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3 flex items-center gap-3 flex-wrap">
+        <div className={blueHeaders ? "bg-white rounded-2xl border border-card-border shadow-sm px-4 py-3 flex items-center gap-3 flex-wrap" : "bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3 flex items-center gap-3 flex-wrap"}>
           {/* Label */}
           <div className="flex items-center gap-2 flex-shrink-0">
-            <div className="w-7 h-7 rounded-lg bg-indigo-50 flex items-center justify-center">
-              <FaTable className="text-indigo-600" size={12} />
+            <div className={blueHeaders ? "w-7 h-7 rounded-lg bg-tint flex items-center justify-center" : "w-7 h-7 rounded-lg bg-indigo-50 flex items-center justify-center"}>
+              <FaTable className={blueHeaders ? "text-accent" : "text-indigo-600"} size={12} />
             </div>
             <span className="text-sm font-semibold text-gray-700">Available Tables</span>
             {!tablesLoading && tables.length > 0 && (
-              <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-[11px] rounded-full font-semibold">
+              <span className={blueHeaders ? "px-2 py-0.5 bg-tint text-accent text-[11px] rounded-full font-semibold" : "px-2 py-0.5 bg-indigo-100 text-indigo-700 text-[11px] rounded-full font-semibold"}>
                 {tables.length}
               </span>
             )}
@@ -1579,28 +1581,45 @@ export default function ReportComponent() {
 
           {/* Currently loaded indicator */}
           {selectedTable && (
-            <div className="flex items-center gap-1.5 flex-shrink-0">
-              {tableLoading
-                ? <FaSync size={10} className="animate-spin text-indigo-500" />
-                : <FaCheckSquare size={11} className="text-indigo-600" />
-              }
-              <span className="text-xs font-medium text-indigo-700">{selectedTable}</span>
-              <button onClick={() => {
-                setSelectedTable(null); setTableRows([]); setTableColumns([]);
-                setMonthlyRows(null); setOutstandingRows(null); setLedgerNames([]);
-                setShowFilters(false);
-              }} className="text-gray-400 hover:text-red-400 transition-colors">
-                <FaTimes size={10} />
-              </button>
-            </div>
+            blueHeaders ? (
+              <div className="flex items-center gap-1.5 flex-shrink-0 pl-3 pr-2 py-1.5 bg-tint border border-accent/30 rounded-full">
+                {tableLoading
+                  ? <FaSync size={10} className="animate-spin text-accent" />
+                  : <FaCheckSquare size={11} className="text-accent" />
+                }
+                <span className="text-xs font-bold text-accent">{selectedTable}</span>
+                <button onClick={() => {
+                  setSelectedTable(null); setTableRows([]); setTableColumns([]);
+                  setMonthlyRows(null); setOutstandingRows(null); setLedgerNames([]);
+                  setShowFilters(false);
+                }} className="text-accent/60 hover:text-red-500 transition-colors">
+                  <FaTimes size={10} />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                {tableLoading
+                  ? <FaSync size={10} className="animate-spin text-indigo-500" />
+                  : <FaCheckSquare size={11} className="text-indigo-600" />
+                }
+                <span className="text-xs font-medium text-indigo-700">{selectedTable}</span>
+                <button onClick={() => {
+                  setSelectedTable(null); setTableRows([]); setTableColumns([]);
+                  setMonthlyRows(null); setOutstandingRows(null); setLedgerNames([]);
+                  setShowFilters(false);
+                }} className="text-gray-400 hover:text-red-400 transition-colors">
+                  <FaTimes size={10} />
+                </button>
+              </div>
+            )
           )}
         </div>
 
         {/* ── Inline Filter Panel ───────────────────────────── */}
         {selectedTable && showFilters && (
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+          <div className={blueHeaders ? "bg-white rounded-2xl border border-card-border shadow-sm overflow-hidden" : "bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden"}>
             {/* Header */}
-            <div className="px-3 py-2 bg-gradient-to-r from-blue-600 to-blue-500 flex items-center justify-between">
+            <div className={blueHeaders ? "px-4 py-3 bg-gradient-to-r from-blue-600 to-purple-600 flex items-center justify-between" : "px-3 py-2 bg-gradient-to-r from-blue-600 to-blue-500 flex items-center justify-between"}>
               <div className="flex items-center gap-2">
                 <FaSearch className="text-white/80" size={11} />
                 <span className="text-xs font-semibold text-white">Filters</span>
@@ -1778,17 +1797,21 @@ export default function ReportComponent() {
             )}
 
             {/* ── Bottom action bar ── */}
-            <div className="px-3 py-2.5 border-t border-gray-100 bg-gray-50 flex items-center justify-center gap-3">
+            <div className={blueHeaders ? "px-3 py-3 border-t border-card-border bg-gray-50 flex items-center justify-center gap-3" : "px-3 py-2.5 border-t border-gray-100 bg-gray-50 flex items-center justify-center gap-3"}>
               <button
                 onClick={handleResetFilters}
-                className="flex items-center gap-1.5 px-5 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
+                className={blueHeaders
+                  ? "flex items-center gap-1.5 h-10 px-5 text-xs font-semibold text-gray-600 bg-white border border-card-border rounded-full hover:bg-gray-100 transition-colors"
+                  : "flex items-center gap-1.5 px-5 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"}
               >
                 <FaSync size={9} /> Reset
               </button>
               <button
                 onClick={handleApplyFilters}
                 disabled={tableLoading}
-                className="flex items-center gap-1.5 px-6 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-60 shadow-sm"
+                className={blueHeaders
+                  ? "flex items-center gap-1.5 h-10 px-6 text-xs font-bold text-white bg-accent hover:bg-accent-hover rounded-full transition-colors disabled:opacity-60 shadow-sm"
+                  : "flex items-center gap-1.5 px-6 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-60 shadow-sm"}
               >
                 <FaPlay size={9} /> Apply
               </button>
