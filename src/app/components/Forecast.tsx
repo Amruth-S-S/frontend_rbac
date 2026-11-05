@@ -508,6 +508,10 @@ export default function Forecast() {
   // with no parsing needed. Empty string on either end means "no bound".
   const [chartDateFrom, setChartDateFrom] = useState('');
   const [chartDateTo, setChartDateTo] = useState('');
+  // Which quick-range button (if any) produced the current from/to — cleared as
+  // soon as the user edits either date field by hand, so the highlighted button
+  // never lies about what's actually being shown.
+  const [activeRangePreset, setActiveRangePreset] = useState<string | null>('all');
   const chartDateBounds = useMemo(() => {
     if (!forecastResult) return null;
     const allDates = [
@@ -522,6 +526,31 @@ export default function Forecast() {
     }
     return { min, max };
   }, [forecastResult]);
+
+  // Quick-range presets (All, then every 1M–12M), styled like a stock-chart range
+  // picker — "from" is N months back from the data's latest date, clamped to its
+  // earliest.
+  const RANGE_PRESETS: { key: string; label: string; months: number | null }[] = [
+    { key: 'all', label: 'All', months: null },
+    ...Array.from({ length: 12 }, (_, i) => {
+      const n = i + 1;
+      return { key: `${n}m`, label: n === 12 ? '1Y' : `${n}M`, months: n };
+    }),
+  ];
+  const applyRangePreset = (preset: typeof RANGE_PRESETS[number]) => {
+    setActiveRangePreset(preset.key);
+    if (preset.months === null || !chartDateBounds) {
+      setChartDateFrom('');
+      setChartDateTo('');
+      return;
+    }
+    const max = new Date(`${chartDateBounds.max}T00:00:00`);
+    const from = new Date(max);
+    from.setMonth(from.getMonth() - preset.months);
+    const fromStr = from.toISOString().slice(0, 10);
+    setChartDateTo(chartDateBounds.max);
+    setChartDateFrom(fromStr < chartDateBounds.min ? chartDateBounds.min : fromStr);
+  };
 
   // Total distinct dates across historical + every model, unfiltered — the "of Y
   // points" half of the chart's date-filter counter.
@@ -854,7 +883,7 @@ export default function Forecast() {
           value={chartDateFrom}
           min={chartDateBounds?.min}
           max={chartDateTo || chartDateBounds?.max}
-          onChange={e => setChartDateFrom(e.target.value)}
+          onChange={e => { setChartDateFrom(e.target.value); setActiveRangePreset(null); }}
           className={`px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-400 ${compact ? 'text-xs' : 'text-sm'}`}
         />
       </div>
@@ -865,19 +894,24 @@ export default function Forecast() {
           value={chartDateTo}
           min={chartDateFrom || chartDateBounds?.min}
           max={chartDateBounds?.max}
-          onChange={e => setChartDateTo(e.target.value)}
+          onChange={e => { setChartDateTo(e.target.value); setActiveRangePreset(null); }}
           className={`px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-400 ${compact ? 'text-xs' : 'text-sm'}`}
         />
       </div>
-      {(chartDateFrom || chartDateTo) && (
-        <button
-          type="button"
-          onClick={() => { setChartDateFrom(''); setChartDateTo(''); }}
-          className="text-[11px] text-blue-600 hover:underline pb-1.5"
-        >
-          Reset range
-        </button>
-      )}
+      <div className="flex flex-wrap bg-tint rounded-xl p-1 gap-y-1">
+        {RANGE_PRESETS.map(preset => (
+          <button
+            key={preset.key}
+            type="button"
+            onClick={() => applyRangePreset(preset)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              activeRangePreset === preset.key ? 'bg-accent text-white shadow-sm' : 'text-accent hover:bg-white/60'
+            }`}
+          >
+            {preset.label}
+          </button>
+        ))}
+      </div>
       <span className="text-[11px] text-gray-400 pb-1.5 ml-auto">
         {chartData ? `Showing ${formatNumber(chartData.labels.length)} of ${formatNumber(totalChartPoints)} points` : 'No points in this range'}
       </span>
