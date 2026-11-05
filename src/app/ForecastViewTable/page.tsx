@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
-  Search as SearchIcon, ChevronDown, ArrowUpDown, ArrowUp, ArrowDown, Play, Loader2, AlertCircle,
+  Search as SearchIcon, ChevronDown, ArrowUpDown, ArrowUp, ArrowDown, Play, Loader2, AlertCircle, RefreshCw,
 } from 'lucide-react';
 
 const formatNumber = (n: number) => new Intl.NumberFormat('en-IN').format(n);
@@ -68,22 +68,25 @@ function ForecastViewTableInner() {
     return r;
   }, [rows, columns, resultSearch, sortCol, sortDir]);
 
+  const loadTables = async () => {
+    setTablesLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/forecasting/tables');
+      const json = await res.json();
+      if (!res.ok) throw new Error(extractErrorMessage(json, 'Failed to load tables.'));
+      const list: string[] = Array.isArray(json?.tables) ? json.tables : [];
+      setTables(list);
+      setTableName(prev => prev || list[0] || '');
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load tables.');
+    } finally {
+      setTablesLoading(false);
+    }
+  };
+
   useEffect(() => {
-    (async () => {
-      setTablesLoading(true);
-      try {
-        const res = await fetch('/api/forecasting/tables');
-        const json = await res.json();
-        if (!res.ok) throw new Error(extractErrorMessage(json, 'Failed to load tables.'));
-        const list: string[] = Array.isArray(json?.tables) ? json.tables : [];
-        setTables(list);
-        setTableName(prev => prev || list[0] || '');
-      } catch (err: any) {
-        setError(err?.message || 'Failed to load tables.');
-      } finally {
-        setTablesLoading(false);
-      }
-    })();
+    loadTables();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -150,14 +153,25 @@ function ForecastViewTableInner() {
   return (
     <div className="min-h-screen bg-page-bg">
       <div className="max-w-[1600px] mx-auto p-4 sm:p-6">
-        <div className="flex items-center gap-3 mb-5">
-          <div className="w-12 h-12 rounded-2xl bg-tint flex items-center justify-center flex-shrink-0">
-            <SearchIcon className="w-5 h-5 text-accent" />
+        <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-tint flex items-center justify-center flex-shrink-0">
+              <SearchIcon className="w-5 h-5 text-accent" />
+            </div>
+            <div>
+              <h1 className="text-lg font-bold text-gray-800 font-heading">View Table</h1>
+              <p className="text-xs text-gray-500">Pick a table, run it, and browse the rows — full width, with horizontal scroll for wide tables.</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-lg font-bold text-gray-800 font-heading">View Table</h1>
-            <p className="text-xs text-gray-500">Pick a table, run it, and browse the rows — full width, with horizontal scroll for wide tables.</p>
-          </div>
+          <button
+            type="button"
+            onClick={loadTables}
+            disabled={tablesLoading}
+            className="flex items-center gap-1.5 h-11 px-4 text-sm font-semibold text-accent border border-tint rounded-full hover:bg-tint transition-colors disabled:opacity-50 flex-shrink-0"
+          >
+            <RefreshCw className={`w-4 h-4 ${tablesLoading ? 'animate-spin' : ''}`} />
+            Refresh tables
+          </button>
         </div>
 
         <div className="bg-white border border-card-border rounded-2xl shadow-sm p-5 mb-4">

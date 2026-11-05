@@ -1351,8 +1351,8 @@ export default function Forecast() {
                 Showing {formatNumber(previewRows.length)} of <b className="text-gray-700">{formatNumber(loadedData.rows)}</b> rows
               </span>
             </div>
-            <div className="border border-gray-100 rounded-lg overflow-hidden max-h-40 overflow-y-auto">
-              <table className="w-full text-xs">
+            <div className="border border-gray-100 rounded-lg max-h-40 overflow-auto">
+              <table className="min-w-full text-xs">
                 <thead className="bg-gray-50 sticky top-0">
                   <tr>
                     <th className="text-left px-3 py-1.5 font-semibold text-gray-500">
@@ -1539,8 +1539,8 @@ export default function Forecast() {
                 </div>
                 <span className="text-[11px] text-gray-500 flex-shrink-0">{formatNumber(visiblePeriods.length)} of {formatNumber(forecastPeriods.length)}</span>
               </div>
-              <div className="border border-card-border rounded-2xl overflow-hidden max-h-80 overflow-y-auto">
-                <table className="w-full text-xs">
+              <div className="border border-card-border rounded-2xl max-h-80 overflow-auto">
+                <table className="min-w-full text-xs">
                   <thead className="bg-tint sticky top-0">
                     <tr>
                       <th className="text-left px-3 py-2 font-bold text-gray-700">
@@ -1584,7 +1584,15 @@ export default function Forecast() {
                 chart above: a plain magnitude read of the forecast, and a
                 period-over-period growth read across the whole visible series. */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-              <div className="border border-card-border rounded-2xl p-3">
+              <div className="relative border border-card-border rounded-2xl p-3">
+                <button
+                  type="button"
+                  onClick={() => setChartModalOpen(true)}
+                  title="Expand all charts"
+                  className="absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-gray-500 bg-white/90 border border-card-border rounded-md shadow-sm hover:text-accent hover:border-accent"
+                >
+                  <Maximize2 className="w-3 h-3" /> Expand
+                </button>
                 <h4 className="text-xs font-bold text-gray-700 mb-2 font-heading">Forecast by Period</h4>
                 <div className="h-56">
                   {barChartData ? (
@@ -1596,7 +1604,15 @@ export default function Forecast() {
                   )}
                 </div>
               </div>
-              <div className="border border-card-border rounded-2xl p-3">
+              <div className="relative border border-card-border rounded-2xl p-3">
+                <button
+                  type="button"
+                  onClick={() => setChartModalOpen(true)}
+                  title="Expand all charts"
+                  className="absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-gray-500 bg-white/90 border border-card-border rounded-md shadow-sm hover:text-accent hover:border-accent"
+                >
+                  <Maximize2 className="w-3 h-3" /> Expand
+                </button>
                 <h4 className="text-xs font-bold text-gray-700 mb-2 font-heading">Period-over-Period Change</h4>
                 <div className="h-56">
                   {changeChartData ? (
