@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { useRouter, usePathname } from 'next/navigation';
 import { useLanguage } from '../context/LanguageContext';
 import { translateBatch } from '../utils/translateService';
+import { isCsvUploadEnabled, setCsvUploadEnabled } from '../utils/csvUploadFlag';
 import Link from 'next/link';
 import {
   LayoutDashboard,
@@ -153,6 +154,9 @@ const Sidebar: React.FC<SidebarProps> = ({ }) => {
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingBoardId, setEditingBoardId] = useState<string | null>(null);
   const [editingBoardActive, setEditingBoardActive] = useState(true);
+  // Controls whether the "+ CSV-Object" button shows up on this board's Manage
+  // Tables screen — stored client-side only, see utils/csvUploadFlag.ts.
+  const [csvUploadEnabled, setCsvUploadEnabledState] = useState(true);
 
   const [selectedBoard, setSelectedBoard] = useState<SelectedBoard>(null);
   const router = useRouter();
@@ -619,6 +623,7 @@ const Sidebar: React.FC<SidebarProps> = ({ }) => {
           try { const e = JSON.parse(errorBody); msg = e.detail || e.message || msg; } catch { /* ignore */ }
           toast.error(msg); return;
         }
+        setCsvUploadEnabled(editingBoardId, csvUploadEnabled);
         toast.success("Board updated successfully!");
         closeModal();
         router.push(`/Container?main_board_id=${selectedBoard?.mainBoardId}&board_id=${editingBoardId}`);
@@ -636,6 +641,7 @@ const Sidebar: React.FC<SidebarProps> = ({ }) => {
           toast.error(msg); return;
         }
         const newBoard = await response.json();
+        setCsvUploadEnabled(newBoard.id, csvUploadEnabled);
         toast.success("Board created successfully!");
         closeModal();
         router.push(`/Container?main_board_id=${selectedBoard!.mainBoardId}&board_id=${newBoard.id}`);
@@ -738,8 +744,9 @@ const Sidebar: React.FC<SidebarProps> = ({ }) => {
     setSelectedBoard({ mainBoardId });
     setNewBoardName(''); setCustomerDbKey('');
     setIsEditMode(false); setEditingBoardId(null);
+    setCsvUploadEnabledState(true);
     setShowModal(true);
-     fetchCustomerDbKeys(); 
+     fetchCustomerDbKeys();
   };
 
   // ─── Edit board click ────────────────────────────────────────────────────────
@@ -773,6 +780,7 @@ const Sidebar: React.FC<SidebarProps> = ({ }) => {
         setNewBoardName(boardData.name);
         setCustomerDbKey(boardDetails.customer_db_key || '');
         setEditingBoardActive(boardData.is_active);
+        setCsvUploadEnabledState(isCsvUploadEnabled(boardId));
       } else {
         toast.error('Failed to load board details'); return;
       }
@@ -1179,6 +1187,15 @@ const Sidebar: React.FC<SidebarProps> = ({ }) => {
     Examples: customer_db_tally, customer_db_onegcp
   </p> */}
 </div>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={csvUploadEnabled}
+                    onChange={e => setCsvUploadEnabledState(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                  />
+                  <span className="text-xs font-medium text-gray-700">Enable CSV file upload for this board</span>
+                </label>
                 {newBoardName.trim() && customerDbKey.trim() && (
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-2.5">
                     <p className="text-xs text-blue-800"><span className="font-semibold">{isEditMode ? 'Ready to update:' : 'Ready to create:'}</span> {newBoardName}</p>

@@ -16,6 +16,7 @@ export default function ClientLayout({
   const isLoginPage = pathname === '/';
   const isConsultantPage = pathname === '/consultant' || pathname === '/Consultant';
   const isCXOPage = pathname === '/cxo' || pathname === '/CXO';
+  const isForecastViewTablePage = pathname === '/ForecastViewTable';
 
   useEffect(() => {
     // console.log('Current pathname:', pathname);
@@ -25,7 +26,7 @@ export default function ClientLayout({
     <I18nextProvider i18n={i18n}>
       <LanguageProvider>
         <div className="flex h-screen overflow-hidden">
-          {!isLoginPage && !isConsultantPage && !isCXOPage && (
+          {!isLoginPage && !isConsultantPage && !isCXOPage && !isForecastViewTablePage && (
             <Sidebar clientUserId={''} />
           )}
           <div className="w-full overflow-auto">{children}</div>

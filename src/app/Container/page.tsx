@@ -13,6 +13,7 @@ import LanguageSelector from "../components/LanguageSelector";
 import UserProfileMenu from "../components/UserProfileMenu";
 import { useLanguage } from "../context/LanguageContext";
 import { translateBatch, translateText, formatNumber } from "../utils/translateService";
+import { isCsvUploadEnabled } from "../utils/csvUploadFlag";
 // import { MdManageSearch } from "react-icons/md";
 import { FaPlay, FaPen, FaTrash, FaEdit, FaCheck, FaBan } from "react-icons/fa";
 import { FaFileUpload, FaCaretUp, FaCaretDown, FaUpload, FaTimes, FaComment, FaBars, FaChevronLeft, FaChevronRight } from 'react-icons/fa';
@@ -5922,14 +5923,16 @@ const SpeechRecognition =
                   <PlusIcon className="h-3 w-3" />
                   PG Table
                 </button>
-                <button
-                  className="flex items-center gap-1 px-3 py-1.5 bg-gray-900 hover:bg-black text-white rounded-full text-xs font-medium whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  onClick={() => !isViewer && handleOpenCsvUploadModal()}
-                  disabled={isViewer}
-                >
-                  <PlusIcon className="h-3 w-3" />
-                  CSV-Object
-                </button>
+                {isCsvUploadEnabled(boardId) && (
+                  <button
+                    className="flex items-center gap-1 px-3 py-1.5 bg-gray-900 hover:bg-black text-white rounded-full text-xs font-medium whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    onClick={() => !isViewer && handleOpenCsvUploadModal()}
+                    disabled={isViewer}
+                  >
+                    <PlusIcon className="h-3 w-3" />
+                    CSV-Object
+                  </button>
+                )}
               </div>
             </div>
 
@@ -6230,7 +6233,7 @@ const SpeechRecognition =
                       {dataSources.length === 0 && rows.filter(r => !r.approval_status || r.approval_status === 'pending').length === 0 && (
                         <tr>
                           <td colSpan={6} className="px-4 py-8 text-center text-xs text-gray-500">
-                            No data sources or info-objects yet. Use "+ PG Table" or "+ CSV-Object" to add.
+                            No data sources or info-objects yet. Use "+ PG Table"{isCsvUploadEnabled(boardId) ? ' or "+ CSV-Object"' : ''} to add.
                           </td>
                         </tr>
                       )}
