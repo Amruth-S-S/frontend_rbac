@@ -1307,8 +1307,11 @@ export default function Forecast() {
                   </div>
                 )}
               </div>
-              {selectedFilterValues.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mt-2">
+            </div>
+            {selectedFilterValues.length > 0 && (
+              <div className="sm:col-span-1 lg:col-span-2">
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5 invisible" aria-hidden="true">values</label>
+                <div className="flex flex-wrap gap-1.5 content-start">
                   {selectedFilterValues.map(v => (
                     <span key={v} className="flex items-center gap-1 pl-2 pr-1 py-0.5 bg-blue-50 text-blue-700 text-[11px] font-medium rounded-full border border-blue-100">
                       {v}
@@ -1318,8 +1321,8 @@ export default function Forecast() {
                     </span>
                   ))}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         )}
 
