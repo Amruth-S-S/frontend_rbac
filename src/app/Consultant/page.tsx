@@ -191,7 +191,7 @@ export default function Page() {
                     <div className="consultant-card" onClick={goToConsultantScreen}>
                         <h2 className="consultant-card-title">Consultant Panel</h2>
                         <div className="consultant-card-icon">
-                            <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" width="90" height="90">
+                            <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" width="68" height="68">
                                 <rect x="10" y="10" width="80" height="80" rx="12" fill="#dbeafe" />
                                 <circle cx="35" cy="42" r="11" fill="#3b82f6" />
                                 <circle cx="65" cy="42" r="11" fill="#3b82f6" />
@@ -202,13 +202,19 @@ export default function Page() {
                             </svg>
                         </div>
                         <p className="consultant-card-desc">Build boards, manage prompts and tables, and prepare reports for clients.</p>
+                        <span className="consultant-card-open-hint">
+                            Open Panel
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                        </span>
                     </div>
 
                     {/* CXO Card */}
                     <div className="consultant-card" onClick={goToCXOScreen}>
                         <h2 className="consultant-card-title">CXO Panel</h2>
                         <div className="consultant-card-icon">
-                            <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" width="90" height="90">
+                            <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" width="68" height="68">
                                 <rect x="10" y="10" width="80" height="80" rx="12" fill="#d1fae5" />
                                 <circle cx="50" cy="32" r="13" fill="#10b981" stroke="#a7f3d0" strokeWidth="3" />
                                 <rect x="32" y="50" width="36" height="32" rx="6" fill="#10b981" />
@@ -218,6 +224,12 @@ export default function Page() {
                             </svg>
                         </div>
                         <p className="consultant-card-desc">Ask questions about your data and see answers as messages, tables and charts.</p>
+                        <span className="consultant-card-open-hint">
+                            Open Panel
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                        </span>
                     </div>
                 </div>
             </main>

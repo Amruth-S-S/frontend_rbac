@@ -2377,10 +2377,13 @@ useEffect(() => {
       toast.success(`"${csvUploadFile.name}" uploaded -- fill in the details to finish.`);
       setStagedCsvUpload({ filename: csvUploadFile.name, gcsPath: gcs_path });
       handleCloseCsvUploadModal();
-      setApproveSourceName("");
-      setApproveTableName("");
-      setApproveTableDescription("");
-      setApproveMonthYear("");
+      // Source Name / Table Name take the filename as-is, and Month/Year defaults
+      // to today — none of the three are shown as editable fields anymore, so they
+      // need a sensible value set here instead of being picked in the form.
+      setApproveSourceName(csvUploadFile.name);
+      setApproveTableName(csvUploadFile.name);
+      setApproveTableDescription(csvUploadFile.name);
+      setApproveMonthYear(new Date().toISOString().slice(0, 10));
       setIsCsvApproveModalOpen(true);
     } catch (error: any) {
       console.error("CSV upload error:", error);
@@ -6938,37 +6941,23 @@ const SpeechRecognition =
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-gray-600 mb-1">GCS Path</label>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Month</label>
                       <div className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs bg-gray-50 truncate text-gray-500">
-                        {stagedCsvUpload.gcsPath}
+                        {approveMonthYear
+                          ? new Date(`${approveMonthYear}T00:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+                          : '—'}
                       </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-600 mb-1">Source Name</label>
-                      <input type="text" value={approveSourceName} onChange={(e) => setApproveSourceName(e.target.value)} required disabled={isApprovingCsv}
-                        placeholder="Name shown in the data source list"
-                        className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-600 mb-1">Table Name</label>
-                      <input type="text" value={approveTableName} onChange={(e) => setApproveTableName(e.target.value)} required disabled={isApprovingCsv}
-                        placeholder="Internal name for the data management record"
-                        className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50" />
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-gray-600 mb-1">Table Description (optional)</label>
                       <input type="text" value={approveTableDescription} onChange={(e) => setApproveTableDescription(e.target.value)} disabled={isApprovingCsv}
-                        className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-600 mb-1">Month / Year</label>
-                      <input type="date" value={approveMonthYear} onChange={(e) => setApproveMonthYear(e.target.value)} required disabled={isApprovingCsv}
+                        placeholder="Describe this table"
                         className="border border-gray-200 rounded-lg w-full py-2 px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50" />
                     </div>
                     <div className="flex gap-2 pt-2">
                       <button type="submit" disabled={isApprovingCsv}
-                        className={`flex-1 text-white text-xs font-bold py-2 px-4 rounded-lg focus:outline-none flex items-center justify-center gap-2 ${isApprovingCsv ? 'bg-green-300 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}>
-                        {isApprovingCsv ? 'Saving...' : 'Save'}
+                        className={`flex-1 text-white text-xs font-bold py-2 px-4 rounded-lg focus:outline-none flex items-center justify-center gap-2 ${isApprovingCsv ? 'bg-blue-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                        {isApprovingCsv ? 'Uploading...' : 'Upload'}
                       </button>
                       <button type="button" onClick={handleCloseCsvApproveModal} disabled={isApprovingCsv}
                         className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold py-2 px-4 rounded-lg focus:outline-none">

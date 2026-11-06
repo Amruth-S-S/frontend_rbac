@@ -43,6 +43,13 @@ interface LoadedData {
   filter_value: string | null;
   rows: number;
   data: TableRow[];
+  // The actual source column names behind the generic Date/Amount shape above —
+  // GUID/Date/Amount mode uses those names verbatim, but "use date column" mode
+  // picks whatever date/target column the user chose (e.g. "date"/"electric_bill"),
+  // so the preview table shows what the API actually returned instead of a
+  // hardcoded "Date"/"Amount" label.
+  dateColumnName: string;
+  amountColumnName: string;
 }
 // The API returns historical actuals and each model's forecast as separate arrays —
 // every model (Holt-Winters, SARIMA, …) gets its own forecast series plus an accuracy/
@@ -398,6 +405,8 @@ export default function Forecast() {
         filter_value: json.filter_value ?? null,
         rows: json.rows ?? rawRows.length,
         data: rows,
+        dateColumnName: useDateColumn ? dateColumn : 'Date',
+        amountColumnName: useDateColumn ? targetColumn : 'Amount',
       });
       addToast('success', `Loaded ${formatNumber(json.rows ?? json.data?.length ?? 0)} rows from ${selectedTable}.`);
     } catch (err: any) {
@@ -1354,18 +1363,10 @@ export default function Forecast() {
 
         {/* Summary — sits above the preview table */}
         {loadedData && dataSummary && (
-          <div className="mt-4 grid grid-cols-3 gap-2">
+          <div className="mt-4 grid grid-cols-1 gap-2">
             <div className="bg-tint rounded-xl px-3 py-2.5">
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Rows</p>
               <p className="text-sm font-bold text-gray-800">{formatNumber(loadedData.rows)}</p>
-            </div>
-            <div className="bg-tint rounded-xl px-3 py-2.5">
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Date range (preview)</p>
-              <p className="text-xs font-bold text-gray-800">{formatDate(dataSummary.min)} – {formatDate(dataSummary.max)}</p>
-            </div>
-            <div className="bg-tint rounded-xl px-3 py-2.5">
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Total amount (preview)</p>
-              <p className="text-sm font-bold text-gray-800">₹{formatNumber(dataSummary.total)}</p>
             </div>
           </div>
         )}
@@ -1394,12 +1395,12 @@ export default function Forecast() {
                   <tr>
                     <th className="text-left px-3 py-1.5 font-semibold text-gray-500">
                       <button type="button" onClick={() => togglePreviewSort('Date')} className="flex items-center gap-1 hover:text-gray-700">
-                        Date <ArrowUpDown className={`w-3 h-3 ${previewSortCol === 'Date' ? 'text-blue-600' : 'text-gray-300'}`} />
+                        {loadedData.dateColumnName} <ArrowUpDown className={`w-3 h-3 ${previewSortCol === 'Date' ? 'text-blue-600' : 'text-gray-300'}`} />
                       </button>
                     </th>
                     <th className="text-right px-3 py-1.5 font-semibold text-gray-500">
                       <button type="button" onClick={() => togglePreviewSort('Amount')} className="flex items-center gap-1 ml-auto hover:text-gray-700">
-                        Amount <ArrowUpDown className={`w-3 h-3 ${previewSortCol === 'Amount' ? 'text-blue-600' : 'text-gray-300'}`} />
+                        {loadedData.amountColumnName} <ArrowUpDown className={`w-3 h-3 ${previewSortCol === 'Amount' ? 'text-blue-600' : 'text-gray-300'}`} />
                       </button>
                     </th>
                   </tr>
@@ -1435,7 +1436,7 @@ export default function Forecast() {
           <div>
             <label className="block text-xs font-semibold text-gray-700 mb-1.5">Frequency</label>
             <div className="flex bg-tint rounded-xl p-1">
-              {(['raw', 'weekly', 'monthly'] as Frequency[]).map(f => (
+              {(['weekly', 'monthly'] as Frequency[]).map(f => (
                 <button
                   key={f}
                   onClick={() => setFrequency(f)}
