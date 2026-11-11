@@ -898,21 +898,19 @@ const Sidebar: React.FC<SidebarProps> = ({ }) => {
           <div className="px-3 py-3 flex justify-between items-center">
             {/* Org logo — display only; uploading a new one happens on the Master Data tab */}
             {(isSidebarOpen || isMobile) && currentLogo && (
-              <div className="flex-1 min-w-0">
-                <div className="bg-white/10 backdrop-blur-sm rounded-lg p-1.5 border border-blue-400/20 inline-block">
-                  <img
-                    src={currentLogo}
-                    alt="Logo"
-                    width={170}
-                    height={56}
-                    className="object-contain max-h-14 max-w-[170px] w-auto"
-                    onError={() => setCurrentLogo(null)}
-                  />
-                </div>
+              <div className="flex-1 min-w-0 flex justify-center">
+                <img
+                  src={currentLogo}
+                  alt="Logo"
+                  width={200}
+                  height={76}
+                  className="object-contain max-h-20 max-w-[200px] w-auto"
+                  onError={() => setCurrentLogo(null)}
+                />
               </div>
             )}
             {!isMobile && (
-              <button onClick={toggleSidebar} className="p-2 text-black hover:bg-blue-700/50 focus:outline-none rounded-lg transition-all duration-200 hover:scale-105 flex-shrink-0">
+              <button onClick={toggleSidebar} className="p-2 mt-6 text-black bg-white border border-gray-200 shadow-sm hover:shadow-md hover:bg-gray-50 focus:outline-none rounded-full transition-all duration-200 hover:scale-105 flex-shrink-0">
                 {isSidebarOpen ? <ChevronLeft className="w-4 h-4 text-black" /> : <ChevronRight className="w-4 h-4" />}
               </button>
             )}
