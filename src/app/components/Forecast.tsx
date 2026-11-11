@@ -459,7 +459,7 @@ export default function Forecast() {
   // save_mode "all" only needs a table name; "single" also needs which model's
   // forecast to save, picked from /get_algorithms rather than typed freely.
   const [saveForecastModalOpen, setSaveForecastModalOpen] = useState(false);
-  const [saveMode, setSaveMode] = useState<'all' | 'single'>('all');
+  const [saveMode, setSaveMode] = useState<'all' | 'single' | 'forecast'>('all');
   const [saveTableName, setSaveTableName] = useState('');
   const [saveModelName, setSaveModelName] = useState('');
   const [algorithms, setAlgorithms] = useState<string[]>([]);
@@ -597,14 +597,20 @@ export default function Forecast() {
     setSelectedForecastPeriods(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]);
   };
 
-  // The results table (and its period filter) only deal in actual forecast periods —
-  // the historical points the API includes alongside them are for the chart only.
-  // `forecastPeriods` is every distinct date across all models (usually identical per
-  // model, but built as a union to be safe); `modelForecastMaps` gives each model a
-  // quick Date -> Forecast lookup for rendering table cells.
+  // The results table's period list is every distinct date across historical actuals
+  // AND every model's forecast — so the table reads as one continuous timeline (actuals
+  // leading into forecasts) instead of forecast periods only. `historicalMap` gives a
+  // quick Date -> Actual lookup for the "Historical" column; `modelForecastMaps` does
+  // the same per model for the forecast columns.
+  const historicalMap = useMemo(() => {
+    if (!forecastResult) return new Map<string, number>();
+    return new Map(forecastResult.historical.map(d => [d.Date, d.Actual]));
+  }, [forecastResult]);
+
   const forecastPeriods = useMemo(() => {
     if (!forecastResult) return [];
     const dateSet = new Set<string>();
+    forecastResult.historical.forEach(d => dateSet.add(d.Date));
     forecastResult.models.forEach(m => m.forecast.forEach(d => dateSet.add(d.Date)));
     return Array.from(dateSet).sort();
   }, [forecastResult]);
@@ -628,6 +634,8 @@ export default function Forecast() {
     // happens to land on (defends against models covering slightly different dates).
     const valueFor = (p: string) => forecastSortCol === 'Date'
       ? p
+      : forecastSortCol === 'Historical'
+      ? historicalMap.get(p)
       : modelForecastMaps.find(m => m.model === forecastSortCol)?.map.get(p);
     const sorted = [...filtered].sort((a, b) => {
       const av = valueFor(a), bv = valueFor(b);
@@ -641,7 +649,7 @@ export default function Forecast() {
       return forecastSortDir === 'asc' ? cmp : -cmp;
     });
     return sorted;
-  }, [forecastPeriods, selectedForecastPeriods, forecastSortCol, forecastSortDir, modelForecastMaps]);
+  }, [forecastPeriods, selectedForecastPeriods, forecastSortCol, forecastSortDir, modelForecastMaps, historicalMap]);
 
   const handleRunForecast = async () => {
     if (!loadedData) { addToast('error', 'Load a table’s data first.'); return; }
@@ -667,7 +675,7 @@ export default function Forecast() {
     // Exports whatever the table is currently showing (filtered + sorted), not the raw
     // response — one row per period, one column per model.
     const ws = XLSX.utils.json_to_sheet(visiblePeriods.map(p => {
-      const row: Record<string, any> = { Date: p };
+      const row: Record<string, any> = { Date: p, Historical: historicalMap.get(p) ?? null };
       modelForecastMaps.forEach(m => { row[m.model] = m.map.get(p) ?? null; });
       return row;
     }));
@@ -1586,6 +1594,13 @@ export default function Forecast() {
                           Period <ArrowUpDown className={`w-3 h-3 ${forecastSortCol === 'Date' ? 'text-accent' : 'text-gray-400'}`} />
                         </button>
                       </th>
+                      <th className="text-right px-3 py-2 font-bold text-gray-700">
+                        <button type="button" onClick={() => toggleForecastSort('Historical')} className="flex items-center gap-1.5 ml-auto hover:text-accent">
+                          <span className="w-2 h-2 rounded-full flex-shrink-0 bg-chart-blue" />
+                          Historical
+                          <ArrowUpDown className={`w-3 h-3 ${forecastSortCol === 'Historical' ? 'text-accent' : 'text-gray-400'}`} />
+                        </button>
+                      </th>
                       {modelForecastMaps.map((m, i) => (
                         <th key={m.model} className="text-right px-3 py-2 font-bold text-gray-700">
                           <button type="button" onClick={() => toggleForecastSort(m.model)} className="flex items-center gap-1.5 ml-auto hover:text-accent">
@@ -1600,14 +1615,17 @@ export default function Forecast() {
                   </thead>
                   <tbody>
                     {visiblePeriods.length === 0 ? (
-                      <tr><td colSpan={1 + modelForecastMaps.length} className="px-3 py-3 text-center text-gray-400">No periods selected.</td></tr>
+                      <tr><td colSpan={2 + modelForecastMaps.length} className="px-3 py-3 text-center text-gray-400">No periods selected.</td></tr>
                     ) : (
                       visiblePeriods.map((p, i) => (
                         <tr key={i} className={`border-t border-card-border ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/60'}`}>
                           <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{formatDate(p)}</td>
+                          <td className="px-3 py-1.5 text-right text-gray-800 font-semibold whitespace-nowrap tabular-nums">
+                            {historicalMap.has(p) ? `₹${formatNumber(historicalMap.get(p), 2)}` : <span className="text-gray-300">—</span>}
+                          </td>
                           {modelForecastMaps.map(m => (
                             <td key={m.model} className="px-3 py-1.5 text-right text-accent font-semibold whitespace-nowrap tabular-nums">
-                              ₹{formatNumber(m.map.get(p) ?? null, 2)}
+                              {m.map.has(p) ? `₹${formatNumber(m.map.get(p), 2)}` : <span className="text-gray-300">—</span>}
                             </td>
                           ))}
                         </tr>
@@ -1838,12 +1856,13 @@ export default function Forecast() {
                 <label className="block text-xs font-semibold text-gray-700 mb-1.5">Save mode</label>
                 <select
                   value={saveMode}
-                  onChange={e => { setSaveMode(e.target.value as 'all' | 'single'); setSaveModelName(''); }}
+                  onChange={e => { setSaveMode(e.target.value as 'all' | 'single' | 'forecast'); setSaveModelName(''); }}
                   disabled={savingForecast}
                   className="w-full h-[50px] px-3 border border-card-border rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-accent disabled:bg-gray-50"
                 >
                   <option value="all">All</option>
                   <option value="single">Single</option>
+                  <option value="forecast">Forecast</option>
                 </select>
               </div>
 

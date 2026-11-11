@@ -4490,7 +4490,7 @@ const SpeechRecognition =
                 >
                   <FaChevronLeft size={10} />
                 </button>
-                <div ref={tabBarRef} className="flex-1 flex items-center gap-1.5 p-1 overflow-x-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: '#2563EB #F0F5FE' }}>
+                <div ref={tabBarRef} className="flex-1 flex items-center gap-1.5 p-1 overflow-x-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: '#313b96 #f1f1f1' }}>
                 {[
                   { key: "tables",        label: t("tabs.manageTables"),      Icon: Table2 },
                   { key: "documentation", label: t("tabs.aiDocumentation"),   Icon: FileText },

@@ -922,9 +922,9 @@ export default function LiveData() {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="flex-shrink-0 flex items-center gap-1 px-2 py-1.5 rounded-md font-medium transition-all duration-200 text-[11px] whitespace-nowrap text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+        className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full font-medium transition-all duration-200 text-[11px] whitespace-nowrap border border-transparent bg-gray-100 text-gray-700 hover:bg-gray-200 hover:text-blue-600"
       >
-        <FaDatabase size={10} className="text-blue-500" />
+        <FaDatabase size={12} className="flex-shrink-0" />
         Live Data
       </button>
       {open && <LiveDataModal onClose={() => setOpen(false)} />}
