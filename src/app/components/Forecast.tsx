@@ -272,22 +272,10 @@ export default function Forecast() {
   // not just the ones outside GUID/Date/Amount.
   const filterColumnOptions = selectedColumns;
 
-  // "Use date column" — when on, the API builds the series from a chosen date +
-  // target column instead of the fixed GUID/Date/Amount selection, so "Selected
-  // columns" is swapped out for "Date column" / "Target column" pickers below.
-  const [useDateColumn, setUseDateColumn] = useState(false);
-  const [useDateColumnDropdownOpen, setUseDateColumnDropdownOpen] = useState(false);
-  const useDateColumnDropdownRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!useDateColumnDropdownOpen) return;
-    const onClick = (e: MouseEvent) => {
-      if (useDateColumnDropdownRef.current && !useDateColumnDropdownRef.current.contains(e.target as Node)) {
-        setUseDateColumnDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onClick);
-    return () => document.removeEventListener('mousedown', onClick);
-  }, [useDateColumnDropdownOpen]);
+  // "Use date column" always on now — the API builds the series from a chosen date +
+  // target column. Hard-coded to true (no dropdown shown) instead of the old
+  // True/False picker, since the GUID/Date/Amount fixed-column mode is no longer offered.
+  const [useDateColumn] = useState(true);
 
   // Date column / Target column — single-choice dropdowns, same column list and same
   // custom-dropdown pattern as Filter column.
@@ -354,7 +342,6 @@ export default function Forecast() {
     setSelectedFilterValues([]);
     setFilterValueOptions([]);
     setSelectedColumnsForLoad([]);
-    setUseDateColumn(false);
     setDateColumn('');
     setTargetColumn('');
     resetDownstream();
@@ -571,90 +558,51 @@ export default function Forecast() {
     return dateSet.size;
   }, [forecastResult]);
 
-  // Results table — sortable columns + a period filter (multi-select on the actual
-  // forecasted periods; e.g. with Monthly frequency, pick just the month(s) you want).
-  // Sort column is either 'Date' or a model's name (each model gets its own column).
-  const [forecastSortCol, setForecastSortCol] = useState<string>('Date');
-  const [forecastSortDir, setForecastSortDir] = useState<'asc' | 'desc'>('asc');
-  const toggleForecastSort = (col: string) => {
-    if (forecastSortCol === col) setForecastSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setForecastSortCol(col); setForecastSortDir('asc'); }
-  };
-  const [selectedForecastPeriods, setSelectedForecastPeriods] = useState<string[]>([]);
-  const [periodFilterOpen, setPeriodFilterOpen] = useState(false);
-  const periodFilterRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!periodFilterOpen) return;
-    const onClick = (e: MouseEvent) => {
-      if (periodFilterRef.current && !periodFilterRef.current.contains(e.target as Node)) {
-        setPeriodFilterOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onClick);
-    return () => document.removeEventListener('mousedown', onClick);
-  }, [periodFilterOpen]);
-  const toggleForecastPeriod = (d: string) => {
-    setSelectedForecastPeriods(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]);
+  // Results — two independent tables instead of one wide grid: "Actual Data" (every
+  // historical point) and "Forecast Data" (every model's forecast, flattened into one
+  // row per date+model with an Algorithm column), side by side like a before/after
+  // read of the series. Each has its own small sort control.
+  const [actualSortCol, setActualSortCol] = useState<'Date' | 'Value'>('Date');
+  const [actualSortDir, setActualSortDir] = useState<'asc' | 'desc'>('asc');
+  const toggleActualSort = (col: 'Date' | 'Value') => {
+    if (actualSortCol === col) setActualSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setActualSortCol(col); setActualSortDir('asc'); }
   };
 
-  // The results table's period list is every distinct date across historical actuals
-  // AND every model's forecast — so the table reads as one continuous timeline (actuals
-  // leading into forecasts) instead of forecast periods only. `historicalMap` gives a
-  // quick Date -> Actual lookup for the "Historical" column; `modelForecastMaps` does
-  // the same per model for the forecast columns.
-  const historicalMap = useMemo(() => {
-    if (!forecastResult) return new Map<string, number>();
-    return new Map(forecastResult.historical.map(d => [d.Date, d.Actual]));
-  }, [forecastResult]);
+  const [forecastRowSortCol, setForecastRowSortCol] = useState<'Date' | 'Value' | 'Algorithm'>('Date');
+  const [forecastRowSortDir, setForecastRowSortDir] = useState<'asc' | 'desc'>('asc');
+  const toggleForecastRowSort = (col: 'Date' | 'Value' | 'Algorithm') => {
+    if (forecastRowSortCol === col) setForecastRowSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setForecastRowSortCol(col); setForecastRowSortDir('asc'); }
+  };
 
-  const forecastPeriods = useMemo(() => {
+  const actualRows = useMemo(() => {
     if (!forecastResult) return [];
-    const dateSet = new Set<string>();
-    forecastResult.historical.forEach(d => dateSet.add(d.Date));
-    forecastResult.models.forEach(m => m.forecast.forEach(d => dateSet.add(d.Date)));
-    return Array.from(dateSet).sort();
-  }, [forecastResult]);
-
-  const modelForecastMaps = useMemo(() => {
-    if (!forecastResult) return [];
-    return forecastResult.models.map(m => ({
-      model: m.model,
-      accuracy: m.accuracy,
-      wape: m.wape,
-      map: new Map(m.forecast.map(d => [d.Date, d.Forecast])),
-    }));
-  }, [forecastResult]);
-
-  const visiblePeriods = useMemo(() => {
-    const filtered = selectedForecastPeriods.length > 0
-      ? forecastPeriods.filter(p => selectedForecastPeriods.includes(p))
-      : forecastPeriods;
-    // A period without a value for the sorted model always sinks to the bottom
-    // regardless of asc/desc, instead of jumping to whichever end -Infinity/Infinity
-    // happens to land on (defends against models covering slightly different dates).
-    const valueFor = (p: string) => forecastSortCol === 'Date'
-      ? p
-      : forecastSortCol === 'Historical'
-      ? historicalMap.get(p)
-      : modelForecastMaps.find(m => m.model === forecastSortCol)?.map.get(p);
-    const sorted = [...filtered].sort((a, b) => {
-      const av = valueFor(a), bv = valueFor(b);
-      if (forecastSortCol !== 'Date') {
-        const aMissing = av === undefined, bMissing = bv === undefined;
-        if (aMissing && bMissing) return 0;
-        if (aMissing) return 1;
-        if (bMissing) return -1;
-      }
-      const cmp = av! < bv! ? -1 : av! > bv! ? 1 : 0;
-      return forecastSortDir === 'asc' ? cmp : -cmp;
+    const rows = forecastResult.historical.map(d => ({ Date: d.Date, Value: d.Actual }));
+    return [...rows].sort((a, b) => {
+      const cmp = actualSortCol === 'Date' ? a.Date.localeCompare(b.Date) : a.Value - b.Value;
+      return actualSortDir === 'asc' ? cmp : -cmp;
     });
-    return sorted;
-  }, [forecastPeriods, selectedForecastPeriods, forecastSortCol, forecastSortDir, modelForecastMaps, historicalMap]);
+  }, [forecastResult, actualSortCol, actualSortDir]);
+
+  const forecastRows = useMemo(() => {
+    if (!forecastResult) return [];
+    const rows: { Date: string; Value: number; Algorithm: string; colorIndex: number }[] = [];
+    forecastResult.models.forEach((m, i) => {
+      m.forecast.forEach(d => rows.push({ Date: d.Date, Value: d.Forecast, Algorithm: m.model, colorIndex: i }));
+    });
+    return [...rows].sort((a, b) => {
+      let cmp: number;
+      if (forecastRowSortCol === 'Date') cmp = a.Date.localeCompare(b.Date) || a.colorIndex - b.colorIndex;
+      else if (forecastRowSortCol === 'Value') cmp = a.Value - b.Value;
+      else cmp = a.Algorithm.localeCompare(b.Algorithm);
+      return forecastRowSortDir === 'asc' ? cmp : -cmp;
+    });
+  }, [forecastResult, forecastRowSortCol, forecastRowSortDir]);
 
   const handleRunForecast = async () => {
     if (!loadedData) { addToast('error', 'Load a table’s data first.'); return; }
     setForecastLoading(true);
-    setSelectedForecastPeriods([]);
     setChartDateFrom('');
     setChartDateTo('');
     try {
@@ -672,15 +620,17 @@ export default function Forecast() {
 
   const downloadForecast = () => {
     if (!forecastResult) return;
-    // Exports whatever the table is currently showing (filtered + sorted), not the raw
-    // response — one row per period, one column per model.
-    const ws = XLSX.utils.json_to_sheet(visiblePeriods.map(p => {
-      const row: Record<string, any> = { Date: p, Historical: historicalMap.get(p) ?? null };
-      modelForecastMaps.forEach(m => { row[m.model] = m.map.get(p) ?? null; });
-      return row;
-    }));
+    // Exports the same two tables the page shows — Actual Data and Forecast Data —
+    // as separate sheets, in whatever sort order is currently applied to each.
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Forecast');
+    const actualWs = XLSX.utils.json_to_sheet(
+      actualRows.map(r => ({ 'Actual Date': r.Date, 'Actual Value': r.Value }))
+    );
+    XLSX.utils.book_append_sheet(wb, actualWs, 'Actual Data');
+    const forecastWs = XLSX.utils.json_to_sheet(
+      forecastRows.map(r => ({ 'Forecast Date': r.Date, 'Forecast Value': r.Value, Algorithm: r.Algorithm }))
+    );
+    XLSX.utils.book_append_sheet(wb, forecastWs, 'Forecast Data');
     const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
     saveAs(new Blob([buf], { type: 'application/octet-stream' }), `forecast_${selectedTable}_${frequency}.xlsx`);
   };
@@ -1102,43 +1052,6 @@ export default function Forecast() {
             </div>
           </div>
 
-          {/* Use date column — toggles whether the row below asks for Selected columns
-              (GUID/Date/Amount style) or a Date column + Target column pair instead. */}
-          <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1.5">Use date column</label>
-            <div className="relative" ref={useDateColumnDropdownRef}>
-              <button
-                type="button"
-                onClick={() => selectedTable && !columnsLoading && setUseDateColumnDropdownOpen(o => !o)}
-                disabled={!selectedTable || columnsLoading}
-                className="w-full flex items-center justify-between h-[50px] px-3 border border-card-border rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-accent disabled:bg-gray-50 disabled:text-gray-400"
-              >
-                <span className="truncate text-gray-900">{useDateColumn ? 'True' : 'False'}</span>
-                <ChevronDown className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${useDateColumnDropdownOpen ? 'rotate-180' : ''}`} />
-              </button>
-              {useDateColumnDropdownOpen && selectedTable && !columnsLoading && (
-                <div className="absolute z-20 mt-1 w-full border border-card-border rounded-2xl bg-white shadow-xl p-1">
-                  {[false, true].map(v => (
-                    <button
-                      type="button"
-                      key={String(v)}
-                      onClick={() => {
-                        setUseDateColumn(v);
-                        setUseDateColumnDropdownOpen(false);
-                        // Switching modes: clear whichever side isn't in use so a stale
-                        // pick can't sneak into the next Load Data call.
-                        if (v) setSelectedColumnsForLoad([]);
-                        else { setDateColumn(''); setTargetColumn(''); }
-                      }}
-                      className={`w-full text-left px-2.5 py-1.5 rounded-lg text-sm hover:bg-tint ${v === useDateColumn ? 'bg-tint text-accent font-bold' : 'text-gray-900'}`}
-                    >
-                      {v ? 'True' : 'False'}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
         </div>
 
         {!useDateColumn ? (
@@ -1542,97 +1455,94 @@ export default function Forecast() {
               )}
             </div>
 
-            {/* Results table — full width of its own, below the chart rather than
-                squeezed into a narrow side column, so Period + Historical + a column
-                per model all have room without wrapping. */}
-            <div className="mt-4">
-              {/* Period filter — multi-select on the actual forecasted periods */}
-              <div className="flex items-center justify-between gap-2 mb-1.5">
-                <div className="relative w-64" ref={periodFilterRef}>
-                  <button
-                    type="button"
-                    onClick={() => setPeriodFilterOpen(o => !o)}
-                    className="w-full flex items-center justify-between px-2.5 py-1 text-xs border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
-                  >
-                    <span className={`truncate ${selectedForecastPeriods.length === 0 ? 'text-gray-400' : 'text-gray-900'}`}>
-                      {selectedForecastPeriods.length === 0
-                        ? 'All periods'
-                        : selectedForecastPeriods.length <= 2
-                          ? selectedForecastPeriods.map(formatDate).join(', ')
-                          : `${selectedForecastPeriods.length} periods selected`}
-                    </span>
-                    <ChevronDown className={`w-3.5 h-3.5 text-gray-400 flex-shrink-0 transition-transform ${periodFilterOpen ? 'rotate-180' : ''}`} />
-                  </button>
-                  {periodFilterOpen && (
-                    <div className="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto border border-card-border rounded-2xl bg-white shadow-xl p-2 space-y-0.5">
-                      <div className="flex items-center justify-between px-2 pb-1.5 mb-1 border-b border-gray-100">
-                        <button type="button" onClick={() => setSelectedForecastPeriods(forecastPeriods)} className="text-[11px] text-blue-600 hover:underline">Select all</button>
-                        <button type="button" onClick={() => setSelectedForecastPeriods([])} className="text-[11px] text-gray-400 hover:underline">Clear</button>
-                      </div>
-                      {forecastPeriods.map(p => (
-                        <label key={p} className="flex items-center gap-2.5 px-2 py-1.5 hover:bg-tint cursor-pointer rounded-lg">
-                          <input
-                            type="checkbox"
-                            checked={selectedForecastPeriods.includes(p)}
-                            onChange={() => toggleForecastPeriod(p)}
-                            className="h-4 w-4 text-blue-600 rounded flex-shrink-0"
-                          />
-                          <span className="text-sm text-gray-900 truncate">{formatDate(p)}</span>
-                        </label>
-                      ))}
-                    </div>
-                  )}
+            {/* Results — Actual Data and Forecast Data as two separate tables side by
+                side, rather than one wide grid with a column per model. */}
+            <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Actual Data */}
+              <div className="border border-card-border rounded-2xl overflow-hidden">
+                <div className="bg-navy px-3 py-2 flex items-center justify-between">
+                  <span className="text-xs font-bold text-white tracking-wide font-heading">ACTUAL DATA</span>
+                  <span className="text-[11px] text-white/70">{formatNumber(actualRows.length)} rows</span>
                 </div>
-                <span className="text-[11px] text-gray-500 flex-shrink-0">{formatNumber(visiblePeriods.length)} of {formatNumber(forecastPeriods.length)}</span>
-              </div>
-              <div className="border border-card-border rounded-2xl max-h-80 overflow-auto">
-                <table className="min-w-full text-xs">
-                  <thead className="bg-tint sticky top-0">
-                    <tr>
-                      <th className="text-left px-3 py-2 font-bold text-gray-700">
-                        <button type="button" onClick={() => toggleForecastSort('Date')} className="flex items-center gap-1 hover:text-accent">
-                          Period <ArrowUpDown className={`w-3 h-3 ${forecastSortCol === 'Date' ? 'text-accent' : 'text-gray-400'}`} />
-                        </button>
-                      </th>
-                      <th className="text-right px-3 py-2 font-bold text-gray-700">
-                        <button type="button" onClick={() => toggleForecastSort('Historical')} className="flex items-center gap-1.5 ml-auto hover:text-accent">
-                          <span className="w-2 h-2 rounded-full flex-shrink-0 bg-chart-blue" />
-                          Historical
-                          <ArrowUpDown className={`w-3 h-3 ${forecastSortCol === 'Historical' ? 'text-accent' : 'text-gray-400'}`} />
-                        </button>
-                      </th>
-                      {modelForecastMaps.map((m, i) => (
-                        <th key={m.model} className="text-right px-3 py-2 font-bold text-gray-700">
-                          <button type="button" onClick={() => toggleForecastSort(m.model)} className="flex items-center gap-1.5 ml-auto hover:text-accent">
-                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: MODEL_COLORS[i % MODEL_COLORS.length] }} />
-                            {m.model}
-                            <span className="text-[10px] font-normal text-gray-500">({m.accuracy} acc)</span>
-                            <ArrowUpDown className={`w-3 h-3 ${forecastSortCol === m.model ? 'text-accent' : 'text-gray-400'}`} />
+                <div className="max-h-80 overflow-auto">
+                  <table className="min-w-full text-xs">
+                    <thead className="bg-tint sticky top-0">
+                      <tr>
+                        <th className="text-left px-3 py-2 font-bold text-gray-700">
+                          <button type="button" onClick={() => toggleActualSort('Date')} className="flex items-center gap-1 hover:text-accent">
+                            Actual Date <ArrowUpDown className={`w-3 h-3 ${actualSortCol === 'Date' ? 'text-accent' : 'text-gray-400'}`} />
                           </button>
                         </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visiblePeriods.length === 0 ? (
-                      <tr><td colSpan={2 + modelForecastMaps.length} className="px-3 py-3 text-center text-gray-400">No periods selected.</td></tr>
-                    ) : (
-                      visiblePeriods.map((p, i) => (
-                        <tr key={i} className={`border-t border-card-border ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/60'}`}>
-                          <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{formatDate(p)}</td>
-                          <td className="px-3 py-1.5 text-right text-gray-800 font-semibold whitespace-nowrap tabular-nums">
-                            {historicalMap.has(p) ? `₹${formatNumber(historicalMap.get(p), 2)}` : <span className="text-gray-300">—</span>}
-                          </td>
-                          {modelForecastMaps.map(m => (
-                            <td key={m.model} className="px-3 py-1.5 text-right text-accent font-semibold whitespace-nowrap tabular-nums">
-                              {m.map.has(p) ? `₹${formatNumber(m.map.get(p), 2)}` : <span className="text-gray-300">—</span>}
+                        <th className="text-right px-3 py-2 font-bold text-gray-700">
+                          <button type="button" onClick={() => toggleActualSort('Value')} className="flex items-center gap-1 ml-auto hover:text-accent">
+                            Actual Value <ArrowUpDown className={`w-3 h-3 ${actualSortCol === 'Value' ? 'text-accent' : 'text-gray-400'}`} />
+                          </button>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {actualRows.length === 0 ? (
+                        <tr><td colSpan={2} className="px-3 py-3 text-center text-gray-400">No historical data.</td></tr>
+                      ) : (
+                        actualRows.map((r, i) => (
+                          <tr key={i} className={`border-t border-card-border ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/60'}`}>
+                            <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{formatDate(r.Date)}</td>
+                            <td className="px-3 py-1.5 text-right text-gray-800 font-semibold whitespace-nowrap tabular-nums">₹{formatNumber(r.Value, 2)}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Forecast Data */}
+              <div className="border border-card-border rounded-2xl overflow-hidden">
+                <div className="bg-emerald-600 px-3 py-2 flex items-center justify-between">
+                  <span className="text-xs font-bold text-white tracking-wide font-heading">FORECAST DATA</span>
+                  <span className="text-[11px] text-white/70">{formatNumber(forecastRows.length)} rows</span>
+                </div>
+                <div className="max-h-80 overflow-auto">
+                  <table className="min-w-full text-xs">
+                    <thead className="bg-emerald-50 sticky top-0">
+                      <tr>
+                        <th className="text-left px-3 py-2 font-bold text-gray-700">
+                          <button type="button" onClick={() => toggleForecastRowSort('Date')} className="flex items-center gap-1 hover:text-emerald-700">
+                            Forecast Date <ArrowUpDown className={`w-3 h-3 ${forecastRowSortCol === 'Date' ? 'text-emerald-600' : 'text-gray-400'}`} />
+                          </button>
+                        </th>
+                        <th className="text-right px-3 py-2 font-bold text-gray-700">
+                          <button type="button" onClick={() => toggleForecastRowSort('Value')} className="flex items-center gap-1 ml-auto hover:text-emerald-700">
+                            Forecast Value <ArrowUpDown className={`w-3 h-3 ${forecastRowSortCol === 'Value' ? 'text-emerald-600' : 'text-gray-400'}`} />
+                          </button>
+                        </th>
+                        <th className="text-left px-3 py-2 font-bold text-gray-700">
+                          <button type="button" onClick={() => toggleForecastRowSort('Algorithm')} className="flex items-center gap-1 hover:text-emerald-700">
+                            Algorithm <ArrowUpDown className={`w-3 h-3 ${forecastRowSortCol === 'Algorithm' ? 'text-emerald-600' : 'text-gray-400'}`} />
+                          </button>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {forecastRows.length === 0 ? (
+                        <tr><td colSpan={3} className="px-3 py-3 text-center text-gray-400">No forecast data.</td></tr>
+                      ) : (
+                        forecastRows.map((r, i) => (
+                          <tr key={i} className={`border-t border-card-border ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/60'}`}>
+                            <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{formatDate(r.Date)}</td>
+                            <td className="px-3 py-1.5 text-right text-emerald-700 font-semibold whitespace-nowrap tabular-nums">₹{formatNumber(r.Value, 2)}</td>
+                            <td className="px-3 py-1.5 text-gray-700 whitespace-nowrap">
+                              <span className="inline-flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: MODEL_COLORS[r.colorIndex % MODEL_COLORS.length] }} />
+                                {r.Algorithm}
+                              </span>
                             </td>
-                          ))}
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
 
